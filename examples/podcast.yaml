@@ -1,0 +1,35 @@
+name: podcast-episode
+canvas:
+  width: 1920
+  height: 1080
+  fps: 30
+  sample_rate: 48000
+sources:
+  talk: ./demo/talk.mp4
+  music: ./demo/bed.wav
+ops:
+  - op: cut_silence
+    threshold_db: -34
+    min_silence: 0.5
+    pad: 0.14
+  - op: highpass
+    hz: 80
+  - op: captions
+    burn: true
+    style: lower-third
+  - op: music
+    source: music
+    duck: true
+    volume_db: -18
+  - op: loudnorm
+    i: -16
+    tp: -1.5
+    lra: 11
+  - op: fade_in
+    duration: 0.25
+  - op: fade_out
+    duration: 0.6
+  - op: thumbnail
+    at: 2.0
+  - op: export
+    presets: [podcast_video, podcast_audio]
