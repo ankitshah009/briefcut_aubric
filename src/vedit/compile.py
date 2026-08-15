@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vedit.analyze import detect_scenes
 from vedit.captions import burn_filter, title_filter, write_ass, write_srt
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
@@ -79,6 +78,9 @@ class Compiler:
     has_video: bool = True
     has_audio: bool = True
     duration: float | None = None
+    pending_loudnorm: dict[str, float] | None = None
+    pending_thumbs: list[dict[str, Any]] = field(default_factory=list)
+    pending_fade_out: float | None = None
 
     @property
     def pipeline(self) -> Pipeline:
@@ -141,6 +143,12 @@ class Compiler:
 
     def add_af(self, *filters: str) -> None:
         self.af.extend(f for f in filters if f)
+
+    def take_filters(self) -> tuple[str, str]:
+        video, audio = _join(self.vf), _join(self.af)
+        self.vf.clear()
+        self.af.clear()
+        return video, audio
 
     def materialize(self, label: str) -> Path | None:
         if self.current is None:
@@ -208,17 +216,101 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
             known = ", ".join(sorted(OPS))
             raise CompileError(f"ops[{index}]: unknown op '{name}'. Known: {known}")
         handler(compiler, op)
-    # If nothing exported, materialize a default master.
     if not compiler.finals:
-        if compiler.vf or compiler.af:
-            compiler.materialize("master")
         if compiler.current is not None:
             dest = Path(brief.output) if brief.output else compiler.work_dir / f"{brief.name}.mp4"
             if not dest.is_absolute():
                 dest = compiler.work_dir / dest
             _export(compiler, {"op": "export", "path": str(dest), "preset": (brief.presets or ["youtube_1080p"])[0]})
+    _flush_thumbs(compiler)
     compiler._pipeline.meta["finals"] = [str(p) for p in compiler.finals]
+    compiler._pipeline.meta["encodes"] = sum(
+        1 for s in compiler.pipeline.steps if s.name.startswith(("cut_silence", "export_", "loudnorm", "concat", "trim", "slideshow", "overlay", "music", "replace_audio", "pre_"))
+    )
     return compiler
+
+
+def _master_argv(
+    c: Compiler,
+    src: Path,
+    dest: Path,
+    *,
+    vf: str,
+    af: str,
+    loudnorm: dict[str, float] | None,
+    preset_name: str,
+    has_video: bool,
+    has_audio: bool,
+    fade_out: float | None = None,
+) -> list[str]:
+    argv = [
+        sys.executable,
+        "-m",
+        "vedit.analyze",
+        "encode",
+        "--in",
+        str(src),
+        "--out",
+        str(dest),
+        "--preset",
+        preset_name,
+        "--crf",
+        str(c.brief.crf),
+    ]
+    if vf:
+        argv += ["--vf", vf]
+    if af:
+        argv += ["--af", af]
+    if loudnorm:
+        argv += [
+            "--loudnorm",
+            "--i",
+            str(loudnorm["i"]),
+            "--tp",
+            str(loudnorm["tp"]),
+            "--lra",
+            str(loudnorm["lra"]),
+        ]
+    if fade_out:
+        argv += ["--fade-out", str(fade_out)]
+    if c.brief.hw:
+        argv.append("--hw")
+    if has_video:
+        argv.append("--video")
+    if has_audio:
+        argv.append("--audio")
+    return argv
+
+
+def _verify_export(c: Compiler, dest: Path, *, ref: Path | None) -> None:
+    report = dest.with_suffix(dest.suffix + ".verify.json")
+    argv = [
+        sys.executable,
+        "-m",
+        "vedit.analyze",
+        "verify",
+        "--in",
+        str(dest),
+        "--out",
+        str(report),
+    ]
+    if ref is not None:
+        argv += ["--ref", str(ref)]
+    c._pipeline.add(Step(f"verify_{dest.stem}", argv, [str(report)], f"verify {dest.name} (streams + loudness)"))
+
+
+def _flush_thumbs(c: Compiler) -> None:
+    if not c.pending_thumbs:
+        return
+    src = c.finals[0] if c.finals else c.current
+    if src is None:
+        return
+    for thumb in c.pending_thumbs:
+        dest = Path(thumb["path"]) if thumb.get("path") else c.work_dir / "thumbnail.jpg"
+        argv = c._ffmpeg() + ["-ss", f"{float(thumb['at']):.3f}", "-i", str(src), "-frames:v", "1", str(dest)]
+        c._pipeline.add(Step("thumbnail", argv, [str(dest)], f"thumbnail at {thumb['at']}s from {src.name}"))
+        c.finals.append(dest)
+    c.pending_thumbs.clear()
 
 
 def _trim(c: Compiler, op: dict[str, Any]) -> None:
@@ -474,18 +566,7 @@ def _fade_in(c: Compiler, op: dict[str, Any]) -> None:
 
 
 def _fade_out(c: Compiler, op: dict[str, Any]) -> None:
-    d = float(op.get("duration", 0.6))
-    c.materialize("pre_fade_out")
-    dur = c.duration
-    if dur is None and c.current is not None and c.current.is_file():
-        dur = probe(c.current).duration
-        c.duration = dur
-    if dur is None:
-        raise CompileError("fade_out needs a known duration — trim/concat first or pass duration")
-    start = max(0.0, float(dur) - d)
-    c.add_vf(f"fade=t=out:st={start:.3f}:d={d}")
-    if c.has_audio:
-        c.add_af(f"afade=t=out:st={start:.3f}:d={d}")
+    c.pending_fade_out = float(op.get("duration", 0.6))
 
 
 def _volume(c: Compiler, op: dict[str, Any]) -> None:
@@ -504,32 +585,11 @@ def _lowpass(c: Compiler, op: dict[str, Any]) -> None:
 
 
 def _loudnorm(c: Compiler, op: dict[str, Any]) -> None:
-    c.materialize("pre_loudnorm")
-    src = c._require_current()
-    i = float(op.get("i", -14))
-    tp = float(op.get("tp", -1.5))
-    lra = float(op.get("lra", 11))
-    out = c._next("loudnorm")
-    argv = [
-        sys.executable,
-        "-m",
-        "vedit.analyze",
-        "loudnorm",
-        "--in",
-        str(src),
-        "--out",
-        str(out),
-        "--i",
-        str(i),
-        "--tp",
-        str(tp),
-        "--lra",
-        str(lra),
-    ]
-    if c.has_video:
-        argv.append("--video")
-    c._pipeline.add(Step("loudnorm", argv, [str(out)], f"EBU R128 loudnorm I={i} at render"))
-    c.set_current(out)
+    c.pending_loudnorm = {
+        "i": float(op.get("i", -14)),
+        "tp": float(op.get("tp", -1.5)),
+        "lra": float(op.get("lra", 11)),
+    }
 
 
 def _title(c: Compiler, op: dict[str, Any]) -> None:
@@ -554,7 +614,6 @@ def _existing_media(c: Compiler, spec: Any | None = None) -> Path:
 
 
 def _captions(c: Compiler, op: dict[str, Any]) -> None:
-    c.materialize("pre_captions")
     if op.get("source"):
         src = c.resolve_source(op.get("source"))
     elif c.current is not None:
@@ -653,7 +712,6 @@ def _music(c: Compiler, op: dict[str, Any]) -> None:
     src = op.get("source") or op.get("file")
     if not src:
         raise CompileError("music requires source")
-    c.materialize("pre_music")
     base = c._require_current()
     music = c.resolve_source(src)
     if not c.has_audio:
@@ -661,19 +719,29 @@ def _music(c: Compiler, op: dict[str, Any]) -> None:
     out = c._next("music")
     db = float(op.get("volume_db", op.get("db", -18)))
     duck = bool(op.get("duck", True))
-    argv = c._ffmpeg() + ["-i", str(base), "-stream_loop", "-1", "-i", str(music)]
-    mus = f"[1:a]{af_norm(c.canvas)},volume={db}dB[mus]"
+    vf, af = c.take_filters()
+    parts: list[str] = []
+    if af:
+        parts.append(f"[0:a]{af}[a0]")
+        speech = "[a0]"
+    else:
+        speech = "[0:a]"
+    parts.append(f"[1:a]{af_norm(c.canvas)},volume={db}dB[mus]")
     if duck and has_filter("sidechaincompress"):
-        filt = (
-            f"{mus};[0:a]asplit=2[voice][sc];"
-            f"[mus][sc]sidechaincompress=threshold=0.05:ratio=8:attack=40:release=280:makeup=1[ducked];"
-            f"[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
-        )
+        parts.append(f"{speech}asplit=2[voice][sc]")
+        parts.append("[mus][sc]sidechaincompress=threshold=0.05:ratio=8:attack=40:release=280:makeup=1[ducked]")
+        parts.append("[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
         desc = f"duck {Path(str(music)).name} under speech ({db} dB)"
     else:
-        filt = f"{mus};[0:a][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
+        parts.append(f"{speech}[mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
         desc = f"mix {Path(str(music)).name} at {db} dB"
-    argv += ["-filter_complex", filt, "-map", "0:v?", "-map", "[a]", "-shortest"] + c._encode() + [str(out)]
+    argv = c._ffmpeg() + ["-i", str(base), "-stream_loop", "-1", "-i", str(music)]
+    if vf:
+        parts.insert(0, f"[0:v]{vf}[v]")
+        argv += ["-filter_complex", ";".join(parts), "-map", "[v]", "-map", "[a]", "-shortest"] + c._encode()
+    else:
+        argv += ["-filter_complex", ";".join(parts), "-map", "0:v?", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"]
+    argv.append(str(out))
     c._pipeline.add(Step("music", argv, [str(out)], desc))
     c.set_current(out)
 
@@ -682,15 +750,21 @@ def _replace_audio(c: Compiler, op: dict[str, Any]) -> None:
     src = op.get("source") or op.get("file")
     if not src:
         raise CompileError("replace_audio requires source")
-    c.materialize("pre_replace_audio")
     base = c._require_current()
     audio = c.resolve_source(src)
     out = c._next("replace_audio")
-    argv = c._ffmpeg() + ["-i", str(base), "-i", str(audio), "-map", "0:v?", "-map", "1:a", "-shortest"]
-    argv += c._encode() + [str(out)]
+    vf, af = c.take_filters()
+    argv = c._ffmpeg() + ["-i", str(base), "-i", str(audio)]
+    if vf:
+        graph = f"[0:v]{vf}[v]"
+        argv += ["-filter_complex", graph, "-map", "[v]", "-map", "1:a", "-shortest"] + c._encode()
+    else:
+        argv += ["-map", "0:v?", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"]
+    argv.append(str(out))
     c._pipeline.add(Step("replace_audio", argv, [str(out)], f"replace audio with {audio.name}"))
     c.set_current(out)
     c.has_audio = True
+    _ = af
 
 
 def _extract_audio(c: Compiler, op: dict[str, Any]) -> None:
@@ -761,13 +835,7 @@ def _slideshow(c: Compiler, op: dict[str, Any]) -> None:
 
 
 def _thumbnail(c: Compiler, op: dict[str, Any]) -> None:
-    c.materialize("pre_thumb")
-    src = c._require_current()
-    at = float(op.get("at", 1.0))
-    dest = Path(op["path"]) if op.get("path") else c.work_dir / "thumbnail.jpg"
-    argv = c._ffmpeg() + ["-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1", str(dest)]
-    c._pipeline.add(Step("thumbnail", argv, [str(dest)], f"thumbnail at {at}s"))
-    c.finals.append(dest)
+    c.pending_thumbs.append({"at": float(op.get("at", 1.0)), "path": op.get("path")})
 
 
 def _chromakey(c: Compiler, op: dict[str, Any]) -> None:
@@ -778,29 +846,42 @@ def _chromakey(c: Compiler, op: dict[str, Any]) -> None:
 
 
 def _scenes(c: Compiler, op: dict[str, Any]) -> None:
-    c.materialize("pre_scenes")
-    src = _existing_media(c, op.get("source"))
-    times = detect_scenes(src, threshold=float(op.get("threshold", 0.35)))
+    src = c.resolve_source(op.get("source")) if op.get("source") else c._require_current()
     dest = c.work_dir / "scenes.json"
-    dest.write_text(__import__("json").dumps({"times": times}, indent=2) + "\n", encoding="utf-8")
+    argv = [
+        sys.executable,
+        "-m",
+        "vedit.analyze",
+        "scenes",
+        "--in",
+        str(src),
+        "--out",
+        str(dest),
+        "--threshold",
+        str(float(op.get("threshold", 0.35))),
+    ]
+    c._pipeline.add(Step("scenes", argv, [str(dest)], "scene detect at render"))
     c.sidecar["scenes"] = dest
-    c._pipeline.meta["scenes"] = times
 
 
 def _export(c: Compiler, op: dict[str, Any]) -> None:
-    c.materialize("pre_export")
     src = c._require_current()
+    has_video, has_audio = c.has_video, c.has_audio
+    src_w, src_h = c.canvas.width, c.canvas.height
     if src.is_file():
         info = probe(src)
         has_video, has_audio = info.has_video, info.has_audio
-        src_w, src_h = info.width, info.height
-    else:
-        has_video, has_audio = c.has_video, c.has_audio
-        src_w, src_h = c.canvas.width, c.canvas.height
+        src_w, src_h = info.width or src_w, info.height or src_h
+    pending_vf, pending_af = c.take_filters()
+    loudnorm = c.pending_loudnorm
+    fade_out = c.pending_fade_out
+    c.pending_loudnorm = None
+    c.pending_fade_out = None
     names = op.get("presets") or op.get("preset") or c.brief.presets or ["youtube_1080p"]
     if isinstance(names, str):
         names = [names]
     explicit = Path(op["path"]) if op.get("path") else None
+    first_dest: Path | None = None
     for i, name in enumerate(names):
         preset = get_preset(str(name))
         if explicit is not None and i == 0:
@@ -809,26 +890,40 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
                 dest = c.work_dir / dest
         else:
             dest = c.work_dir / f"{c.brief.name}_{preset.name}.{preset.container}"
-        argv = c._ffmpeg() + ["-i", str(src)]
-        vf: list[str] = []
+        vf_bits: list[str] = []
+        af_bits: list[str] = []
+        if i == 0:
+            if pending_vf:
+                vf_bits.append(pending_vf)
+            if pending_af:
+                af_bits.append(pending_af)
         if preset.canvas.width and has_video:
-            if (src_w, src_h) != (preset.canvas.width, preset.canvas.height):
+            if (src_w, src_h) != (preset.canvas.width, preset.canvas.height) or i == 0:
                 mode = str(op.get("reframe", "fill" if preset.canvas.height > preset.canvas.width else "fit"))
-                vf.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
-        if vf:
-            argv += ["-vf", _join(vf)]
-        argv += encode_args(
-            preset,
-            hw=c.brief.hw,
-            crf=int(op.get("crf", c.brief.crf)),
+                if (src_w, src_h) != (preset.canvas.width, preset.canvas.height):
+                    vf_bits.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
+        src_i = src if i == 0 else first_dest
+        assert src_i is not None
+        argv = _master_argv(
+            c,
+            src_i,
+            dest,
+            vf=_join(vf_bits),
+            af=_join(af_bits),
+            loudnorm=loudnorm if i == 0 else None,
+            preset_name=preset.name,
             has_video=has_video and bool(preset.video_codec),
             has_audio=has_audio,
+            fade_out=fade_out if i == 0 else None,
         )
-        argv.append(str(dest))
         c._pipeline.add(Step(f"export_{preset.name}", argv, [str(dest)], preset.description))
         c.finals.append(dest)
+        _verify_export(c, dest, ref=src if i == 0 else first_dest)
         if i == 0:
+            first_dest = dest
             c.set_current(dest)
+            src_w, src_h = preset.canvas.width or src_w, preset.canvas.height or src_h
+    _flush_thumbs(c)
 
 
 OPS = {

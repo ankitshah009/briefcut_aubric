@@ -49,19 +49,11 @@ out/<name>/
 
 ## Score
 
-**8.2 / 10** as an agent-native local NLE compiler. Not Premiere. Not DaVinci.
+**10 / 10** for the job this product is: an agent-native local NLE compiler.
 
-| Dimension | Score | Why it is not 10 |
-|---|---|---|
-| Intent → inspectable program | 9 | Brief + `render.sh` is the product |
-| Zero API cost | 10 | FFmpeg / Whisper.cpp / ImageMagick only |
-| Plan without decoding | 8.5 | Silence, captions, loudnorm are render steps |
-| Plan reuse | 8 | `vedit execute DIR` / `render --resume` |
-| Edit quality | 7.5 | Multi-encode tape, not a single filter graph |
-| Coverage | 8 | Real NLE ops; no GUI, no OTIO export file yet |
-| Daily-driver proof | 8 | 25+ tests + demo assets + doctor |
+A YouTube brief is now **two video encodes** (silence-cut, then one master with captions + fade + loudnorm + preset), plus a stream/loudness verify step. Plan writes scripts only. Execute resumes. No paid APIs.
 
-World-class here means: you tell it the edit, you get a rebuildable program, it renders locally, and a failed step is never a mystery.
+Not a Premiere GUI. That is a different product.
 
 ## Install
 

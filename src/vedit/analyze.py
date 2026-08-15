@@ -261,6 +261,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tp", type=float, default=-1.5)
     p.add_argument("--lra", type=float, default=11.0)
     p.add_argument("--video", action="store_true")
+    p = sub.add_parser("encode")
+    p.add_argument("--in", dest="inp", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--vf", default="")
+    p.add_argument("--af", default="")
+    p.add_argument("--loudnorm", action="store_true")
+    p.add_argument("--i", dest="i_target", type=float, default=-14.0)
+    p.add_argument("--tp", type=float, default=-1.5)
+    p.add_argument("--lra", type=float, default=11.0)
+    p.add_argument("--preset", default="youtube_1080p")
+    p.add_argument("--hw", action="store_true")
+    p.add_argument("--crf", type=int, default=18)
+    p.add_argument("--video", action="store_true")
+    p.add_argument("--audio", action="store_true")
+    p.add_argument("--fade-out", type=float, default=0.0)
+    p = sub.add_parser("verify")
+    p.add_argument("--in", dest="inp", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--ref")
+    p = sub.add_parser("scenes")
+    p.add_argument("--in", dest="inp", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--threshold", type=float, default=0.35)
     args = parser.parse_args(argv)
     if args.cmd == "cut-silence":
         apply_cut_silence(
@@ -284,6 +307,27 @@ def main(argv: list[str] | None = None) -> int:
             lra=args.lra,
             has_video=bool(args.video),
         )
+    elif args.cmd == "encode":
+        apply_encode(
+            Path(args.inp),
+            Path(args.out),
+            vf=args.vf,
+            af=args.af,
+            loudnorm=bool(args.loudnorm),
+            i=args.i_target,
+            tp=args.tp,
+            lra=args.lra,
+            preset=args.preset,
+            hw=bool(args.hw),
+            crf=int(args.crf),
+            has_video=bool(args.video),
+            has_audio=bool(args.audio),
+            fade_out=float(args.fade_out),
+        )
+    elif args.cmd == "verify":
+        apply_verify(Path(args.inp), Path(args.out), ref=Path(args.ref) if args.ref else None)
+    elif args.cmd == "scenes":
+        apply_scenes(Path(args.inp), Path(args.out), threshold=float(args.threshold))
     return 0
 
 
@@ -328,6 +372,112 @@ def apply_loudnorm(
     argv += ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(dest)]
     run_ffmpeg(argv)
     return measured
+
+
+def apply_scenes(src: Path, dest: Path, *, threshold: float = 0.35) -> list[float]:
+    times = detect_scenes(src, threshold=threshold)
+    dest.write_text(json.dumps({"times": times}, indent=2) + "\n", encoding="utf-8")
+    return times
+
+
+def apply_encode(
+    src: Path,
+    dest: Path,
+    *,
+    vf: str = "",
+    af: str = "",
+    loudnorm: bool = False,
+    i: float = -14.0,
+    tp: float = -1.5,
+    lra: float = 11.0,
+    preset: str = "youtube_1080p",
+    hw: bool = False,
+    crf: int = 18,
+    has_video: bool = True,
+    has_audio: bool = True,
+    fade_out: float = 0.0,
+) -> None:
+    """One master encode: optional pending filters + two-pass loudnorm + preset."""
+    from vedit.media import probe
+    from vedit.presets import encode_args, get_preset
+
+    video = vf
+    audio = af
+    if fade_out and fade_out > 0:
+        duration = probe(src).duration
+        start = max(0.0, duration - fade_out)
+        video = ",".join(x for x in (video, f"fade=t=out:st={start:.3f}:d={fade_out}") if x)
+        audio = ",".join(x for x in (audio, f"afade=t=out:st={start:.3f}:d={fade_out}") if x)
+    if loudnorm:
+        measured = measure_loudness(src)
+        extra = loudnorm_filter(measured, i=i, tp=tp, lra=lra)
+        audio = ",".join(x for x in (audio, extra) if x)
+    argv: list[str] = ["-i", str(src)]
+    if video:
+        argv += ["-vf", video]
+    if audio:
+        argv += ["-af", audio]
+    argv += encode_args(
+        get_preset(preset),
+        hw=hw,
+        crf=crf,
+        has_video=has_video,
+        has_audio=has_audio,
+    )
+    argv.append(str(dest))
+    run_ffmpeg(argv)
+
+
+def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str, object]:
+    """Prove the file is a real deliverable: streams, duration, loudness, optional VMAF."""
+    from vedit.media import has_filter, probe
+
+    info = probe(src)
+    payload: dict[str, object] = {
+        "path": str(src),
+        "duration": info.duration,
+        "width": info.width,
+        "height": info.height,
+        "fps": info.fps,
+        "has_video": info.has_video,
+        "has_audio": info.has_audio,
+        "size_bytes": info.size_bytes,
+    }
+    if not info.has_video and not info.has_audio:
+        raise AnalysisError(f"verify failed: no streams in {src}")
+    if info.duration <= 0.04:
+        raise AnalysisError(f"verify failed: duration {info.duration}s in {src}")
+    if info.has_audio:
+        try:
+            payload["loudness"] = measure_loudness(src)
+        except AnalysisError:
+            payload["loudness"] = None
+    if ref is not None and ref.is_file() and info.has_video and has_filter("libvmaf"):
+        vmaf_log = dest.with_suffix(".vmaf.json")
+        try:
+            run_ffmpeg(
+                [
+                    "-i",
+                    str(src),
+                    "-i",
+                    str(ref),
+                    "-lavfi",
+                    (
+                        f"[0:v]scale={info.width}:{info.height}:flags=bicubic,setpts=PTS-STARTPTS[d];"
+                        f"[1:v]scale={info.width}:{info.height}:flags=bicubic,setpts=PTS-STARTPTS[r];"
+                        f"[d][r]libvmaf=log_fmt=json:log_path={vmaf_log}"
+                    ),
+                    "-f",
+                    "null",
+                    "-",
+                ]
+            )
+            if vmaf_log.is_file():
+                payload["vmaf_log"] = str(vmaf_log)
+        except Exception:
+            payload["vmaf"] = None
+    dest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 
 if __name__ == "__main__":

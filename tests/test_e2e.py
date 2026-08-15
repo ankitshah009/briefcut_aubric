@@ -202,6 +202,34 @@ def test_trim_then_cut_silence_plans(tmp_path: Path):
     assert "cut_silence" in names
 
 
+def test_youtube_style_plan_is_two_encodes(tmp_path: Path):
+    src = _make_clip(tmp_path / "in.mp4", seconds=2.0)
+    brief = Brief(
+        name="yt",
+        sources={"main": str(src)},
+        ops=[
+            {"op": "cut_silence", "threshold_db": -40, "min_silence": 0.4, "pad": 0.05},
+            {"op": "captions", "burn": True},
+            {"op": "loudnorm", "i": -14},
+            {"op": "fade_in"},
+            {"op": "fade_out"},
+            {"op": "thumbnail", "at": 0.4},
+            {"op": "export", "preset": "web_preview"},
+        ],
+        canvas=Canvas(width=640, height=360),
+        work_dir=str(tmp_path / "w"),
+    )
+    compiler = compile_brief(brief)
+    names = [s.name for s in compiler.pipeline.steps]
+    assert "cut_silence" in names
+    assert "captions_transcribe" in names
+    assert "export_web_preview" in names
+    assert "thumbnail" in names
+    assert not any(n.startswith("pre_") for n in names)
+    encodes = [n for n in names if n in {"cut_silence", "export_web_preview"}]
+    assert encodes == ["cut_silence", "export_web_preview"]
+
+
 def test_execute_resumes_existing_plan(tmp_path: Path):
     from vedit.pipeline import execute, load_pipeline, write_codegen
 
