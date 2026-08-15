@@ -19,7 +19,7 @@ class Edit:
         self._ops: list[dict[str, Any]] = []
         self._canvas = canvas or Canvas()
         self._presets: list[str] = []
-        self._hw = False
+        self._hw = None
         self._crf = 18
         self._work_dir: Path | None = None
         if source is not None:
@@ -39,7 +39,7 @@ class Edit:
         self._work_dir = Path(path)
         return self
 
-    def hw(self, enabled: bool = True) -> Self:
+    def hw(self, enabled: bool | None = True) -> Self:
         self._hw = enabled
         return self
 

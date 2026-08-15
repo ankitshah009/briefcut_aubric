@@ -7,8 +7,9 @@ This package is the NLE. You do not write FFmpeg by hand.
 1. `python -m vedit doctor` — if required checks fail, stop and say what to install.
 2. Write a brief (`*.yaml`) or call `vedit do ...` / `Edit(...)`.
 3. `vedit plan <brief> --work-dir DIR` and read `project.json` / `render.sh` before a long render.
-4. `vedit execute DIR` to run that program. `vedit render --resume --work-dir DIR` skips finished steps.
-5. Read `report.json`. Confirm duration, width/height, has_audio, has_video. That is the proof, not “the command ran.”
+4. `vedit execute DIR` or `vedit render DIR` to run that program. `--resume` skips finished steps.
+5. Read `report.json`. Confirm duration, width/height, has_audio, has_video, color. That is the proof, not “the command ran.”
+6. `timeline.otio.json` is interchange, not the program. Do not hand-edit it and expect a re-render.
 
 ## Brief rules
 

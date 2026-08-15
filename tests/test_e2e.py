@@ -9,7 +9,7 @@ from vedit.compile import compile_brief
 from vedit.edit import Edit
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
-from vedit.media import probe, resolve_ffmpeg, run_ffmpeg
+from vedit.media import has_filter, probe, resolve_ffmpeg, run_ffmpeg
 from vedit.pipeline import execute, write_report
 
 
@@ -49,6 +49,14 @@ def _make_clip(path: Path, *, freq: int = 440, seconds: float = 2.0, color: str 
     return path
 
 
+def _have_drawtext() -> bool:
+    try:
+        return has_filter("drawtext")
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _have_drawtext(), reason="drawtext filter missing")
 def test_trim_title_export(tmp_path: Path):
     src = _make_clip(tmp_path / "in.mp4", seconds=3.0)
     dest = tmp_path / "out.mp4"
@@ -245,6 +253,20 @@ def test_execute_resumes_existing_plan(tmp_path: Path):
     assert any("skipped" in (r.stderr_tail or "") for r in second)
 
 
+def test_cli_renders_existing_work_dir(tmp_path: Path):
+    from vedit.cli import main
+
+    src = _make_clip(tmp_path / "in.mp4", seconds=1.0)
+    work = tmp_path / "work"
+    Edit(src).work_dir(work).trim(0, 0.4).export("web_preview").plan()
+    assert (work / "project.json").is_file()
+    assert (work / "timeline.otio.json").is_file()
+    assert main(["render", str(work)]) == 0
+    finals = list(work.glob("*.mp4"))
+    assert finals
+    assert probe(finals[0]).duration > 0.2
+
+
 def test_codegen_is_executable(tmp_path: Path):
     src = _make_clip(tmp_path / "in.mp4", seconds=1.0)
     dest_dir = tmp_path / "work"
@@ -252,6 +274,7 @@ def test_codegen_is_executable(tmp_path: Path):
     assert (dest_dir / "render.sh").is_file()
     assert (dest_dir / "project.json").is_file()
     assert (dest_dir / "brief.yaml").is_file()
+    assert (dest_dir / "timeline.otio.json").is_file()
     assert shutil.which("bash")
     # render.sh should mention ffmpeg
     text = (dest_dir / "render.sh").read_text()

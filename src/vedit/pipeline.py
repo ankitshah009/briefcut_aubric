@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from vedit.errors import RenderError
 from vedit.media import CommandResult, probe, resolve_ffmpeg, run_command, shell_join
+from vedit.otio import write_otio
 
 
 @dataclass
@@ -116,10 +118,23 @@ def write_codegen(pipeline: Pipeline) -> dict[str, Path]:
     render_sh = pipeline.work_dir / "render.sh"
     render_sh.write_text("\n".join(sh_lines), encoding="utf-8")
     render_sh.chmod(0o755)
-    return {"project": project_json, "render": render_sh, "steps_dir": steps_dir}
+    otio = write_otio(
+        dest=pipeline.work_dir / "timeline.otio.json",
+        name=pipeline.name,
+        work_dir=str(pipeline.work_dir),
+        steps=[s.name for s in pipeline.steps],
+        meta=pipeline.meta,
+    )
+    return {"project": project_json, "render": render_sh, "steps_dir": steps_dir, "otio": otio}
 
 
-def execute(pipeline: Pipeline, *, dry_run: bool = False, resume: bool = False) -> list[StepReport]:
+def execute(
+    pipeline: Pipeline,
+    *,
+    dry_run: bool = False,
+    resume: bool = False,
+    progress: bool = True,
+) -> list[StepReport]:
     reports: list[StepReport] = []
     write_codegen(pipeline)
     if dry_run:
@@ -127,12 +142,25 @@ def execute(pipeline: Pipeline, *, dry_run: bool = False, resume: bool = False) 
             StepReport(name=s.name, ok=True, duration_ms=0, outputs=s.outputs)
             for s in pipeline.steps
         ]
-    for step in pipeline.steps:
+    total = len(pipeline.steps)
+    for index, step in enumerate(pipeline.steps, start=1):
+        if progress:
+            print(f"==> [{index}/{total}] {step.name}: {step.description}", file=sys.stderr, flush=True)
         if resume and step.outputs and all(Path(p).is_file() for p in step.outputs):
-            reports.append(StepReport(name=step.name, ok=True, duration_ms=0, outputs=step.outputs, stderr_tail="skipped (outputs exist)"))
+            reports.append(
+                StepReport(
+                    name=step.name,
+                    ok=True,
+                    duration_ms=0,
+                    outputs=step.outputs,
+                    stderr_tail="skipped (outputs exist)",
+                )
+            )
+            if progress:
+                print("    skipped (outputs exist)", file=sys.stderr, flush=True)
             continue
         started = time.perf_counter()
-        result: CommandResult = run_command(step.argv)
+        result: CommandResult = run_command(step.argv, stream_stderr=progress)
         elapsed = int((time.perf_counter() - started) * 1000)
         missing = [p for p in step.outputs if not Path(p).exists()]
         ok = result.ok and not missing
@@ -144,6 +172,9 @@ def execute(pipeline: Pipeline, *, dry_run: bool = False, resume: bool = False) 
             stderr_tail="\n".join(result.stderr.strip().splitlines()[-8:]),
         )
         reports.append(report)
+        if progress:
+            mark = "ok" if ok else "FAIL"
+            print(f"    {mark} {elapsed}ms", file=sys.stderr, flush=True)
         if not ok and not step.optional:
             raise RenderError(
                 f"step '{step.name}' failed (exit {result.returncode}).\n"

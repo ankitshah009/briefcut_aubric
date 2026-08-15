@@ -273,8 +273,10 @@ def _master_argv(
         ]
     if fade_out:
         argv += ["--fade-out", str(fade_out)]
-    if c.brief.hw:
+    if c.brief.hw is True:
         argv.append("--hw")
+    elif c.brief.hw is False:
+        argv.append("--no-hw")
     if has_video:
         argv.append("--video")
     if has_audio:

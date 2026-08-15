@@ -77,7 +77,7 @@ class Brief:
     output_dir: str = "out"
     output: str | None = None
     presets: list[str] = field(default_factory=list)
-    hw: bool = False
+    hw: bool | None = None
     crf: int = 18
     work_dir: str | None = None
 
@@ -92,6 +92,22 @@ class Brief:
         if not raw.is_absolute() and base is not None:
             raw = (base / raw).resolve()
         return raw
+
+
+def parse_hw(value: Any) -> bool | None:
+    """true / false / auto. None means the host picks (VideoToolbox on Darwin)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"", "auto", "none", "default"}:
+        return None
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise BriefError(f"hw must be true, false, or auto — got {value!r}")
 
 
 def canvas_from(data: dict[str, Any] | None) -> Canvas:
@@ -127,7 +143,7 @@ def brief_from_mapping(data: dict[str, Any], *, origin: Path | None = None) -> B
         output_dir=str(data.get("output_dir") or "out"),
         output=str(data["output"]) if data.get("output") else None,
         presets=[str(p) for p in presets],
-        hw=bool(data.get("hw", False)),
+        hw=parse_hw(data["hw"]) if "hw" in data else None,
         crf=int(data.get("crf", 18)),
         work_dir=str(data["work_dir"]) if data.get("work_dir") else None,
     )
@@ -158,7 +174,7 @@ def brief_to_dict(brief: Brief) -> dict[str, Any]:
         "output_dir": brief.output_dir,
         "output": brief.output,
         "presets": brief.presets,
-        "hw": brief.hw,
+        "hw": "auto" if brief.hw is None else brief.hw,
         "crf": brief.crf,
     }
 

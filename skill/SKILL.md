@@ -15,8 +15,9 @@ Package root: `video_editor/`. CLI: `python -m vedit` or `vedit`.
 
 1. Run `python -m vedit doctor`. Fix required failures before editing.
 2. Prefer a YAML brief in the work directory over ad-hoc ffmpeg.
-3. `python -m vedit plan brief.yaml` then `python -m vedit render brief.yaml`.
-4. Verify `report.json` (duration, size, streams). Do not claim success from exit code alone.
+3. `python -m vedit plan brief.yaml` then `python -m vedit render brief.yaml` (or `vedit render DIR` on an existing work dir).
+4. Verify `report.json` (duration, size, streams, color). Do not claim success from exit code alone.
+5. Hardware encode is auto on Apple Silicon. Pass `--no-hw` for bit-exact software. `web_preview` never uses VideoToolbox.
 
 ## One-shots
 

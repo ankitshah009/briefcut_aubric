@@ -76,7 +76,14 @@ def run_doctor() -> list[Check]:
         checks.append(Check(f"filter:{filt}", ok, why if ok else f"missing — needed for {why}"))
 
     checks.append(Check("encoder:libx264", has_encoder("libx264"), "software H.264", required=True))
-    checks.append(Check("encoder:h264_videotoolbox", has_encoder("h264_videotoolbox"), "Apple Silicon HW encode (--hw)"))
+    vt = has_encoder("h264_videotoolbox")
+    checks.append(
+        Check(
+            "encoder:h264_videotoolbox",
+            vt,
+            "Apple Silicon HW encode (auto on Darwin; --no-hw to force libx264)" if vt else "not available — software libx264",
+        )
+    )
     checks.append(Check("encoder:aac", has_encoder("aac") or has_encoder("aac_at"), "AAC audio"))
 
     try:
@@ -87,9 +94,17 @@ def run_doctor() -> list[Check]:
 
     whisper = which_optional("whisper-cli")
     model = find_whisper_model()
+    stub = find_whisper_model(allow_stub=True)
     if whisper and model:
-        quality = "tiny test model — fine for smoke tests, replace for real work" if "for-tests" in str(model) else "ok"
-        checks.append(Check("whisper-cli", True, f"{whisper}  model={model}  ({quality})"))
+        checks.append(Check("whisper-cli", True, f"{whisper}  model={model}"))
+    elif whisper and stub:
+        checks.append(
+            Check(
+                "whisper-cli",
+                False,
+                f"{whisper} found but only the empty brew stub ({stub.name}). Set VEDIT_WHISPER_MODEL to a real ggml .bin",
+            )
+        )
     elif whisper:
         checks.append(
             Check(

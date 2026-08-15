@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from vedit import __version__
 from vedit.compile import compile_brief
 from vedit.doctor import format_doctor, run_doctor, suggest_whisper_model
 from vedit.dsl import parse_do
@@ -21,8 +22,12 @@ from vedit.recipes import apply_recipe, list_recipes
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    func = getattr(args, "func", None)
+    if func is None:
+        parser.print_help()
+        return 2
     try:
-        return args.func(args)
+        return func(args)
     except VeditError as exc:
         print(f"vedit: {exc}", file=sys.stderr)
         return 2
@@ -33,7 +38,8 @@ def _parser() -> argparse.ArgumentParser:
         prog="vedit",
         description="Local agent-native video editor. Intent → inspectable FFmpeg program → render.",
     )
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    parser.add_argument("-V", "--version", action="version", version=f"vedit {__version__}")
+    sub = parser.add_subparsers(dest="cmd")
 
     p = sub.add_parser("doctor", help="check local toolchain")
     p.set_defaults(func=cmd_doctor)
@@ -45,18 +51,21 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("plan", help="compile a brief to scripts without rendering")
     p.add_argument("brief")
     p.add_argument("--work-dir")
+    _add_hw_flags(p)
     p.set_defaults(func=cmd_plan)
 
     p = sub.add_parser("compile", help="alias of plan")
     p.add_argument("brief")
     p.add_argument("--work-dir")
+    _add_hw_flags(p)
     p.set_defaults(func=cmd_plan)
 
-    p = sub.add_parser("render", help="compile + execute a brief (or resume a work dir)")
-    p.add_argument("brief", nargs="?", help="brief YAML/JSON, or omit with --resume --work-dir")
+    p = sub.add_parser("render", help="compile + execute a brief, or run an existing work dir")
+    p.add_argument("brief", nargs="?", help="brief YAML/JSON, a work dir with project.json, or omit with --resume --work-dir")
     p.add_argument("--work-dir")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--resume", action="store_true", help="execute existing project.json; skip finished steps")
+    _add_hw_flags(p)
     p.set_defaults(func=cmd_render)
 
     p = sub.add_parser("execute", help="run an existing planned work dir (no recompile)")
@@ -69,6 +78,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--work-dir")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--plan", action="store_true", help="write scripts only; do not render")
+    _add_hw_flags(p)
     p.add_argument(
         "spec",
         nargs=argparse.REMAINDER,
@@ -89,6 +99,7 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--images", nargs="+")
     r.add_argument("--work-dir")
     r.add_argument("--dry-run", action="store_true")
+    _add_hw_flags(r)
     r.set_defaults(func=cmd_recipe_apply)
 
     p = sub.add_parser("presets", help="list export presets")
@@ -135,17 +146,35 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_brief(brief_path_or_obj, *, work_dir: str | None, dry_run: bool, execute_it: bool) -> int:
+def _add_hw_flags(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--hw", dest="hw_flag", action="store_const", const=True, help="force VideoToolbox")
+    group.add_argument("--no-hw", dest="hw_flag", action="store_const", const=False, help="force libx264")
+    parser.set_defaults(hw_flag=None)
+
+
+def _run_brief(
+    brief_path_or_obj,
+    *,
+    work_dir: str | None,
+    dry_run: bool,
+    execute_it: bool,
+    hw_flag: bool | None = None,
+) -> int:
     if isinstance(brief_path_or_obj, (str, Path)):
         brief = load_brief(brief_path_or_obj)
     else:
         brief = brief_path_or_obj
+    if hw_flag is not None:
+        brief.hw = hw_flag
     compiler = compile_brief(brief, work_dir=Path(work_dir) if work_dir else None)
     artifacts = write_codegen(compiler.pipeline)
     (compiler.work_dir / "brief.yaml").write_text(brief_dumps(brief), encoding="utf-8")
     print(f"work dir : {compiler.work_dir}")
     print(f"program  : {artifacts['project']}")
     print(f"script   : {artifacts['render']}")
+    if artifacts.get("otio"):
+        print(f"otio     : {artifacts['otio']}")
     print(f"steps    : {len(compiler.pipeline.steps)}")
     for step in compiler.pipeline.steps:
         print(f"  - {step.name}: {step.description}")
@@ -160,16 +189,33 @@ def _run_brief(brief_path_or_obj, *, work_dir: str | None, dry_run: bool, execut
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    return _run_brief(args.brief, work_dir=args.work_dir, dry_run=True, execute_it=False)
+    return _run_brief(
+        args.brief,
+        work_dir=args.work_dir,
+        dry_run=True,
+        execute_it=False,
+        hw_flag=getattr(args, "hw_flag", None),
+    )
 
 
 def cmd_render(args: argparse.Namespace) -> int:
     if args.resume and args.work_dir:
         return _execute_dir(Path(args.work_dir), dry_run=args.dry_run, resume=True)
     if not args.brief:
-        print("vedit render: pass a brief, or --resume --work-dir DIR", file=sys.stderr)
+        print("vedit render: pass a brief, a work dir, or --resume --work-dir DIR", file=sys.stderr)
         return 2
-    return _run_brief(args.brief, work_dir=args.work_dir, dry_run=args.dry_run, execute_it=True)
+    target = Path(args.brief)
+    if target.is_dir() and (target / "project.json").is_file():
+        return _execute_dir(target, dry_run=args.dry_run, resume=True)
+    if target.is_file() and target.name == "project.json":
+        return _execute_dir(target.parent, dry_run=args.dry_run, resume=True)
+    return _run_brief(
+        args.brief,
+        work_dir=args.work_dir,
+        dry_run=args.dry_run,
+        execute_it=True,
+        hw_flag=getattr(args, "hw_flag", None),
+    )
 
 
 def cmd_execute(args: argparse.Namespace) -> int:
@@ -191,11 +237,12 @@ def _execute_dir(root: Path, *, dry_run: bool, resume: bool) -> int:
     return 0
 
 
-def _peel_do_flags(tokens: list[str]) -> tuple[list[str], str | None, bool, bool]:
-    """Allow --dry-run / --work-dir / --plan anywhere in `vedit do …`."""
+def _peel_do_flags(tokens: list[str]) -> tuple[list[str], str | None, bool, bool, bool | None]:
+    """Allow --dry-run / --work-dir / --plan / --hw anywhere in `vedit do …`."""
     work_dir: str | None = None
     dry_run = False
     plan = False
+    hw_flag: bool | None = None
     kept: list[str] = []
     i = 0
     while i < len(tokens):
@@ -208,29 +255,39 @@ def _peel_do_flags(tokens: list[str]) -> tuple[list[str], str | None, bool, bool
             plan = True
             i += 1
             continue
+        if tok == "--hw":
+            hw_flag = True
+            i += 1
+            continue
+        if tok == "--no-hw":
+            hw_flag = False
+            i += 1
+            continue
         if tok == "--work-dir" and i + 1 < len(tokens):
             work_dir = tokens[i + 1]
             i += 2
             continue
         kept.append(tok)
         i += 1
-    return kept, work_dir, dry_run, plan
+    return kept, work_dir, dry_run, plan, hw_flag
 
 
 def cmd_do(args: argparse.Namespace) -> int:
     tokens = list(args.spec)
     if tokens and tokens[0] == "--":
         tokens = tokens[1:]
-    tokens, peeled_work, peeled_dry, peeled_plan = _peel_do_flags(tokens)
+    tokens, peeled_work, peeled_dry, peeled_plan, peeled_hw = _peel_do_flags(tokens)
     if not tokens:
         print("vedit do: pass an input file and flags, or a quoted English edit", file=sys.stderr)
         return 2
     brief = parse_do(tokens)
+    hw_flag = peeled_hw if peeled_hw is not None else getattr(args, "hw_flag", None)
     return _run_brief(
         brief,
         work_dir=args.work_dir or peeled_work,
         dry_run=bool(args.dry_run or peeled_dry),
         execute_it=not (peeled_plan or getattr(args, "plan", False)),
+        hw_flag=hw_flag,
     )
 
 
@@ -249,7 +306,13 @@ def cmd_recipe_apply(args: argparse.Namespace) -> int:
         logo=args.logo,
         title=args.title,
     )
-    return _run_brief(brief, work_dir=args.work_dir, dry_run=args.dry_run, execute_it=True)
+    return _run_brief(
+        brief,
+        work_dir=args.work_dir,
+        dry_run=args.dry_run,
+        execute_it=True,
+        hw_flag=getattr(args, "hw_flag", None),
+    )
 
 
 def cmd_presets(_args: argparse.Namespace) -> int:

@@ -12,6 +12,7 @@ build/
 *.wav
 *.srt
 *.ass
+*.part
 !examples/**
 !examples/demo/
 !examples/demo/**

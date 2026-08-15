@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from vedit.analyze import Range
-from vedit.captions import Cue, format_ts, parse_ts, read_srt, remap_cues, write_srt
+from vedit.captions import Cue, _is_stub_model, find_whisper_model, format_ts, parse_ts, read_srt, remap_cues, write_srt
 
 
 def test_timestamp_roundtrip():
@@ -19,6 +19,15 @@ def test_srt_roundtrip(tmp_path: Path):
     assert len(back) == 2
     assert back[0].text == "Hello"
     assert back[1].end == 2.4
+
+
+def test_stub_ggml_is_not_selected_as_real_model():
+    stub = Path("/opt/homebrew/share/whisper-cpp/for-tests-ggml-tiny.bin")
+    if stub.is_file():
+        assert _is_stub_model(stub)
+        chosen = find_whisper_model(allow_stub=False)
+        if chosen is not None:
+            assert not _is_stub_model(chosen)
 
 
 def test_remap_after_silence_cut():

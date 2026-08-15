@@ -33,25 +33,28 @@ This is the architecture used by the open-source tools that actually survive: [M
 | Slideshow | stills + `xfade` |
 | Transitions | `xfade` + `acrossfade` |
 | Export | YouTube 1080p/4K, Shorts, preview, podcast audio, mezzanine |
-| Hardware encode | optional `h264_videotoolbox` on Apple Silicon |
+| Hardware encode | auto `h264_videotoolbox` on Apple Silicon (never for `web_preview`); `--no-hw` forces libx264; VT failure retries software |
+| Color | bt709 / tv range / yuv420p / `+faststart` / High profile on delivery presets |
+| Interchange | `timeline.otio.json` (OTIO-lite) next to `project.json` |
 
 Every run writes:
 
 ```text
 out/<name>/
-  brief.yaml      # what you asked for
-  project.json    # compiled step graph
-  render.sh       # standalone, re-runnable
-  steps/*.sh      # one script per step
-  report.json     # durations, sizes, streams
-  *.mp4 / *.mp3   # outputs
+  brief.yaml            # what you asked for
+  project.json          # compiled step graph
+  timeline.otio.json    # OTIO-lite interchange
+  render.sh             # standalone, re-runnable
+  steps/*.sh            # one script per step
+  report.json           # durations, sizes, streams, color
+  *.mp4 / *.mp3         # outputs
 ```
 
 ## Score
 
 **10 / 10** for the job this product is: an agent-native local NLE compiler.
 
-A YouTube brief is now **two video encodes** (silence-cut, then one master with captions + fade + loudnorm + preset), plus a stream/loudness verify step. Plan writes scripts only. Execute resumes. No paid APIs.
+A YouTube brief is **two video encodes** (silence-cut, then one master with captions + fade + loudnorm + preset + broadcast tags), plus verify. Plan writes scripts only. `vedit render DIR` resumes a planned work dir. Encodes stream progress. Auto VideoToolbox on this Mac. No paid APIs.
 
 Not a Premiere GUI. That is a different product.
 
@@ -92,9 +95,10 @@ vedit do "cut silence from talk.mp4; captions; duck bed.mp3; reframe 9:16; expor
 
 ```bash
 vedit plan examples/youtube.yaml --work-dir /tmp/yt
-vedit execute /tmp/yt                 # run the planned program; no recompile
+vedit execute /tmp/yt                      # run the planned program; no recompile
+vedit render /tmp/yt                       # same: a work dir with project.json is executable
 vedit render --resume --work-dir /tmp/yt   # skip steps whose outputs already exist
-vedit do talk.mp4 --cut-silence --plan --work-dir /tmp/cut
+vedit do talk.mp4 --cut-silence --plan --no-hw --work-dir /tmp/cut
 ```
 
 ### Recipe

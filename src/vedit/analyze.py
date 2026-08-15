@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from vedit.errors import AnalysisError
+from vedit.errors import AnalysisError, RenderError
 from vedit.media import run_ffmpeg
 
 
@@ -211,6 +211,10 @@ def apply_cut_silence(
         maps += ["-vn"]
     filters.append(f"[0:a]aselect='{expr}',asetpts=N/SR/TB,{af}[a]")
     maps += ["-map", "[a]"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.stem + ".part" + dest.suffix)
+    if part.exists():
+        part.unlink()
     run_ffmpeg(
         [
             "-i",
@@ -232,9 +236,10 @@ def apply_cut_silence(
             "192k",
             "-movflags",
             "+faststart",
-            str(dest),
+            str(part),
         ]
     )
+    part.replace(dest)
     return keeps
 
 
@@ -271,7 +276,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tp", type=float, default=-1.5)
     p.add_argument("--lra", type=float, default=11.0)
     p.add_argument("--preset", default="youtube_1080p")
-    p.add_argument("--hw", action="store_true")
+    hw = p.add_mutually_exclusive_group()
+    hw.add_argument("--hw", dest="hw_flag", action="store_const", const=True)
+    hw.add_argument("--no-hw", dest="hw_flag", action="store_const", const=False)
+    p.set_defaults(hw_flag=None)
     p.add_argument("--crf", type=int, default=18)
     p.add_argument("--video", action="store_true")
     p.add_argument("--audio", action="store_true")
@@ -318,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             tp=args.tp,
             lra=args.lra,
             preset=args.preset,
-            hw=bool(args.hw),
+            hw=args.hw_flag,
             crf=int(args.crf),
             has_video=bool(args.video),
             has_audio=bool(args.audio),
@@ -391,7 +399,7 @@ def apply_encode(
     tp: float = -1.5,
     lra: float = 11.0,
     preset: str = "youtube_1080p",
-    hw: bool = False,
+    hw: bool | None = None,
     crf: int = 18,
     has_video: bool = True,
     has_audio: bool = True,
@@ -412,20 +420,39 @@ def apply_encode(
         measured = measure_loudness(src)
         extra = loudnorm_filter(measured, i=i, tp=tp, lra=lra)
         audio = ",".join(x for x in (audio, extra) if x)
-    argv: list[str] = ["-i", str(src)]
-    if video:
-        argv += ["-vf", video]
-    if audio:
-        argv += ["-af", audio]
-    argv += encode_args(
-        get_preset(preset),
-        hw=hw,
-        crf=crf,
-        has_video=has_video,
-        has_audio=has_audio,
-    )
-    argv.append(str(dest))
-    run_ffmpeg(argv)
+    preset_obj = get_preset(preset)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.stem + ".part" + dest.suffix)
+    if part.exists():
+        part.unlink()
+
+    def _run(use_hw: bool | None) -> None:
+        argv: list[str] = ["-i", str(src)]
+        if video:
+            argv += ["-vf", video]
+        if audio:
+            argv += ["-af", audio]
+        argv += encode_args(
+            preset_obj,
+            hw=use_hw,
+            crf=crf,
+            has_video=has_video,
+            has_audio=has_audio,
+        )
+        argv.append(str(part))
+        run_ffmpeg(argv)
+        part.replace(dest)
+
+    try:
+        _run(hw)
+    except RenderError:
+        if part.exists():
+            part.unlink()
+        enc = encode_args(preset_obj, hw=hw, crf=crf, has_video=has_video, has_audio=has_audio)
+        if "h264_videotoolbox" in enc:
+            _run(False)
+        else:
+            raise
 
 
 def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str, object]:
@@ -447,6 +474,14 @@ def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str,
         raise AnalysisError(f"verify failed: no streams in {src}")
     if info.duration <= 0.04:
         raise AnalysisError(f"verify failed: duration {info.duration}s in {src}")
+    if info.video:
+        payload["color"] = {
+            "primaries": info.video.color_primaries,
+            "trc": info.video.color_trc,
+            "space": info.video.color_space,
+            "range": info.video.color_range,
+            "pix_fmt": info.video.pix_fmt,
+        }
     if info.has_audio:
         try:
             payload["loudness"] = measure_loudness(src)

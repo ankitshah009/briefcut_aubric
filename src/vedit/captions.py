@@ -13,10 +13,12 @@ from vedit.errors import BinaryMissing, CaptionError
 from vedit.media import escape_drawtext, escape_filter_path, has_filter, resolve_ffmpeg, resolve_font, run_command, run_ffmpeg
 
 _WHISPER_MODELS = (
-    Path("/opt/homebrew/share/whisper-cpp/for-tests-ggml-tiny.bin"),
     Path(os.path.expanduser("~/.cache/whisper/ggml-base.en.bin")),
     Path(os.path.expanduser("~/.cache/whisper/ggml-small.en.bin")),
+    Path(os.path.expanduser("~/.cache/whisper/ggml-tiny.en.bin")),
     Path(os.path.expanduser("~/.local/share/whisper/ggml-base.en.bin")),
+    Path("/opt/homebrew/share/whisper-cpp/ggml-tiny.en.bin"),
+    Path("/opt/homebrew/share/whisper-cpp/for-tests-ggml-tiny.bin"),
 )
 
 
@@ -117,14 +119,35 @@ def _map_time(t: float, keeps: list[Range]) -> float | None:
     return None
 
 
-def find_whisper_model() -> Path | None:
+def _is_stub_model(path: Path) -> bool:
+    name = path.name.lower()
+    if "for-tests" in name or "stub" in name:
+        return True
+    try:
+        return path.stat().st_size < 2_000_000
+    except OSError:
+        return True
+
+
+def find_whisper_model(*, allow_stub: bool = False) -> Path | None:
     env = os.environ.get("VEDIT_WHISPER_MODEL")
     if env and Path(env).is_file():
-        return Path(env)
-    for candidate in _WHISPER_MODELS:
-        if candidate.is_file():
+        candidate = Path(env)
+        if allow_stub or not _is_stub_model(candidate):
             return candidate
-    return None
+    real: Path | None = None
+    stub: Path | None = None
+    for candidate in _WHISPER_MODELS:
+        if not candidate.is_file():
+            continue
+        if _is_stub_model(candidate):
+            stub = stub or candidate
+        else:
+            real = candidate
+            break
+    if real is not None:
+        return real
+    return stub if allow_stub else None
 
 
 def transcribe(

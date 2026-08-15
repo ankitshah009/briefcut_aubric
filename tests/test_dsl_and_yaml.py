@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from vedit.cli import _peel_do_flags
 from vedit.dsl import parse_do
-from vedit.ir import brief_from_mapping, load_brief
+from vedit.ir import brief_from_mapping, load_brief, parse_hw
 from vedit.yamlio import loads
 
 
@@ -36,13 +38,14 @@ def test_json_brief():
 
 
 def test_do_flags_after_file_are_peeled():
-    kept, work, dry, plan = _peel_do_flags(
-        ["talk.mp4", "--cut-silence", "--dry-run", "--plan", "--work-dir", "/tmp/w"]
+    kept, work, dry, plan, hw = _peel_do_flags(
+        ["talk.mp4", "--cut-silence", "--dry-run", "--plan", "--no-hw", "--work-dir", "/tmp/w"]
     )
     assert kept == ["talk.mp4", "--cut-silence"]
     assert work == "/tmp/w"
     assert dry is True
     assert plan is True
+    assert hw is False
 
 
 def test_dsl_title_keeps_spaces():
@@ -70,6 +73,24 @@ def test_dsl_english():
     assert "reframe" in ops
     assert any(o["op"] == "export" for o in brief.ops)
     assert brief.sources["main"].endswith("interview.mp4")
+
+
+def test_cli_version():
+    from vedit.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+
+
+def test_parse_hw_auto():
+    assert parse_hw("auto") is None
+    assert parse_hw(None) is None
+    assert parse_hw(True) is True
+    assert parse_hw("off") is False
+    assert parse_hw("on") is True
+    brief = brief_from_mapping({"name": "x", "sources": {"main": "a.mp4"}, "ops": [{"op": "trim"}], "hw": "auto"})
+    assert brief.hw is None
 
 
 def test_load_example_podcast(tmp_path: Path):

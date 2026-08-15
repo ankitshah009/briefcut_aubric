@@ -10,7 +10,7 @@ What power users hate: opaque filter graphs, cloud lock-in, projects that cannot
 
 Cost per use: $0. Failure UX: `vedit doctor` names the missing binary; each step dumps the exact argv.
 
-10/10 output: 16:9/9:16 canvases, yuv420p, +faststart, two-pass loudnorm, SRT sidecar plus burn-in, report.json with probed duration/streams.
+10/10 output: 16:9/9:16 canvases, bt709/tv/yuv420p, +faststart, High profile, two-pass loudnorm, SRT sidecar plus burn-in, report.json with probed duration/streams/color, OTIO-lite sidecar.
 
 ## Why not a GUI NLE
 
@@ -31,6 +31,7 @@ The missing product — the one you can tell what to do — is not another Qt ti
 Brief.ops[] ──► Compiler ──► Pipeline.steps[] ──► execute()
                     │                 │
                     │                 ├── project.json
+                    │                 ├── timeline.otio.json
                     │                 └── render.sh
                     ▼
               Tape (current file + pending vf/af)
@@ -47,7 +48,7 @@ Ops that only change filters (`color`, `fit`, `fade_in`, `speed`, …) accumulat
 `Canvas` is the sequence settings (MLT profile).  
 `Clip` / `Track` exist for a future tractor compiler; the tape compiler covers the jobs that pay the rent today.
 
-Timestamps are seconds (float). Export is OTIO-shaped JSON in `project.json` so a later OTIO writer is a mapping, not a rewrite.
+Timestamps are seconds (float). `project.json` is the executable IR. `timeline.otio.json` is the OTIO-lite interchange document (Timeline.1 + ExternalReference clips). The brief remains the source of truth.
 
 ## Engines
 
@@ -58,7 +59,7 @@ Timestamps are seconds (float). Export is OTIO-shaped JSON in `project.json` so 
 | `whisper-cli` + ggml | captions | optional |
 | `faster-whisper` | captions fallback | optional |
 | ImageMagick | future title raster fallback | optional |
-| VideoToolbox | `--hw` encode | optional |
+| VideoToolbox | auto on Darwin for delivery presets; `--no-hw` forces libx264; fallback on failure | optional |
 
 `VEDIT_FFMPEG` overrides the binary. Default prefers `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg` because the stock Homebrew `ffmpeg` bottle on this Mac has no `drawtext`/`subtitles`.
 

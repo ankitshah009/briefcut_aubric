@@ -80,6 +80,10 @@ class StreamInfo:
     channels: int | None = None
     bit_rate: int | None = None
     pix_fmt: str | None = None
+    color_primaries: str | None = None
+    color_trc: str | None = None
+    color_space: str | None = None
+    color_range: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
 
 
@@ -184,6 +188,10 @@ def probe(path: str | Path) -> MediaInfo:
                 channels=int(raw["channels"]) if raw.get("channels") else None,
                 bit_rate=int(raw["bit_rate"]) if str(raw.get("bit_rate") or "").isdigit() else None,
                 pix_fmt=raw.get("pix_fmt"),
+                color_primaries=raw.get("color_primaries"),
+                color_trc=raw.get("color_transfer"),
+                color_space=raw.get("color_space"),
+                color_range=raw.get("color_range"),
                 tags={str(k): str(v) for k, v in (raw.get("tags") or {}).items()},
             )
         )
@@ -220,31 +228,74 @@ def run_command(
     *,
     timeout: float | None = None,
     cwd: str | Path | None = None,
+    stream_stderr: bool = False,
 ) -> CommandResult:
+    import sys
+    import threading
     import time
 
     started = time.perf_counter()
     try:
-        proc = subprocess.run(
+        if not stream_stderr:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(cwd) if cwd else None,
+                check=False,
+            )
+            elapsed = int((time.perf_counter() - started) * 1000)
+            return CommandResult(
+                argv=list(argv),
+                returncode=proc.returncode,
+                stdout=proc.stdout or "",
+                stderr=proc.stderr or "",
+                duration_ms=elapsed,
+            )
+        proc = subprocess.Popen(
             argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=str(cwd) if cwd else None,
-            check=False,
+        )
+        chunks: list[bytes] = []
+
+        def _pump() -> None:
+            assert proc.stderr is not None
+            while True:
+                piece = proc.stderr.read(256)
+                if not piece:
+                    break
+                chunks.append(piece)
+                try:
+                    sys.stderr.buffer.write(piece)
+                    sys.stderr.buffer.flush()
+                except Exception:
+                    pass
+
+        pump = threading.Thread(target=_pump, daemon=True)
+        pump.start()
+        stdout_b = proc.stdout.read() if proc.stdout else b""
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
+        pump.join(timeout=5)
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return CommandResult(
+            argv=list(argv),
+            returncode=int(proc.returncode or 0),
+            stdout=stdout_b.decode("utf-8", errors="replace"),
+            stderr=b"".join(chunks).decode("utf-8", errors="replace"),
+            duration_ms=elapsed,
         )
     except FileNotFoundError as exc:
         raise BinaryMissing(f"executable not found: {argv[0]}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RenderError(f"timed out after {timeout}s: {' '.join(argv[:6])}") from exc
-    elapsed = int((time.perf_counter() - started) * 1000)
-    return CommandResult(
-        argv=list(argv),
-        returncode=proc.returncode,
-        stdout=proc.stdout or "",
-        stderr=proc.stderr or "",
-        duration_ms=elapsed,
-    )
 
 
 def run_ffmpeg(args: list[str], *, timeout: float | None = None) -> CommandResult:

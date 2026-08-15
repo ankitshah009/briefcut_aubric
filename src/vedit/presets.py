@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 
 from vedit.ir import Canvas
 from vedit.media import has_encoder
+
+BROADCAST_COLOR = (
+    "-pix_fmt",
+    "yuv420p",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-colorspace",
+    "bt709",
+    "-color_range",
+    "tv",
+    "-movflags",
+    "+faststart",
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +45,7 @@ def _youtube_x264(width: int, height: int, name: str, desc: str, fps: float = 30
         audio_codec="aac",
         crf=18,
         audio_bitrate="192k",
-        extra=("-profile:v", "high", "-pix_fmt", "yuv420p", "-movflags", "+faststart"),
+        extra=("-profile:v", "high", *BROADCAST_COLOR),
         description=desc,
     )
 
@@ -49,7 +65,7 @@ PRESETS: dict[str, ExportPreset] = {
         audio_codec="aac",
         crf=28,
         audio_bitrate="128k",
-        extra=("-pix_fmt", "yuv420p", "-movflags", "+faststart"),
+        extra=BROADCAST_COLOR,
         description="Small preview encode",
     ),
     "podcast_audio": ExportPreset(
@@ -70,7 +86,7 @@ PRESETS: dict[str, ExportPreset] = {
         audio_codec="aac",
         crf=16,
         audio_bitrate="256k",
-        extra=("-profile:v", "high", "-pix_fmt", "yuv420p", "-movflags", "+faststart"),
+        extra=("-profile:v", "high", *BROADCAST_COLOR),
         description="Higher-quality mezzanine H.264",
     ),
 }
@@ -96,8 +112,18 @@ def get_preset(name: str) -> ExportPreset:
     return PRESETS[key]
 
 
-def video_encoder(hw: bool) -> str:
-    if hw and has_encoder("h264_videotoolbox"):
+def resolve_hw(explicit: bool | None) -> bool:
+    """None = VideoToolbox on Apple Silicon for delivery presets, never for web_preview."""
+    if explicit is False:
+        return False
+    if explicit is True:
+        return has_encoder("h264_videotoolbox")
+    return sys.platform == "darwin" and has_encoder("h264_videotoolbox")
+
+
+def video_encoder(hw: bool | None, *, preset_name: str = "") -> str:
+    use = resolve_hw(hw) and preset_name != "web_preview"
+    if use and has_encoder("h264_videotoolbox"):
         return "h264_videotoolbox"
     return "libx264"
 
@@ -105,14 +131,14 @@ def video_encoder(hw: bool) -> str:
 def encode_args(
     preset: ExportPreset,
     *,
-    hw: bool = False,
+    hw: bool | None = None,
     crf: int | None = None,
     has_video: bool = True,
     has_audio: bool = True,
 ) -> list[str]:
     args: list[str] = []
     if has_video and preset.video_codec:
-        codec = video_encoder(hw) if preset.video_codec == "libx264" else preset.video_codec
+        codec = video_encoder(hw, preset_name=preset.name) if preset.video_codec == "libx264" else preset.video_codec
         args += ["-c:v", codec]
         if codec == "h264_videotoolbox":
             # q:v 45–65 is the usable quality band on Apple Silicon.

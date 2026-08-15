@@ -12,7 +12,7 @@ Recipe = dict[str, Any]
 
 
 def _base(name: str, sources: dict[str, str], ops: list[dict[str, Any]], **kwargs: Any) -> Brief:
-    return Brief(name=name, sources=sources, ops=ops, canvas=kwargs.get("canvas", Canvas()), presets=kwargs.get("presets", []), hw=kwargs.get("hw", False))
+    return Brief(name=name, sources=sources, ops=ops, canvas=kwargs.get("canvas", Canvas()), presets=kwargs.get("presets", []), hw=kwargs.get("hw", None))
 
 
 def recipe_podcast(talk: str, *, music: str | None = None, name: str | None = None) -> Brief:
