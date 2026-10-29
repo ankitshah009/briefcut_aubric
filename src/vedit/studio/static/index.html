@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef1f5">
+  <title>Briefcut by Aubric.ai — Video Studio</title>
+  <link rel="stylesheet" href="studio.css">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to editor</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Briefcut by Aubric.ai home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>Briefcut</strong><span class="brand-divider" aria-hidden="true"></span><span>by Aubric.ai</span></a>
+    <nav class="workflow" aria-label="Campaign progress">
+      <ol><li id="step-source" aria-current="step"><span>1</span>Source</li><li id="step-story"><span>2</span>Story</li><li id="step-deliver"><span>3</span>Deliver</li></ol>
+    </nav>
+    <div class="top-actions">
+      <details id="recent-projects" class="recent">
+        <summary>Recent projects <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+        <div class="recent-popover"><h2>Recent projects</h2><ul id="recent-list"><li class="empty-recent">Your projects will appear here.</li></ul></div>
+      </details>
+      <button id="new-project" class="button button-quiet" type="button">New project</button>
+    </div>
+  </header>
+
+  <main id="workspace" class="workspace" tabindex="-1">
+    <aside class="brief-panel" aria-labelledby="brief-heading">
+      <div class="panel-heading"><h1 id="brief-heading">Every clip has a story.</h1><p>Find yours. Shape it. Make it ready to share.</p></div>
+      <form id="desk-form" autocomplete="off">
+        <section class="source-section" aria-labelledby="source-heading">
+          <div class="section-title"><h2 id="source-heading">Your footage</h2><span id="source-badge" class="small-status">No clip selected</span></div>
+          <div id="drop" class="drop-zone">
+            <svg class="upload-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 22V7m-6 6 6-6 6 6M7 20v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>
+            <label for="clip" class="file-label"><span id="drop-title">Choose your footage</span><span class="file-hint">or drop a video here</span></label>
+            <input id="clip" name="clip" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-describedby="clip-name upload-limit">
+            <p id="clip-name">The original stays untouched.</p>
+            <p id="upload-limit" class="fine-print">MP4, MOV or WebM · Up to 200 MB</p>
+          </div>
+        </section>
+
+        <section class="direction-section" aria-labelledby="direction-heading">
+          <h2 id="direction-heading">Give it a direction</h2>
+          <label for="goal">What should this video do?</label>
+          <textarea id="goal" name="goal" rows="4" maxlength="2000" placeholder="Show how this is made. Open with the finished piece, then the process. Keep it warm and personal." required></textarea>
+          <div class="brief-prompts" aria-label="Starting points">
+            <button type="button" class="prompt-chip" data-goal="Make a product story. Open with the finished product, show the making process, and end with a clear invitation to learn more.">Product story</button>
+            <button type="button" class="prompt-chip" data-goal="Make a concise talking-head highlight. Keep the clearest useful idea and preserve the speaker's meaning.">Best moment</button>
+            <button type="button" class="prompt-chip" data-goal="Make a short behind-the-scenes video. Show the process in a clear sequence and keep the original sound.">Behind the scenes</button>
+          </div>
+          <div class="field-pair">
+            <div><label for="target-duration">Length</label><select id="target-duration"><option value="15">15 seconds</option><option value="30" selected>30 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option></select></div>
+            <div><label for="aspect">Frame</label><select id="aspect"><option value="9:16">9:16 · Vertical</option><option value="16:9">16:9 · Landscape</option><option value="1:1">1:1 · Square</option></select></div>
+          </div>
+          <p class="field-note">The edit can be shorter than your target.</p>
+        </section>
+
+        <section id="effects-section" class="effects-section" aria-labelledby="effects-heading" hidden>
+          <div class="section-title"><h2 id="effects-heading">Motion &amp; depth</h2><span class="small-status">Rendered locally</span></div>
+          <label for="effect-preset">Effect</label><select id="effect-preset"><option value="none">No effect</option></select>
+          <p id="effect-description" class="field-note">Add a touch of 3D-style movement to your footage.</p>
+          <div id="effect-settings" hidden>
+            <div class="strength-heading"><label for="effect-intensity">Strength</label><output id="effect-strength" for="effect-intensity">55%</output></div>
+            <input id="effect-intensity" type="range" min="0" max="1" step="0.05" value="0.55">
+            <div class="field-pair"><div><label for="effect-start">Starts at <span class="optional">seconds</span></label><input id="effect-start" type="number" min="0" max="180" step="0.1" value="0"></div><div><label for="effect-duration">Lasts for <span class="optional">seconds</span></label><input id="effect-duration" type="number" min="0.1" max="180" step="0.1" value="3"></div></div>
+            <p class="field-note">Timing follows the finished cut. Preview the effect after rendering.</p>
+          </div>
+        </section>
+
+        <section class="engine-section" aria-labelledby="engine-heading">
+          <div class="section-title"><h2 id="engine-heading">How to shape it</h2><span id="connection-status" class="connection-status">Connecting</span></div>
+          <fieldset class="engine-picker"><legend class="sr">Editing mode</legend>
+            <label class="engine-option"><input type="radio" name="provider" id="provider-local" value="local" checked><span><strong>Local edit</strong><small>Choose and refine the cut yourself.</small></span><span class="engine-tag">No API cost</span></label>
+            <label class="engine-option" id="meta-option"><input type="radio" name="provider" id="provider-meta" value="meta" disabled><span><strong>Meta director</strong><small>Find moments and follow a subject.</small></span><span class="engine-tag" id="meta-tag">Unavailable</span></label>
+          </fieldset>
+          <p id="engine-note" class="field-note">Local mode creates an editable starting cut. It does not interpret the footage.</p>
+          <details id="meta-setup" class="setup-details" hidden><summary>About Meta access</summary><p id="meta-reason"></p><p>Your video is sent to Meta only when you choose Meta director and create a story.</p></details>
+          <div id="meta-options" class="meta-options" hidden>
+            <label for="subject">Keep this subject in frame <span class="optional">optional</span></label><input type="text" id="subject" maxlength="150" placeholder="The person in the blue apron">
+            <div class="field-pair"><div><label for="budget">Project API limit</label><select id="budget"><option value="0.25">$0.25</option><option value="0.5">$0.50</option><option value="1">$1.00</option><option value="2">$2.00</option></select></div><div><label for="cover-mode">Cover</label><select id="cover-mode"><option value="frame">Frame from video</option><option value="meta">Generate with Meta</option></select></div></div>
+            <p id="budget-status" class="field-note" hidden></p>
+            <label class="check-field consent"><input type="checkbox" id="cloud-consent"><span>Send this clip to Meta using my configured API access.</span></label>
+          </div>
+          <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" disabled><span>Add captions</span></label><span id="caption-availability" class="fine-print">Checking local speech model</span></div>
+          <div id="language-field" hidden><label for="language">Spoken language</label><select id="language"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="pt">Portuguese</option><option value="ja">Japanese</option></select></div>
+        </section>
+        <div class="plan-actions"><button id="plan" class="button button-primary" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 3 1.6 4.8L14 9.5l-4.4 1.7L8 16l-1.6-4.8L2 9.5l4.4-1.7L8 3Zm7 9 1 2.5 2.5 1-2.5 1L15 19l-1-2.5-2.5-1 2.5-1L15 12Z"/></svg>Create story</button><p id="privacy-note">Rendered on your Mac. Ready when you are.</p></div>
+      </form>
+    </aside>
+
+    <div class="editing-panel">
+      <div class="editor-heading"><div><h2 id="project-name" tabindex="-1">Untitled project</h2><p id="result">A little raw footage. A story worth sharing.</p></div><span id="project-status" class="status-pill">Ready to start</span></div>
+      <div id="error" class="error-message" role="alert" hidden><span id="error-text"></span><button type="button" id="dismiss-error" aria-label="Dismiss error">×</button></div>
+      <section class="monitor" aria-label="Video preview">
+        <div class="monitor-toolbar"><div class="preview-tabs" role="group" aria-label="Preview version"><button type="button" id="preview-source" aria-pressed="true">Source</button><button type="button" id="preview-final" aria-pressed="false" disabled>Finished video</button></div><span id="monitor-meta">Your canvas awaits</span></div>
+        <div class="monitor-picture" id="monitor-picture">
+          <video id="player" controls playsinline preload="metadata" hidden></video>
+          <div id="monitor-empty" class="monitor-empty"><div class="empty-frame" aria-hidden="true"><span></span><span></span><span></span><span></span><svg viewBox="0 0 48 48"><path d="m19 14 17 10-17 10V14Z"/></svg></div><h3>Start with something real.</h3><p>A product, a process, a moment.<br>Drop in your footage to begin.</p></div>
+        </div>
+        <div class="monitor-footer"><span id="preview-label">Original footage</span><span id="playback-time">00:00 / 00:00</span></div>
+      </section>
+
+      <section id="job-progress" class="job-progress" aria-label="Current job" hidden>
+        <div class="progress-heading"><div><p id="busy" class="progress-title">Preparing your story</p><p id="progress-detail">Your project is saved as it progresses.</p></div><span id="elapsed">0:00</span></div>
+        <progress id="progress-bar" max="1" value="0" aria-label="Project progress"></progress>
+        <div class="progress-footer"><span id="progress-stage">Queued</span><button type="button" id="cancel-job" class="text-button">Cancel</button><button type="button" id="reconnect-job" class="text-button" hidden>Reconnect</button></div>
+      </section>
+
+      <section id="story-panel" class="story-panel" aria-labelledby="story-heading">
+        <div class="story-heading"><div><h2 id="story-heading">The story</h2><p id="story-description">Review the moments before you make the video.</p></div><span id="story-duration" class="duration-badge" hidden></span></div>
+        <div id="story-empty" class="story-empty"><span class="story-empty-line" aria-hidden="true"><i></i><i></i><i></i></span><p>Your selected moments will appear here.</p><span>Each cut stays linked to the original footage.</span></div>
+        <div id="story-content" hidden>
+          <div id="decisions" class="decision-summary" aria-label="Edit decisions"><p id="say-pauses"></p><p id="say-shape"></p><p id="say-captions"></p><p id="say-clip"></p><p id="say-effects"></p></div>
+          <div class="timeline" id="timeline" aria-label="Selected moments"></div>
+          <div class="segments-heading"><h3>Selected moments</h3><span>Times refer to your source footage</span></div>
+          <section id="program" aria-label="Editable story sequence"><ol id="program-list" class="segment-list"></ol></section>
+          <button type="button" id="add-segment" class="text-button add-segment">+ Add a moment</button>
+          <details id="campaign-copy" class="campaign-copy" open><summary>Title &amp; post copy <span id="draft-status">Saved in this browser</span></summary><div class="copy-fields"><label for="story-title">Title</label><input type="text" id="story-title" maxlength="120"><label for="post-caption">Post copy</label><textarea id="post-caption" rows="3" maxlength="2200"></textarea><div class="hashtags-heading"><label for="hashtags">Hashtags</label><button type="button" id="copy-caption" class="text-button">Copy post</button></div><input type="text" id="hashtags" placeholder="#yourstory #yourcraft" maxlength="500"></div></details>
+          <div id="story-warnings" class="warning-message" hidden></div>
+          <div class="render-bar"><p id="render-note">Review your moments, then make the video.</p><button type="button" id="make" class="button button-primary" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg>Make the video</button></div>
+        </div>
+      </section>
+
+      <section id="delivery-panel" class="delivery-panel" aria-labelledby="delivery-heading" hidden>
+        <div class="delivery-heading"><span class="success-icon" aria-hidden="true">✓</span><div><h2 id="delivery-heading">Ready for the world.</h2><p id="delivery-description">Your video is rendered and verified. Take the whole campaign with you.</p><span id="verified-version" class="verified-version"></span></div></div>
+        <div class="delivery-assets"><a id="download-bundle" class="button button-primary" download>Download campaign <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3"/></svg></a><a id="download-video" class="button button-secondary" download>Video</a><a id="download-cover" class="button button-secondary" download>Cover image</a></div>
+        <div class="delivery-details"><img id="cover-image" alt="Campaign cover" hidden><div><p id="delivery-summary"></p><p id="delivery-note" class="field-note">The campaign includes the video, cover, post copy, and edit record. Publish it when you’re ready.</p><div id="delivery-warnings" class="warning-message" hidden></div></div></div>
+        <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr></tbody></table></details>
+      </section>
+      <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div>
+      <footer class="workspace-footer"><span class="local-dot" aria-hidden="true"></span><span>Built around your footage. Finished on your machine.</span><span id="save-status"></span></footer>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <p id="live" class="sr" aria-live="polite" aria-atomic="true"></p>
+  <script src="studio.js"></script>
+</body>
+</html>

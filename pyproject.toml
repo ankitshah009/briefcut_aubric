@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vedit"
-version = "1.1.0"
-description = "Local, agent-native video editor: intent → inspectable program → FFmpeg render."
+version = "1.2.0"
+description = "Briefcut by Aubric.ai: local video editing with inspectable stories and spatial effects."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
@@ -29,7 +29,7 @@ vedit = "vedit.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-vedit = ["py.typed"]
+vedit = ["py.typed", "studio/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
