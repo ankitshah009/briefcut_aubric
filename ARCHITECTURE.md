@@ -42,6 +42,24 @@ Brief.ops[] ──► Compiler ──► Pipeline.steps[] ──► execute()
 
 Ops that only change filters (`color`, `fit`, `fade_in`, `speed`, …) accumulate. Ops that need a real file (`cut_silence`, `captions`, `music`, `concat`, `loudnorm`, `export`) materialize first.
 
+## Agent loop
+
+`vedit agent` sits on the compiler. It does not call an LLM. The English parser is deterministic. An external agent drives `vedit tools`.
+
+1. Inventory.
+2. Intent.
+3. Decide.
+4. Compile.
+5. Execute.
+6. Critique.
+7. Revise, at most once.
+
+The session holds `intent.json`, `inventory.json`, `decisions.md`, `brief.yaml`, `work/project.json`, and `work/render.sh`. Execute is the default. `--plan` stops before it. Critique may revise the brief once, into `rev1/`, and then stops. Exit 0 means planned or verified. Exit 3 means critique failed.
+
+`vedit tools` is stdio JSON: `doctor`, `inventory`, `parse_intent`, `decide`, `plan`, `render`, `critique`, `revise`.
+
+The brief remains the source of truth. `report.json` remains the proof. The loop adds no paid caption or enhance API.
+
 ## IR
 
 `Brief` is the user-facing IR (editly-like, but multi-op and analysis-aware).  

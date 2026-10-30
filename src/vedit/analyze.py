@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -455,8 +456,13 @@ def apply_encode(
             raise
 
 
+def _vmaf_enabled() -> bool:
+    """Full-frame VMAF is opt-in. The editor proves the file without waiting on it."""
+    return os.environ.get("VEDIT_VMAF", "").strip() == "1"
+
+
 def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str, object]:
-    """Prove the file is a real deliverable: streams, duration, loudness, optional VMAF."""
+    """Prove the file: streams, duration, loudness. VMAF runs only when VEDIT_VMAF=1."""
     from vedit.media import has_filter, probe
 
     info = probe(src)
@@ -487,7 +493,7 @@ def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str,
             payload["loudness"] = measure_loudness(src)
         except AnalysisError:
             payload["loudness"] = None
-    if ref is not None and ref.is_file() and info.has_video and has_filter("libvmaf"):
+    if _vmaf_enabled() and ref is not None and ref.is_file() and info.has_video and has_filter("libvmaf"):
         vmaf_log = dest.with_suffix(".vmaf.json")
         try:
             run_ffmpeg(

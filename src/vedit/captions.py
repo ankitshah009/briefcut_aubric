@@ -184,13 +184,14 @@ def _transcribe_whisper_cli(cli: str, model: Path, wav: Path, work_dir: Path, la
         "-osrt",
         "-of",
         str(prefix),
-        "-nt",
-        "false",
+        "-ml",
+        "42",
+        "-sow",
         str(wav),
     ]
     result = run_command(argv, timeout=3600)
     if not result.ok:
-        # Some builds reject -nt. Retry minimal flags.
+        # Older builds may lack word-splitting flags. Retry the basic interface.
         argv = [cli, "-m", str(model), "-l", language, "-osrt", "-of", str(prefix), str(wav)]
         result = run_command(argv, timeout=3600)
     srt = Path(str(prefix) + ".srt")

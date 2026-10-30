@@ -3,21 +3,48 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from vedit.errors import BinaryMissing, ProbeError, RenderError
+from vedit.errors import BinaryMissing, ProbeError, RenderCancelled, RenderError
+
+
+def trace(step: str) -> None:
+    """One line on stderr when VEDIT_TRACE=1. The studio log is stderr."""
+    if os.environ.get("VEDIT_TRACE") != "1":
+        return
+    sys.stderr.write(f"vedit-trace {step}\n")
+    sys.stderr.flush()
 
 FULL_FFMPEG = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
 FULL_FFPROBE = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe")
 DEFAULT_FONT = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
 HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
+LINUX_FONTS = (
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    Path("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
+    Path("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+    Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+)
+_PROBE_TIMEOUT_SECONDS = 30.0
+_CANCEL_POLL_SECONDS = 0.1
+_TERMINATE_GRACE_SECONDS = 0.5
+# Nested helpers must not orphan their independent groups when cancelled.
+# Cancellable root commands also watch their owner for abrupt Studio crashes.
+# Only descendants receive this marker.
+_MANAGED_COMMAND_ENV = "_VEDIT_MANAGED_COMMAND"
 
 
 def resolve_ffmpeg() -> str:
@@ -52,10 +79,17 @@ def resolve_font() -> Path:
     env = os.environ.get("VEDIT_FONT")
     if env and Path(env).is_file():
         return Path(env)
-    if DEFAULT_FONT.is_file():
-        return DEFAULT_FONT
-    if HELVETICA.is_file():
-        return HELVETICA
+    for candidate in (DEFAULT_FONT, HELVETICA, *LINUX_FONTS):
+        if candidate.is_file():
+            return candidate
+    fc = shutil.which("fc-match")
+    if fc:
+        result = run_command([fc, "-f", "%{file}", "sans"])
+        text = (result.stdout or "").strip().split(":")[0].strip()
+        if text:
+            found = Path(text)
+            if found.is_file():
+                return found
     raise BinaryMissing("No usable font. Set VEDIT_FONT to a .ttf/.otf file.")
 
 
@@ -85,6 +119,7 @@ class StreamInfo:
     color_space: str | None = None
     color_range: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
+    rotation: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -127,6 +162,15 @@ class MediaInfo:
         return int(self.video.height) if self.video and self.video.height else 0
 
     @property
+    def display_width(self) -> int:
+        """Width after FFmpeg applies a phone video's display rotation."""
+        return self.height if self.video and round(self.video.rotation) % 180 == 90 else self.width
+
+    @property
+    def display_height(self) -> int:
+        return self.width if self.video and round(self.video.rotation) % 180 == 90 else self.height
+
+    @property
     def fps(self) -> float:
         return float(self.video.fps) if self.video and self.video.fps else 30.0
 
@@ -150,6 +194,17 @@ def _parse_fps(rate: str | None) -> float | None:
     return _to_float(rate)
 
 
+def _rotation(raw: dict[str, Any]) -> float:
+    # Display Matrix side data supersedes the legacy QuickTime rotate tag.
+    for entry in raw.get("side_data_list") or []:
+        if isinstance(entry, dict) and "rotation" in entry:
+            value = _to_float(entry["rotation"])
+            if value is not None and math.isfinite(value):
+                return value % 360
+    value = _to_float((raw.get("tags") or {}).get("rotate"))
+    return value % 360 if value is not None and math.isfinite(value) else 0.0
+
+
 def probe(path: str | Path) -> MediaInfo:
     src = Path(path).expanduser().resolve()
     if not src.is_file():
@@ -164,7 +219,13 @@ def probe(path: str | Path) -> MediaInfo:
         "-show_streams",
         str(src),
     ]
-    proc = subprocess.run(argv, capture_output=True, text=True, check=False)
+    try:
+        proc = run_command(argv, timeout=_PROBE_TIMEOUT_SECONDS)
+    except RenderError as exc:
+        raise ProbeError(
+            f"ffprobe could not inspect {src}: {exc}. "
+            "Check that the file is readable and complete; copy network media to local storage and retry."
+        ) from exc
     if proc.returncode != 0:
         raise ProbeError(f"ffprobe failed for {src}: {proc.stderr.strip()}")
     try:
@@ -193,6 +254,7 @@ def probe(path: str | Path) -> MediaInfo:
                 color_space=raw.get("color_space"),
                 color_range=raw.get("color_range"),
                 tags={str(k): str(v) for k, v in (raw.get("tags") or {}).items()},
+                rotation=_rotation(raw),
             )
         )
     duration = _to_float(fmt.get("duration")) or 0.0
@@ -223,79 +285,149 @@ class CommandResult:
         return self.returncode == 0
 
 
+def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Stop only this command's session, even if its leader has already exited.
+
+    A child may retain captured pipes or ignore SIGTERM after its parent exits.
+    Always send the final SIGKILL to the owned process group, then reap the
+    direct child. The caller closes pipes even if a daemon escaped the group.
+    """
+    def send(sig: int) -> None:
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, sig)
+            elif proc.poll() is None:
+                if sig == signal.SIGTERM:
+                    proc.terminate()
+                else:
+                    proc.kill()
+        except ProcessLookupError:
+            pass
+
+    send(signal.SIGTERM)
+    try:
+        proc.communicate(timeout=_TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    finally:
+        # Do this even when communicate returned: descendants may have closed
+        # their inherited pipes while still doing expensive work.
+        send(signal.SIGKILL if os.name == "posix" else signal.SIGTERM)
+        if os.name != "posix" and proc.poll() is None:
+            proc.kill()
+    try:
+        proc.communicate(timeout=_TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        # An escaped daemon holding our pipes must not prevent cancellation.
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+        proc.wait(timeout=_TERMINATE_GRACE_SECONDS)
+
+
 def run_command(
     argv: list[str],
     *,
     timeout: float | None = None,
     cwd: str | Path | None = None,
     stream_stderr: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> CommandResult:
-    import sys
-    import threading
-    import time
+    """Run a command, preserving its exit status and optional live stderr.
 
+    POSIX commands own a new session. Cancellation and timeout stop that
+    session's process group before raising, including nested render helpers.
+    Nested vedit calls and cancellable root commands use a small supervisor
+    watching a pipe owned by their caller: if that caller dies, their entire
+    new group is killed too. Ordinary probes retain their direct launch path.
+    """
+    if cancel_event is not None and cancel_event.is_set():
+        raise RenderCancelled("render cancelled before starting a command")
     started = time.perf_counter()
+    deadline = started + timeout if timeout is not None else None
+    env = os.environ.copy()
+    supervised = os.name == "posix" and (
+        env.get(_MANAGED_COMMAND_ENV) == "1" or cancel_event is not None
+    )
+    env[_MANAGED_COMMAND_ENV] = "1"
+    guard_read = guard_write = error_read = error_write = None
+    launch_argv = argv
+    pass_fds: tuple[int, ...] = ()
+    if supervised:
+        guard_read, guard_write = os.pipe()
+        error_read, error_write = os.pipe()
+        pass_fds = (guard_read, error_write)
+        supervisor = Path(__file__).with_name("_process_guard.py")
+        launch_argv = [sys.executable, str(supervisor), str(guard_read), str(error_write), *argv]
     try:
-        if not stream_stderr:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=str(cwd) if cwd else None,
-                check=False,
-            )
-            elapsed = int((time.perf_counter() - started) * 1000)
-            return CommandResult(
-                argv=list(argv),
-                returncode=proc.returncode,
-                stdout=proc.stdout or "",
-                stderr=proc.stderr or "",
-                duration_ms=elapsed,
-            )
+        # Inherit stderr when streaming so a TTY shows ffmpeg stats without
+        # filling a captured pipe (pytest / CI deadlock).
         proc = subprocess.Popen(
-            argv,
+            launch_argv,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None if stream_stderr else subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(cwd) if cwd else None,
+            start_new_session=os.name == "posix",
+            env=env,
+            pass_fds=pass_fds,
         )
-        chunks: list[bytes] = []
-
-        def _pump() -> None:
-            assert proc.stderr is not None
-            while True:
-                piece = proc.stderr.read(256)
-                if not piece:
-                    break
-                chunks.append(piece)
-                try:
-                    sys.stderr.buffer.write(piece)
-                    sys.stderr.buffer.flush()
-                except Exception:
-                    pass
-
-        pump = threading.Thread(target=_pump, daemon=True)
-        pump.start()
-        stdout_b = proc.stdout.read() if proc.stdout else b""
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise
-        pump.join(timeout=5)
-        elapsed = int((time.perf_counter() - started) * 1000)
-        return CommandResult(
-            argv=list(argv),
-            returncode=int(proc.returncode or 0),
-            stdout=stdout_b.decode("utf-8", errors="replace"),
-            stderr=b"".join(chunks).decode("utf-8", errors="replace"),
-            duration_ms=elapsed,
-        )
-    except FileNotFoundError as exc:
-        raise BinaryMissing(f"executable not found: {argv[0]}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RenderError(f"timed out after {timeout}s: {' '.join(argv[:6])}") from exc
+    except BaseException as exc:
+        for fd in (guard_write, error_read):
+            if fd is not None:
+                os.close(fd)
+        if isinstance(exc, FileNotFoundError):
+            raise BinaryMissing(f"executable not found: {argv[0]}") from exc
+        raise
+    finally:
+        for fd in (guard_read, error_write):
+            if fd is not None:
+                os.close(fd)
+    try:
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RenderCancelled("render cancelled; running command stopped")
+            remaining = deadline - time.perf_counter() if deadline is not None else None
+            if remaining is not None and remaining <= 0:
+                raise RenderError(f"timed out after {timeout}s: {' '.join(argv[:6])}")
+            interval = _CANCEL_POLL_SECONDS if cancel_event is not None else remaining
+            if remaining is not None and interval is not None:
+                interval = min(interval, remaining)
+            try:
+                stdout, stderr = proc.communicate(timeout=interval)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if cancel_event is not None and cancel_event.is_set():
+            raise RenderCancelled("render cancelled; running command stopped")
+        if error_read is not None:
+            startup_error = os.read(error_read, 65536)
+            if startup_error:
+                errno, message, filename = json.loads(startup_error)
+                exc = OSError(errno, message, filename)
+                if isinstance(exc, FileNotFoundError):
+                    raise BinaryMissing(f"executable not found: {argv[0]}") from exc
+                raise exc
+    except BaseException:
+        _stop_process_tree(proc)
+        raise
+    finally:
+        for fd in (guard_write, error_read):
+            if fd is not None:
+                os.close(fd)
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+    elapsed = int((time.perf_counter() - started) * 1000)
+    return CommandResult(
+        argv=list(argv),
+        returncode=proc.returncode,
+        stdout=stdout or "",
+        stderr="" if stream_stderr else (stderr or ""),
+        duration_ms=elapsed,
+    )
 
 
 def run_ffmpeg(args: list[str], *, timeout: float | None = None) -> CommandResult:

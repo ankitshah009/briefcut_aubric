@@ -52,6 +52,17 @@ Keep these distinctions visible:
 
 ## Scope the submission honestly
 
+### Evidence a judge can inspect
+
+These are evidence categories, not a claim about official scoring weights. The [public event page](https://dev.meta.ai/events/global-hackathon), checked October 29, 2026, describes track-specific judging expectations but still says Official Rules will be published; it does not settle eligibility or treatment of pre-existing code.
+
+| Category | Where this repo demonstrates it (real file paths) | What is not proven |
+| --- | --- | --- |
+| Impact | [src/vedit/studio/static/studio.js](../src/vedit/studio/static/studio.js) implements source upload, editable story ranges, render approval, and delivery downloads. [src/vedit/campaign.py](../src/vedit/campaign.py) connects the approved edit to a video, cover, post copy, and archive. This is an inspectable workflow for Briefcut by Aubric.ai. | There is no timed user study and no customer proof in the repo. Time savings, adoption, and engagement are not established by the workflow's existence. |
+| Use of Meta AI tooling | [src/vedit/meta.py](../src/vedit/meta.py): `plan_story` uses Muse Spark, `track_subject` uses SAM 3.1, and `generate_cover` uses Muse Image. These are opt-in code paths behind `MODEL_API_KEY` and `VEDIT_META_ENABLED=1`; [src/vedit/campaign.py](../src/vedit/campaign.py) calls them for story planning, requested subject tracking, and requested generated covers. | Live Meta inference has not been verified in this session. Configured credentials and implemented adapters do not prove successful inference or output quality. Local deterministic plans are not model understanding. |
+| Demo | [docs/HACKATHON.md](HACKATHON.md) provides the three-minute demonstration sequence. [src/vedit/studio/static/studio.js](../src/vedit/studio/static/studio.js) exposes review, revision, playback, and downloads; [src/vedit/campaign.py](../src/vedit/campaign.py) probes the output and writes `report.json` before assembling `campaign.zip`. | A demo script and implementation are not a completed demo run. Inspect the actual delivered video and report; measure latency on that run. The campaign zip is not a published post. |
+| Technical depth | [src/vedit/campaign.py](../src/vedit/campaign.py) validates ranges, maps tracking geometry from the analysis proxy to the source, and compiles a brief through the `vedit` engine. [src/vedit/compile.py](../src/vedit/compile.py) implements `track_reframe` through `_track_reframe` and animated framing through `_spatial_effect`; [src/vedit/effects.py](../src/vedit/effects.py) defines and validates the presets. | Floating frame, Perspective sway, and Push-in reveal are animated framing of a flat video plane, not reconstructed 3D. Geometry validation does not establish tracking quality; that needs real tracking data and playback. Code structure alone does not prove production reliability. |
+
 The local workflow can be demonstrated without a Meta account. Meta credentials, enabled cloud access, sufficient credits, and a successful live run are required to demonstrate Meta inference. Do not label a deterministic local plan as AI understanding.
 
 Live Meta inference has not been verified in the current build session. Local speech transcription has been exercised with real audio; that does not establish live Meta behavior or transcription quality across languages. Keep the latest runtime report beside the submission for the exact flows and artifacts that were verified.

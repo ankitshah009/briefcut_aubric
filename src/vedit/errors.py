@@ -25,6 +25,10 @@ class RenderError(VeditError):
     """An FFmpeg (or other) step failed."""
 
 
+class RenderCancelled(RenderError):
+    """The user cancelled a render and its running processes were stopped."""
+
+
 class AnalysisError(VeditError):
     """Silence / scene / loudness analysis failed."""
 

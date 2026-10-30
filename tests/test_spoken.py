@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
 import pytest
 
 from vedit.captions import find_whisper_model, transcribe
+from vedit.media import probe
 
-JFK = Path("/opt/homebrew/share/whisper-cpp/jfk.wav")
+JFK = Path(os.environ.get("VEDIT_TEST_SPEECH_FILE", "/opt/homebrew/share/whisper-cpp/jfk.wav"))
 
 
 def _have_stt() -> bool:
@@ -30,3 +32,4 @@ def test_jfk_transcription_contains_known_words(tmp_path: Path):
     blob = " ".join(c.text for c in cues).lower()
     assert any(word in blob for word in ("ask", "country", "president", "fellow", "american"))
     assert all(c.end > c.start for c in cues)
+    assert all(c.start >= 0 and c.end <= probe(JFK).duration + 0.1 for c in cues)

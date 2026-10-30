@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vedit.captions import burn_filter, title_filter, write_ass, write_srt
+from vedit.captions import burn_filter, title_filter
+from vedit.effects import EffectError, REQUIRED_EFFECT_FILTERS, validate_effect
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
 from vedit.media import (
@@ -225,7 +227,7 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
     _flush_thumbs(compiler)
     compiler._pipeline.meta["finals"] = [str(p) for p in compiler.finals]
     compiler._pipeline.meta["encodes"] = sum(
-        1 for s in compiler.pipeline.steps if s.name.startswith(("cut_silence", "export_", "loudnorm", "concat", "trim", "slideshow", "overlay", "music", "replace_audio", "pre_"))
+        1 for s in compiler.pipeline.steps if s.name.startswith(("cut_silence", "export_", "loudnorm", "concat", "trim", "select_ranges", "spatial_effect", "slideshow", "overlay", "music", "replace_audio", "pre_"))
     )
     return compiler
 
@@ -338,6 +340,92 @@ def _trim(c: Compiler, op: dict[str, Any]) -> None:
         c.duration = max(0.01, c.duration - start)
     c.has_video = True
     c.has_audio = True
+
+
+def _finite_number(value: Any, label: str) -> float:
+    """Accept only JSON numbers, never booleans or expression strings."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CompileError(f"{label} must be a finite number")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise CompileError(f"{label} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise CompileError(f"{label} must be a finite number")
+    return number
+
+
+def _select_ranges(c: Compiler, op: dict[str, Any]) -> None:
+    """Assemble source-time intervals in their declared editorial order.
+
+    Separate seekable inputs avoid the unbounded buffering a split/concat
+    graph would need when the last part of a long recording is shown first.
+    Pending tracking filters see original source timestamps before each
+    interval is reset to zero for concat.
+    """
+    src = c._require_current()
+    raw = op.get("ranges")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 32:
+        raise CompileError("select_ranges requires between 1 and 32 ranges")
+    ranges: list[tuple[float, float]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise CompileError(f"select_ranges.ranges[{index}] must contain start and end")
+        start = _finite_number(item.get("start"), f"ranges[{index}].start")
+        end = _finite_number(item.get("end"), f"ranges[{index}].end")
+        if start < 0 or end - start < 0.000001:
+            raise CompileError(f"ranges[{index}] requires 0 <= start < end and at least one microsecond")
+        if c.duration is not None and end > c.duration + 0.001:
+            raise CompileError(f"ranges[{index}].end exceeds the {c.duration:.3f}s clip")
+        ranges.append((start, end))
+    if not c.has_video and not c.has_audio:
+        raise CompileError("select_ranges requires audio or video")
+
+    # These transforms change which source time a requested tape time means.
+    # Settle them before input seeking; geometry-only tracking stays fused.
+    if any(bit.startswith(("setpts=", "reverse", "tpad=")) for bit in c.vf) or any(
+        bit.startswith(("atempo=", "areverse", "apad=")) for bit in c.af
+    ):
+        c.materialize("pre_select_ranges")
+        src = c._require_current()
+    video, audio = c.take_filters()
+    argv = c._ffmpeg()
+    for start, end in ranges:
+        argv += ["-ss", f"{start:.6f}", "-t", f"{end - start:.6f}", "-i", str(src)]
+    graph: list[str] = []
+    labels: list[str] = []
+    for index, (start, end) in enumerate(ranges):
+        if c.has_video:
+            chain = [f"setpts=PTS-STARTPTS+{start:.6f}/TB", video,
+                     "setpts=PTS-STARTPTS", f"fps={c.canvas.fps}", "setsar=1", "format=yuv420p"]
+            graph.append(f"[{index}:v:0]" + _join(chain) + f"[rv{index}]")
+            labels.append(f"[rv{index}]")
+        if c.has_audio:
+            chain = [f"asetpts=PTS-STARTPTS+{start:.6f}/TB", audio,
+                     "asetpts=PTS-STARTPTS", af_norm(c.canvas)]
+            graph.append(f"[{index}:a:0]" + _join(chain) + f"[ra{index}]")
+            labels.append(f"[ra{index}]")
+    outputs = ("[v]" if c.has_video else "") + ("[a]" if c.has_audio else "")
+    graph.append("".join(labels) + f"concat=n={len(ranges)}:v={int(c.has_video)}:a={int(c.has_audio)}" + outputs)
+    out = c._next("select_ranges")
+    # Dense tracks repeated across source ranges can exceed the OS argument
+    # limit. The filter program remains a readable artifact beside the plan.
+    graph_file = out.with_suffix(".filter.txt")
+    graph_text = ";\n".join(graph)
+    graph_file.write_text(graph_text + "\n", encoding="utf-8")
+    # Small graphs remain compatible with older FFmpeg releases. Dense
+    # graphs use FFmpeg's current file-backed option syntax.
+    argv += (["-filter_complex", graph_text] if len(graph_text) < 24000
+             else ["-/filter_complex", str(graph_file)])
+    if c.has_video:
+        argv += ["-map", "[v]"]
+    if c.has_audio:
+        argv += ["-map", "[a]"]
+    argv += c._encode() + [str(out)]
+    c.pipeline.add(Step("select_ranges", argv, [str(out)], f"assemble {len(ranges)} selected moments"))
+    c.set_current(out)
+    c.info = None
+    c.duration = sum(end - start for start, end in ranges)
 
 
 def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
@@ -625,8 +713,6 @@ def _captions(c: Compiler, op: dict[str, Any]) -> None:
     language = str(op.get("language", "en"))
     srt = c.work_dir / "captions.srt"
     ass = c.work_dir / "captions.ass"
-    write_srt([], srt)
-    write_ass([], ass, canvas_width=c.canvas.width, canvas_height=c.canvas.height)
     argv = [
         sys.executable,
         "-m",
@@ -798,6 +884,168 @@ def _reframe(c: Compiler, op: dict[str, Any]) -> None:
         c.add_vf(vf_fill(c.canvas))
 
 
+def _tracking_expression(points: list[tuple[float, float]], time: str = "t") -> str:
+    """Continuous linear interpolation with a constant value outside the track.
+
+    A sum of bounded ramps avoids deeply nested if() expressions and never
+    extrapolates a subject beyond its first or last observation.
+    """
+    terms = [f"{points[0][1]:.8f}"]
+    for (start, value), (end, next_value) in zip(points, points[1:]):
+        delta = next_value - value
+        if abs(delta) < 1e-9:
+            continue
+        terms.append(f"({delta:.8f})*clip(({time}-{start:.6f})/{end-start:.6f},0,1)")
+    # Parenthesizing a balanced tree also bounds FFmpeg expression recursion.
+    while len(terms) > 1:
+        terms = [f"({terms[i]}+{terms[i + 1]})" if i + 1 < len(terms) else terms[i]
+                 for i in range(0, len(terms), 2)]
+    return terms[0]
+
+
+def _track_reframe(c: Compiler, op: dict[str, Any]) -> None:
+    """Follow a chosen subject using normalized source-space bounding boxes."""
+    c._require_current()
+    if not c.has_video:
+        raise CompileError("track_reframe requires a video stream")
+    aspect = str(op.get("aspect", "9:16"))
+    mapping = {"9:16": (1080, 1920), "16:9": (1920, 1080),
+               "1:1": (1080, 1080), "4:5": (1080, 1350), "21:9": (2560, 1080)}
+    if aspect not in mapping:
+        raise CompileError(f"unknown tracking aspect '{aspect}'")
+    raw = op.get("points")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 512:
+        raise CompileError("track_reframe requires 1–512 matched subject points")
+    x_points: list[tuple[float, float]] = []
+    y_points: list[tuple[float, float]] = []
+    previous = -1.0
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise CompileError(f"tracking points[{index}] must be a bounding box")
+        values = {key: _finite_number(item.get(key), f"points[{index}].{key}")
+                  for key in ("time", "x", "y", "width", "height")}
+        time, x, y, width, height = (values[key] for key in ("time", "x", "y", "width", "height"))
+        if time < 0 or time - previous < 0.000001:
+            raise CompileError("tracking times must be non-negative and strictly increasing")
+        if c.duration is not None and time > c.duration + 0.001:
+            raise CompileError(f"tracking point {index} exceeds the {c.duration:.3f}s clip")
+        if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1.000001 or y + height > 1.000001:
+            raise CompileError(f"tracking point {index} must be a positive box inside normalized 0–1 bounds")
+        x_points.append((time, min(1.0, x + width / 2)))
+        y_points.append((time, min(1.0, y + height / 2)))
+        previous = time
+    width, height = mapping[aspect]
+    ratio = width / height
+    x_expr, y_expr = _tracking_expression(x_points), _tracking_expression(y_points)
+    # Compute dimensions against the actual filter input, not stale probe data:
+    # earlier ops may have changed geometry without materializing a file yet.
+    crop = (f"crop=w='max(2,trunc(min(iw,ih*{ratio:.9f})/2)*2)'"
+            f":h='max(2,trunc(min(ih,iw/{ratio:.9f})/2)*2)'"
+            f":x='clip(iw*({x_expr})-ow/2,0,iw-ow)'"
+            f":y='clip(ih*({y_expr})-oh/2,0,ih-oh)'")
+    c.canvas = Canvas(width=width, height=height, fps=c.canvas.fps, sample_rate=c.canvas.sample_rate)
+    c.add_vf(crop, f"scale={width}:{height}", "setsar=1", "format=yuv420p")
+
+
+def _spatial_effect(c: Compiler, op: dict[str, Any]) -> None:
+    """Animate a flat footage plane; preserve the original outside the window."""
+    src = c._require_current()
+    if not c.has_video:
+        raise CompileError("Spatial effects require video footage.")
+    try:
+        effect = validate_effect(op, clip_duration=c.duration)
+    except EffectError as exc:
+        raise CompileError(str(exc)) from exc
+    if effect is None or effect["intensity"] == 0:
+        return
+    missing = [name for name in REQUIRED_EFFECT_FILTERS if not has_filter(name)]
+    if missing:
+        raise CompileError("Spatial effects need FFmpeg filters: " + ", ".join(missing) + ". Install ffmpeg-full.")
+    fps = _finite_number(c.canvas.fps, "effect frame rate")
+    if fps <= 0:
+        raise CompileError("Spatial effects require a positive frame rate.")
+    start, duration, intensity = effect["start"], effect["duration"], effect["intensity"]
+    # perspective exposes W/H and one-based in/on frame counters, not t.
+    # Normalize to the project's CFR before translating the counter to time.
+    phase = f"clip(((on-1)/{fps:.8f}-{start:.8f})/{duration:.8f},0,1)"
+    envelope = f"({intensity:.8f}*pow(sin(PI*({phase})),2))"
+    wave = f"sin(2*PI*({phase}))"
+    if effect["preset"] == "tilt":
+        margin = f"0.12*{envelope}"
+        dx = f"0.018*{envelope}*{wave}"
+        dy = "0"
+        skew = f"0.075*{envelope}*cos(2*PI*({phase}))"
+        roll = "0"
+    elif effect["preset"] == "float":
+        margin = f"0.13*{envelope}"
+        dx = f"0.018*{envelope}*{wave}"
+        dy = f"-0.028*{envelope}*sin(PI*({phase}))"
+        skew = f"0.008*{envelope}*{wave}"
+        roll = f"0.018*{envelope}*{wave}"
+        if effect.get("points"):
+            # Drift the lifted plane toward the tracked subject center. The
+            # 0.2 gain keeps the offset within the envelope's 0.13 margin.
+            clock = f"((on-1)/{fps:.8f})"
+            track = [(p["time"], p["x"] + p["width"] / 2, p["y"] + p["height"] / 2) for p in effect["points"]]
+            cx = _tracking_expression([(time, x) for time, x, _ in track], clock)
+            cy = _tracking_expression([(time, y) for time, _, y in track], clock)
+            dx = f"{dx}+0.2*{envelope}*(({cx})-0.5)"
+            dy = f"{dy}+0.2*{envelope}*(({cy})-0.5)"
+    else:
+        margin = f"0.23*{envelope}*(1-0.65*({phase}))"
+        dx = f"-0.025*{envelope}*(1-({phase}))"
+        dy = "0"
+        skew = f"0.06*{envelope}*(1-({phase}))"
+        roll = "0"
+    corners = {
+        "x0": f"W*({margin}+({dx})+({roll}))",
+        "y0": f"H*({margin}+({dy})+({skew}))",
+        "x1": f"W*(1-({margin})+({dx})+({roll}))",
+        "y1": f"H*({margin}+({dy})-({skew}))",
+        "x2": f"W*({margin}+({dx})-({roll}))",
+        "y2": f"H*(1-({margin})+({dy})-({skew}))",
+        "x3": f"W*(1-({margin})+({dx})-({roll}))",
+        "y3": f"H*(1-({margin})+({dy})+({skew}))",
+    }
+    window = f"between(t,{start:.8f},{start + duration:.8f})"
+    transform = "perspective=" + ":".join(f"{key}='{value}'" for key, value in corners.items())
+    transform += f":sense=destination:eval=frame:interpolation=linear:enable='{window}'"
+    video, audio = c.take_filters()
+    normalized = _join([video, f"fps={fps:.8f}", "setsar=1", "format=yuv420p"])
+    graph = [
+        f"[0:v:0]{normalized},split=3[original][backdrop][surface]",
+        "[backdrop]drawbox=x=0:y=0:w=iw:h=ih:color=0x172236:t=fill[background]",
+        # The transparent outer pixels are essential: perspective clamps
+        # sampling at input edges, so opaque edges would otherwise smear.
+        "[surface]format=yuva420p,pad=iw+4:ih+4:2:2:color=0xe5eaf2,"
+        "pad=iw+8:ih+8:4:4:color=black@0," + transform + ",crop=iw-12:ih-12:6:6,split=2[face][shadow_source]",
+        "[shadow_source]lut=y=16:u=128:v=128:a='val*0.4',"
+        "boxblur=lr=0:lp=0:cr=0:cp=0:ar='min(12,min(w,h)/50)':ap=2[shadow]",
+        "[background][shadow]overlay=x=6:y=10:format=auto:shortest=1[stage]",
+        "[stage][face]overlay=x=0:y=0:format=auto:shortest=1,format=yuv420p[treatment]",
+        f"[original][treatment]overlay=x=0:y=0:format=auto:shortest=1:enable='{window}',format=yuv420p[v]",
+    ]
+    out = c._next("spatial_effect")
+    graph_file = out.with_suffix(".filter.txt")
+    graph_text = ";\n".join(graph)
+    graph_file.write_text(graph_text + "\n", encoding="utf-8")
+    argv = c._ffmpeg() + ["-i", str(src), "-filter_complex", graph_text, "-map", "[v]"]
+    if c.has_audio:
+        argv += ["-map", "0:a:0"]
+        if audio:
+            argv += ["-af", audio]
+    else:
+        argv += ["-an"]
+    argv += c._encode()
+    # Retain encoded audio without another lossy pass when its codec fits MP4.
+    if c.has_audio and not audio and (c.info is None or c.info.audio and c.info.audio.codec_name in {"aac", "mp3", "ac3", "eac3", "alac"}):
+        argv += ["-c:a", "copy"]
+    argv += [str(out)]
+    c.pipeline.add(Step("spatial_effect", argv, [str(out)], f"{effect['preset']} motion from {start:g}s for {duration:g}s"))
+    c.set_current(out)
+    c.info = None
+
+
 def _slideshow(c: Compiler, op: dict[str, Any]) -> None:
     images = op.get("images") or op.get("sources")
     if not images:
@@ -834,6 +1082,12 @@ def _slideshow(c: Compiler, op: dict[str, Any]) -> None:
     argv += ["-filter_complex", ";".join(parts), "-map", f"[{last}]", "-an"] + c._encode() + [str(out)]
     c._pipeline.add(Step("slideshow", argv, [str(out)], f"slideshow {n} images × {hold}s"))
     c.set_current(out)
+    # The generated tape does not exist while planning. Do not retain the
+    # still image's zero duration or a previous tape's audio metadata.
+    c.duration = acc + fade
+    c.has_video = True
+    c.has_audio = False
+    c.info = None
 
 
 def _thumbnail(c: Compiler, op: dict[str, Any]) -> None:
@@ -900,10 +1154,16 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
             if pending_af:
                 af_bits.append(pending_af)
         if preset.canvas.width and has_video:
-            if (src_w, src_h) != (preset.canvas.width, preset.canvas.height) or i == 0:
-                mode = str(op.get("reframe", "fill" if preset.canvas.height > preset.canvas.width else "fit"))
-                if (src_w, src_h) != (preset.canvas.width, preset.canvas.height):
-                    vf_bits.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
+            # Intermediate files do not exist during planning; their actual
+            # dimensions cannot be inferred from the project canvas alone.
+            # Enforce the requested output shape even when the known shape
+            # appears equal. Equal-size scale/pad is a no-op.
+            mode = str(op.get("reframe", "fill" if preset.canvas.height > preset.canvas.width else "fit"))
+            vf_bits.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
+        if has_video and preset.video_codec:
+            # FFmpeg 9 carries frame color metadata through the encoder;
+            # codec flags alone can leave primaries/transfer unspecified.
+            vf_bits.append("setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709")
         src_i = src if i == 0 else first_dest
         assert src_i is not None
         argv = _master_argv(
@@ -930,6 +1190,7 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
 
 OPS = {
     "trim": _trim,
+    "select_ranges": _select_ranges,
     "cut_silence": _cut_silence,
     "concat": _concat,
     "speed": _speed,
@@ -963,6 +1224,8 @@ OPS = {
     "replace_audio": _replace_audio,
     "extract_audio": _extract_audio,
     "reframe": _reframe,
+    "track_reframe": _track_reframe,
+    "spatial_effect": _spatial_effect,
     "slideshow": _slideshow,
     "thumbnail": _thumbnail,
     "chromakey": _chromakey,

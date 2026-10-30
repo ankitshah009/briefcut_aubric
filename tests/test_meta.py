@@ -1,0 +1,526 @@
+"""Meta adapter contracts, exercised without uploading footage or buying inference."""
+
+from __future__ import annotations
+
+import base64
+import copy
+import io
+import json
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from pathlib import Path
+from threading import Barrier
+from typing import Any
+from urllib.error import HTTPError, URLError
+
+import pytest
+
+from vedit import meta
+from vedit.media import MediaInfo, StreamInfo
+
+REAL_REQUEST = meta._request
+
+
+STORY = {
+    "title": "Made by hand",
+    "summary": "Show the making process, then the finished piece.",
+    "segments": [
+        {"start": 0.0, "end": 2.0, "label": "The process", "reason": "Hands shape the clay at 0–2s."},
+        {"start": 5.0, "end": 8.0, "label": "The result", "reason": "The finished bowl appears at 5–8s."},
+    ],
+    "caption": "A bowl, made by hand.",
+    "hashtags": ["ceramics", "handmade"],
+    "cover_prompt": "Use the bowl from the footage with a restrained title.",
+}
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6XkAAAAASUVORK5CYII="
+)
+
+
+@pytest.fixture(autouse=True)
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("VEDIT_META_ENABLED", raising=False)
+
+    def unexpected(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("Unexpected provider HTTP call")
+
+    monkeypatch.setattr(meta, "_request", unexpected)
+
+
+@pytest.fixture
+def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+
+
+@pytest.fixture
+def source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "source.mp4"
+    path.write_bytes(b"test media bytes; probe is the I/O boundary")
+    info = MediaInfo(
+        path=path,
+        duration=10.0,
+        format_name="mov,mp4,m4a,3gp,3g2,mj2",
+        size_bytes=path.stat().st_size,
+        bit_rate=100_000,
+        streams=(
+            StreamInfo(index=0, codec_type="video", codec_name="h264", width=100, height=100, fps=30),
+            StreamInfo(index=1, codec_type="audio", codec_name="aac", sample_rate=48000),
+        ),
+    )
+    monkeypatch.setattr(meta, "probe", lambda _: info)
+    return path
+
+
+class HttpScript:
+    """Only the provider HTTP boundary is replaced; all adapter logic runs."""
+
+    def __init__(
+        self,
+        *,
+        story: Any = None,
+        text: str | None = None,
+        input_tokens: int = 1000,
+        image: str | None = None,
+        status: str = "completed",
+    ) -> None:
+        self.story = copy.deepcopy(STORY if story is None else story)
+        self.text = text
+        self.input_tokens = input_tokens
+        self.image = image
+        self.status = status
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append((method, path, kwargs))
+        if method == "POST" and path == "/files":
+            return {"id": "file-abc123", "status": "uploaded"}
+        if method == "DELETE" and path == "/files/file-abc123":
+            return {"id": "file-abc123", "deleted": True}
+        if method == "POST" and path == "/responses/input_tokens":
+            return {"object": "response.input_tokens", "input_tokens": self.input_tokens}
+        if method == "POST" and path == "/responses":
+            return {
+                "id": "resp-test",
+                "status": self.status,
+                "output": [
+                    {"type": "message", "role": "assistant", "content": [
+                        {"type": "output_text", "text": self.text if self.text is not None else json.dumps(self.story)}
+                    ]}
+                ],
+                "usage": {"input_tokens": self.input_tokens, "output_tokens": 200, "video_frames_processed": 300},
+            }
+        if method == "POST" and path == "/images/edits":
+            return {
+                "data": [{"b64_json": self.image if self.image is not None else base64.b64encode(PNG).decode()}],
+                "output_format": "png",
+            }
+        pytest.fail(f"Unexpected provider HTTP request: {method} {path}")
+
+    def requested(self, method: str, path: str) -> bool:
+        return any(m == method and p == path for m, p, _ in self.calls)
+
+    def payload(self, path: str) -> dict[str, Any]:
+        return next(kwargs["payload"] for method, p, kwargs in self.calls if method == "POST" and p == path)
+
+
+def plan(source: Path, tmp_path: Path, **kwargs: Any) -> dict[str, Any]:
+    return meta.plan_story(
+        source, goal="Show the making process", duration=10.0, target_duration=5.0,
+        work_dir=tmp_path / "work", **kwargs,
+    )
+
+
+def sam_line(frame: int, *, x: int = 10, mask: str = "a") -> str:
+    return (
+        f"<{frame}f>0<|box;x1={x};y1=20;x2={x + 20};y2=60;w=100;h=100|>"
+        f"<|mask;x=0;y=0;data=1,1,~{mask}|>"
+    )
+
+
+def sam_clip(frames: int = 300) -> str:
+    return "\n".join(sam_line(frame, x=20 if frame == 30 else 10) for frame in range(frames))
+
+
+def test_capabilities_are_safe_without_configuration() -> None:
+    result = meta.capabilities()
+    assert result["configured"] is False
+    assert result["enabled"] is False
+    assert result["reason"]
+
+
+def test_key_alone_does_not_enable_paid_calls(source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    assert meta.capabilities()["enabled"] is False
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path)
+
+
+def test_enable_flag_without_key_does_not_send_footage(source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path)
+
+
+def test_capabilities_never_return_the_api_key(enabled: None) -> None:
+    result = meta.capabilities()
+    assert result["configured"] is True
+    assert result["enabled"] is True
+    assert "test-secret-never-write-to-disk" not in json.dumps(result)
+
+
+def test_story_uses_schema_validates_and_deletes_upload(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    result = plan(source, tmp_path)
+    assert result["title"] == STORY["title"]
+    assert result["segments"] == STORY["segments"]
+    assert result["provider"] == "meta"
+    payload = http.payload("/responses")
+    assert payload["model"] == "muse-spark-1.3"
+    assert payload["text"]["format"]["type"] == "json_schema"
+    assert payload["text"]["format"]["strict"] is True
+    assert payload["store"] is False
+    assert payload["max_output_tokens"] > 0
+    assert http.requested("POST", "/responses/input_tokens")
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+@pytest.mark.parametrize("segments", [
+    [{"start": -1, "end": 2, "label": "Bad", "reason": "Before source"}],
+    [{"start": 9, "end": 11, "label": "Bad", "reason": "After source"}],
+    [{"start": 2, "end": 2, "label": "Bad", "reason": "Empty"}],
+    [{"start": float("nan"), "end": 2, "label": "Bad", "reason": "Not finite"}],
+    [{"start": False, "end": 2, "label": "Bad", "reason": "Boolean"}],
+    [{"start": 0, "end": 7, "label": "Bad", "reason": "Too long for requested edit"}],
+    [{"start": i / 10, "end": (i + 1) / 10, "label": "Bad", "reason": "Too many"} for i in range(9)],
+    [],
+])
+def test_unusable_story_ranges_are_rejected_and_upload_removed(
+    segments: list[dict[str, Any]], enabled: None, source: Path, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    story = {**STORY, "segments": segments}
+    http = HttpScript(story=story)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path)
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+@pytest.mark.parametrize("text", ["not JSON", "[]", '{"title":"Missing fields"}'])
+def test_malformed_story_does_not_become_a_render_plan(
+    text: str, enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(text=text)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path)
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+def test_incomplete_response_is_not_accepted_as_final(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(status="incomplete")
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path)
+
+
+def test_token_preflight_blocks_inference_over_budget(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(input_tokens=1_000_000)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
+        plan(source, tmp_path, budget_usd=0.02)
+    assert not http.requested("POST", "/responses")
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+@pytest.mark.parametrize("budget", [0, -0.1, float("nan"), float("inf"), True])
+def test_invalid_budgets_are_rejected_before_any_network(
+    budget: float, enabled: None, source: Path, tmp_path: Path,
+) -> None:
+    with pytest.raises(meta.MetaError):
+        plan(source, tmp_path, budget_usd=budget)
+
+
+def test_usage_is_persisted_without_credentials_or_raw_prompt(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    result = plan(source, tmp_path)
+    ledger = tmp_path / "work" / "meta-usage.json"
+    assert ledger.is_file()
+    raw = ledger.read_text()
+    json.loads(raw)
+    assert "test-secret-never-write-to-disk" not in raw
+    assert "Show the making process" not in raw
+    assert result["usage"]
+
+
+def test_sam_boxes_become_normalized_timestamped_geometry(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(text=sam_clip())
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.track_subject(source, subject="bowl", duration=10.0, work_dir=tmp_path / "work")
+    points = result["points"]
+    assert points[0]["time"] == pytest.approx(0.0)
+    assert points[0]["x"] == pytest.approx(0.1)
+    assert points[0]["y"] == pytest.approx(0.2)
+    assert points[0]["width"] == pytest.approx(0.2)
+    assert points[0]["height"] == pytest.approx(0.4)
+    assert any(point["time"] == pytest.approx(1.0) and point["x"] == pytest.approx(0.2) for point in points)
+    assert points[-1]["time"] == pytest.approx(299 / 30, abs=1e-6)
+    assert http.payload("/responses")["model"] == "sam-3.1"
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+def test_sam_budget_uses_frame_count_before_upload(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
+        meta.track_subject(source, subject="bowl", duration=10, work_dir=tmp_path / "work", budget_usd=0.01)
+    assert not http.requested("POST", "/files")
+
+
+def test_empty_sam_match_is_actionable_instead_of_fake_center_track(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(text="")
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.track_subject(source, subject="bowl", duration=10, work_dir=tmp_path / "work")
+    assert result["points"] == []
+    assert result["object_id"] is None
+    assert "subject" in result["warning"].lower()
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+def test_cover_uses_reference_image_and_writes_returned_png(
+    enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "cover-source.png"
+    source.write_bytes(PNG)
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.generate_cover(source, prompt="A cover using this bowl", work_dir=tmp_path / "work")
+    assert Path(result["path"]).read_bytes() == PNG
+    assert Path(result["path"]).suffix == ".png"
+    assert result["provider"] == "meta"
+    payload = http.payload("/images/edits")
+    assert payload["model"] == "muse-image-1.0"
+    assert payload["n"] == 1
+    assert payload["response_format"] == "b64_json"
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+@pytest.mark.parametrize("image", ["not-base64!", base64.b64encode(b"not an image").decode()])
+def test_invalid_cover_response_cannot_be_saved_as_success(
+    image: str, enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "cover-source.png"
+    source.write_bytes(PNG)
+    http = HttpScript(image=image)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError):
+        meta.generate_cover(source, prompt="A cover", work_dir=tmp_path / "work")
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+def test_identical_story_is_cached_without_second_upload(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    first = plan(source, tmp_path)
+    call_count = len(http.calls)
+    second = plan(source, tmp_path)
+    assert len(http.calls) == call_count
+    assert second["segments"] == first["segments"]
+    assert second["usage"]["cached"] is True
+    assert second["usage"]["charged_this_call_usd"] == 0
+
+
+def test_cleanup_failure_leaves_an_actionable_project_notice(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+
+    def fail_cleanup(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if method == "DELETE":
+            raise meta.MetaError("Meta is unavailable")
+        return http(method, path, **kwargs)
+
+    monkeypatch.setattr(meta, "_request", fail_cleanup)
+    result = plan(source, tmp_path)
+    assert result["segments"]
+    notice = json.loads((tmp_path / "work" / "meta-cleanup.json").read_text())
+    assert notice["file_id"] == "file-abc123"
+    assert "delete" in notice["warning"].lower()
+
+
+@pytest.mark.parametrize("status", [400, 401, 402, 403, 429, 503])
+def test_http_errors_do_not_expose_remote_body_or_credentials(
+    status: int, enabled: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Opener:
+        def open(self, request: Any, *, timeout: float) -> Any:
+            assert timeout > 0
+            raise HTTPError(request.full_url, status, "private remote exception detail", {},
+                            io.BytesIO(b"test-secret-never-write-to-disk private transcript"))
+
+    monkeypatch.setattr(meta, "build_opener", lambda *handlers: Opener())
+    with pytest.raises(meta.MetaError) as exc:
+        REAL_REQUEST("POST", "/responses", payload={"model": "muse-spark-1.3"})
+    message = str(exc.value)
+    assert message
+    assert "test-secret" not in message
+    assert "private" not in message
+
+
+def test_inference_network_timeout_is_not_automatically_retried(
+    enabled: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    class Opener:
+        def open(self, request: Any, *, timeout: float) -> Any:
+            calls.append(request)
+            raise URLError("private endpoint response")
+
+    monkeypatch.setattr(meta, "build_opener", lambda *handlers: Opener())
+    with pytest.raises(meta.MetaError, match="(?i)timeout|connection"):
+        REAL_REQUEST("POST", "/responses", payload={"model": "muse-spark-1.3"})
+    assert len(calls) == 1
+
+
+def test_safe_token_count_can_retry_transient_service_failure(
+    enabled: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    class Opener:
+        def open(self, request: Any, *, timeout: float) -> Any:
+            calls.append(request)
+            if len(calls) < 3:
+                raise HTTPError(request.full_url, 503, "unavailable", {}, io.BytesIO(b""))
+            return io.BytesIO(b'{"input_tokens":100}')
+
+    monkeypatch.setattr(meta, "build_opener", lambda *handlers: Opener())
+    monkeypatch.setattr(meta.time, "sleep", lambda _: None)
+    result = REAL_REQUEST("POST", "/responses/input_tokens", payload={"model": "muse-spark-1.3"}, retry_safe=True)
+    assert result["input_tokens"] == 100
+    assert len(calls) == 3
+
+
+def test_sam_ignores_frame_like_text_inside_mask_payload(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    text = "\n".join(sam_line(frame, mask="abc<900f>def") for frame in range(300))
+    http = HttpScript(text=text)
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.track_subject(source, subject="bowl", duration=10, work_dir=tmp_path / "work")
+    assert result["points"][0]["time"] == 0
+    assert result["points"][-1]["time"] == pytest.approx(299 / 30, abs=1e-6)
+    assert all(point["x"] == pytest.approx(0.1) for point in result["points"])
+
+
+def test_sam_dense_track_is_bounded_without_losing_motion_peak(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = replace(meta.probe(source), duration=30.0)
+    monkeypatch.setattr(meta, "probe", lambda _: info)
+    text = "\n".join(sam_line(frame, x=70 if frame == 449 else 10) for frame in range(900))
+    http = HttpScript(text=text)
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.track_subject(source, subject="bowl", duration=30, work_dir=tmp_path / "work")
+    points = result["points"]
+    assert 3 <= len(points) <= 512
+    assert points[0]["time"] == 0
+    assert points[-1]["time"] == pytest.approx(899 / 30, abs=1e-6)
+    assert any(point["time"] == pytest.approx(449 / 30, abs=1e-6) and point["x"] == 0.7 for point in points)
+
+
+@pytest.mark.parametrize("omitted", [set(range(100, 121)), set(range(0, 300, 5))])
+def test_sam_insufficient_coverage_refuses_to_invent_subject_motion(
+    omitted: set[int], enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    text = "\n".join(sam_line(frame) for frame in range(300) if frame not in omitted)
+    http = HttpScript(text=text)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="(?i)coverage|visible|gap|lost|track|subject"):
+        meta.track_subject(source, subject="bowl", duration=10, work_dir=tmp_path / "work")
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+def test_retry_after_uncertain_inference_charge_cannot_exceed_project_cap(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    charged_calls = []
+
+    def timeout_generation(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if method == "POST" and path == "/responses":
+            charged_calls.append(path)
+            raise meta.MetaError("Meta did not respond within the network timeout; operation may have been billed.")
+        return http(method, path, **kwargs)
+
+    monkeypatch.setattr(meta, "_request", timeout_generation)
+    with pytest.raises(meta.MetaError, match="timeout"):
+        plan(source, tmp_path, budget_usd=0.05)
+    with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
+        plan(source, tmp_path, budget_usd=0.05)
+    assert len(charged_calls) == 1
+    ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
+    assert len(ledger["calls"]) == 1
+    assert ledger["calls"][0]["status"] == "failed_or_incomplete"
+
+
+def test_distinct_stories_share_budget_but_cached_story_is_free(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    first = plan(source, tmp_path, budget_usd=0.05)
+    second = plan(source, tmp_path, budget_usd=0.05)
+    assert first["segments"] == second["segments"]
+    assert second["usage"]["cached"] is True
+    with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
+        meta.plan_story(source, goal="Give me a different story", duration=10, target_duration=5,
+                        work_dir=tmp_path / "work", budget_usd=0.05)
+    assert sum(method == "POST" and path == "/responses" for method, path, _ in http.calls) == 1
+
+
+def test_concurrent_stories_cannot_both_reserve_the_same_budget(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript()
+    ready = Barrier(2)
+
+    def simultaneous_preflight(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if path == "/responses/input_tokens":
+            ready.wait(timeout=5)
+        return http(method, path, **kwargs)
+
+    def make_story(goal: str) -> dict[str, Any] | meta.MetaError:
+        try:
+            return meta.plan_story(source, goal=goal, duration=10, target_duration=5,
+                                   work_dir=tmp_path / "work", budget_usd=0.05)
+        except meta.MetaError as exc:
+            return exc
+
+    monkeypatch.setattr(meta, "_request", simultaneous_preflight)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(make_story, ["First story", "Second story"]))
+    assert sum(isinstance(result, dict) for result in results) == 1
+    assert sum(isinstance(result, meta.MetaError) for result in results) == 1
+    assert sum(method == "POST" and path == "/responses" for method, path, _ in http.calls) == 1

@@ -9,7 +9,7 @@ from vedit.compile import compile_brief
 from vedit.edit import Edit
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
-from vedit.media import has_filter, probe, resolve_ffmpeg, run_ffmpeg
+from vedit.media import has_filter, probe, resolve_ffmpeg, resolve_font, run_ffmpeg
 from vedit.pipeline import execute, write_report
 
 
@@ -56,7 +56,16 @@ def _have_drawtext() -> bool:
         return False
 
 
+def _have_font() -> bool:
+    try:
+        resolve_font()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.skipif(not _have_drawtext(), reason="drawtext filter missing")
+@pytest.mark.skipif(not _have_font(), reason="no usable title font")
 def test_trim_title_export(tmp_path: Path):
     src = _make_clip(tmp_path / "in.mp4", seconds=3.0)
     dest = tmp_path / "out.mp4"
@@ -184,11 +193,16 @@ def test_plan_cut_silence_then_captions(tmp_path: Path):
     assert any(step.name == "captions_transcribe" for step in compiler.pipeline.steps)
     assert not (compiler.work_dir / "speech.wav").exists()
     assert not (compiler.work_dir / "keep_ranges.json").exists()
+    assert not (compiler.work_dir / "captions.srt").exists()
+    assert not (compiler.work_dir / "captions.ass").exists()
     assert "vedit.captions" in script
     assert "vedit.analyze" in script
     assert not (compiler.work_dir / "01_cut_silence.mp4").exists()
     cap = next(s for s in compiler.pipeline.steps if s.name == "captions_transcribe")
     assert any(str(compiler.work_dir / "01_cut_silence.mp4") == a for a in cap.argv)
+    from vedit.pipeline import outputs_complete
+
+    assert not outputs_complete(cap)
 
 
 def test_trim_then_cut_silence_plans(tmp_path: Path):

@@ -152,6 +152,20 @@ class Edit:
     def reframe(self, aspect: str = "9:16", mode: str = "fill") -> Self:
         return self._op("reframe", aspect=aspect, mode=mode)
 
+    def spatial_effect(
+        self, preset: str = "float", *, intensity: float = 0.55,
+        start: float = 0.0, duration: float | None = None,
+        points: list[dict[str, float]] | None = None,
+    ) -> Self:
+        """Add a local perspective effect to the edited footage.
+
+        Timing refers to the current tape, after preceding cuts. Apply before
+        captions and titles to keep their text fixed and readable. ``points``
+        (float only) is a subject track of normalized boxes the frame drifts toward.
+        """
+        return self._op("spatial_effect", preset=preset, intensity=intensity,
+                        start=start, duration=duration, points=points)
+
     def slideshow(self, images: list[str], duration: float = 3.0, fade: float = 0.4) -> Self:
         return self._op("slideshow", images=images, duration=duration, fade=fade)
 

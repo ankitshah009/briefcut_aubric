@@ -104,6 +104,32 @@ def _parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("presets", help="list export presets")
     p.set_defaults(func=cmd_presets)
+
+    p = sub.add_parser("agent", help="editorial session")
+    p.add_argument("goal")
+    p.add_argument("paths", nargs="*")
+    p.add_argument("--work-dir")
+    p.add_argument("--plan", action="store_true", help="do not render")
+    p.add_argument("--no-analyze", action="store_true")
+    p.add_argument("--revise", type=int, default=1)
+    _add_hw_flags(p)
+    p.set_defaults(func=cmd_agent)
+
+    p = sub.add_parser("tools", help="stdio tool protocol")
+    p.set_defaults(func=cmd_tools)
+
+    p = sub.add_parser("studio", help="local review server")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--open", action="store_true", help="open a browser")
+    p.set_defaults(func=cmd_studio)
+
+    p = sub.add_parser("package", help="package the desktop app")
+    psub = p.add_subparsers(dest="package_cmd", required=True)
+    d = psub.add_parser("dmg", help="build a macOS disk image")
+    d.add_argument("--out", default="dist/Briefcut.dmg")
+    d.add_argument("--app-dir")
+    d.set_defaults(func=cmd_package_dmg)
     return parser
 
 
@@ -318,6 +344,81 @@ def cmd_recipe_apply(args: argparse.Namespace) -> int:
 def cmd_presets(_args: argparse.Namespace) -> int:
     for name, preset in PRESETS.items():
         print(f"{name:20} {preset.description}")
+    return 0
+
+
+def cmd_agent(args: argparse.Namespace) -> int:
+    from vedit.agent.loop import run_session
+
+    goal = args.goal
+    paths = args.paths
+    work_dir = args.work_dir
+    plan = args.plan
+    no_analyze = args.no_analyze
+    hw_flag = args.hw_flag
+    revise = args.revise
+    session = run_session(
+        goal,
+        list(paths),
+        root=Path(work_dir) if work_dir else None,
+        render=not plan,
+        analyze=not no_analyze,
+        hw=hw_flag,
+        max_revisions=revise,
+    )
+    root = session.root
+    print(f"session  : {root}")
+    print(f"status   : {session.status}")
+    print(f"work dir : {session.work_dir}")
+    print(f"brief    : {root / 'brief.yaml'}")
+    decisions = session.decisions or {}
+    for key in ("pauses_sentence", "shape_sentence", "captions_sentence", "clip_sentence"):
+        line = decisions.get(key)
+        if isinstance(line, str) and line:
+            print(line)
+    if session.primary_output:
+        print(f"output   : {session.primary_output}")
+    proof = session.proof
+    if isinstance(proof, dict) and proof:
+        print(
+            f"probe    : {proof.get('duration')} {proof.get('width')}x{proof.get('height')} "
+            f"audio={proof.get('has_audio')} video={proof.get('has_video')}"
+        )
+    if session.critique is not None:
+        for finding in session.critique.findings:
+            print(f"{finding.severity} {finding.code}: {finding.message}")
+    if session.status in {"planned", "verified"}:
+        return 0
+    if session.status == "failed":
+        return 3
+    return 1
+
+
+def cmd_tools(_args: argparse.Namespace) -> int:
+    from vedit.agent.tools import serve_stdio
+
+    return serve_stdio()
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    try:
+        from vedit.studio.server import serve
+    except ImportError:
+        from vedit.studio import serve
+
+    serve(args.host, args.port, open_browser=args.open)
+    return 0
+
+
+def cmd_package_dmg(args: argparse.Namespace) -> int:
+    from vedit.packaging import create_dmg, stage_app
+
+    app_dir = Path(args.app_dir) if args.app_dir else Path("dist/Briefcut.app")
+    out = args.out
+    stage_app(app_dir)
+    create_dmg(app_dir, Path(out))
+    print(f"app      : {app_dir}")
+    print(f"dmg      : {Path(out)}")
     return 0
 
 

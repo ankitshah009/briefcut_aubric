@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vedit.errors import RenderError
+from vedit.errors import RenderCancelled, RenderError
 from vedit.media import CommandResult, probe, resolve_ffmpeg, run_command, shell_join
 from vedit.otio import write_otio
 
@@ -128,14 +129,30 @@ def write_codegen(pipeline: Pipeline) -> dict[str, Path]:
     return {"project": project_json, "render": render_sh, "steps_dir": steps_dir, "otio": otio}
 
 
+def output_ready(path: str | Path) -> bool:
+    """Resume only on a real file. Empty plan placeholders do not count."""
+    dest = Path(path)
+    try:
+        return dest.is_file() and dest.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def outputs_complete(step: Step) -> bool:
+    return bool(step.outputs) and all(output_ready(path) for path in step.outputs)
+
+
 def execute(
     pipeline: Pipeline,
     *,
     dry_run: bool = False,
     resume: bool = False,
     progress: bool = True,
+    cancel_event: threading.Event | None = None,
 ) -> list[StepReport]:
     reports: list[StepReport] = []
+    if cancel_event is not None and cancel_event.is_set():
+        raise RenderCancelled("render cancelled before starting the pipeline")
     write_codegen(pipeline)
     if dry_run:
         return [
@@ -144,9 +161,11 @@ def execute(
         ]
     total = len(pipeline.steps)
     for index, step in enumerate(pipeline.steps, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise RenderCancelled(f"render cancelled before step '{step.name}'")
         if progress:
             print(f"==> [{index}/{total}] {step.name}: {step.description}", file=sys.stderr, flush=True)
-        if resume and step.outputs and all(Path(p).is_file() for p in step.outputs):
+        if resume and outputs_complete(step):
             reports.append(
                 StepReport(
                     name=step.name,
@@ -160,7 +179,11 @@ def execute(
                 print("    skipped (outputs exist)", file=sys.stderr, flush=True)
             continue
         started = time.perf_counter()
-        result: CommandResult = run_command(step.argv, stream_stderr=progress)
+        result: CommandResult = run_command(
+            step.argv,
+            stream_stderr=progress and sys.stderr.isatty(),
+            cancel_event=cancel_event,
+        )
         elapsed = int((time.perf_counter() - started) * 1000)
         missing = [p for p in step.outputs if not Path(p).exists()]
         ok = result.ok and not missing

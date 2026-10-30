@@ -16,3 +16,5 @@ build/
 !examples/**
 !examples/demo/
 !examples/demo/**
+
+vedit-sessions/

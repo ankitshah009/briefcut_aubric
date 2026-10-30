@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from vedit.otio import pipeline_to_otio, write_otio
+from vedit.pipeline import Pipeline, Step, execute, output_ready, outputs_complete
 from vedit.presets import encode_args, get_preset, video_encoder
 
 
@@ -52,6 +54,25 @@ def test_otio_lite_from_meta(tmp_path: Path):
     clip = tracks[0]["children"][0]
     assert clip["media_reference"]["target_url"] == "/tmp/talk.mp4"
     assert data["metadata"]["vedit"]["steps"] == ["cut_silence", "export_youtube_1080p"]
+
+
+def test_resume_does_not_skip_empty_placeholders(tmp_path: Path):
+    dest = tmp_path / "captions.srt"
+    dest.write_text("")
+    assert dest.is_file()
+    assert not output_ready(dest)
+    step = Step(
+        "captions_transcribe",
+        [sys.executable, "-c", f"from pathlib import Path; Path({str(dest)!r}).write_text('1\\n00:00:00,000 --> 00:00:01,000\\nhello\\n')"],
+        [str(dest)],
+        "write srt",
+    )
+    assert not outputs_complete(step)
+    pipe = Pipeline(name="cap", work_dir=tmp_path, steps=[step])
+    reports = execute(pipe, resume=True, progress=False)
+    assert reports[0].ok
+    assert "skipped" not in (reports[0].stderr_tail or "")
+    assert "hello" in dest.read_text()
 
 
 def test_otio_empty_sources_still_valid():
