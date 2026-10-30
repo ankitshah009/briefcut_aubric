@@ -167,3 +167,21 @@ def test_source_tracking_survives_reordered_selection(tmp_path):
     assert blue > 180 and red < 50
     red, _, blue = _center_rgb(last)
     assert red > 180 and blue < 50
+
+
+def test_campaign_float_effect_receives_reframed_sam_track(clip, tmp_path):
+    from vedit.campaign import reframed_points
+
+    track = [{"time": 0.0, "x": 0.0, "y": 0.3, "width": 0.1, "height": 0.2},
+             {"time": 1.5, "x": 0.9, "y": 0.3, "width": 0.1, "height": 0.2}]
+    points = reframed_points(track, source_width=640, source_height=360, aspect="9:16")
+    compiler = _compile(clip, tmp_path / "sam-float", [
+        {"op": "select_ranges", "ranges": [{"start": 0, "end": 1.6}]},
+        {"op": "track_reframe", "aspect": "9:16", "points": track},
+        {"op": "spatial_effect", "preset": "float", "intensity": 0.8, "start": 0.2, "duration": 1.0, "points": points},
+    ], preset="shorts_9x16")
+    step = next(step for step in compiler.pipeline.steps if step.name == "spatial_effect")
+    graph = Path(step.outputs[0]).with_suffix(".filter.txt").read_text()
+    # The edge-clamped subject moves from the far left to the far right of the 9:16 canvas.
+    assert ")-0.5)" in graph and "(on-1)/" in graph
+    assert points[0]["x"] + points[0]["width"] / 2 < 0.3 < 0.7 < points[1]["x"] + points[1]["width"] / 2

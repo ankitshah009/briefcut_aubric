@@ -220,8 +220,10 @@ def test_editor_plan_and_render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     clip = _gap_clip(tmp_path / "src")
     source = probe(clip)
     studio = _load("vedit_studio_package_tests", "test_studio_package.py")
-    plan_root = tmp_path / "plan"
-    render_root = tmp_path / "render"
+    # The studio only accepts session folders inside the workspace's vedit-sessions.
+    monkeypatch.chdir(tmp_path)
+    plan_root = tmp_path / "vedit-sessions" / "plan"
+    render_root = tmp_path / "vedit-sessions" / "render"
     plan_body, plan_type = _multipart(YOUTUBE, clip, render=False, root=plan_root)
     render_body, render_type = _multipart(YOUTUBE, clip, render=True, root=render_root)
     with studio._studio_server() as port:

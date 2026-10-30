@@ -228,6 +228,31 @@ def remap_proxy_points(points: Any, *, source_width: int, source_height: int, pr
     return result
 
 
+_ASPECT_RATIOS = {"9:16": 9 / 16, "16:9": 16 / 9, "1:1": 1.0}
+
+
+def reframed_points(points: list[dict[str, float]], *, source_width: int, source_height: int, aspect: str) -> list[dict[str, float]]:
+    """Map source-normalized subject boxes into the canvas ``track_reframe`` produces.
+
+    The crop window is the same one ``track_reframe`` computes: the largest
+    target-aspect window, centered on the subject and clamped to the frame.
+    """
+    ratio = _ASPECT_RATIOS[aspect]
+    crop_w = min(source_width, source_height * ratio) / source_width
+    crop_h = min(source_height, source_width / ratio) / source_height
+    result: list[dict[str, float]] = []
+    for point in points:
+        axes = []
+        for start, size, window in ((point["x"], point["width"], crop_w), (point["y"], point["height"], crop_h)):
+            offset = min(max(start + size / 2 - window / 2, 0.0), 1.0 - window)
+            low = min(max((start - offset) / window, 0.0), 1.0)
+            high = min(max((start + size - offset) / window, 0.0), 1.0)
+            axes.append((low, max(high - low, 0.000001)))
+        (x, width), (y, height) = axes
+        result.append({"time": point["time"], "x": min(x, 1 - width), "y": min(y, 1 - height), "width": width, "height": height})
+    return result
+
+
 class CampaignManager:
     """One bounded worker for the local machine, durable state for every action."""
 
@@ -792,7 +817,13 @@ class CampaignManager:
             ops.append({"op": "reframe", "aspect": request["aspect"], "mode": "fill"})
             ops.append({"op": "select_ranges", "ranges": ranges})
         if effect is not None:
-            ops.append({"op": "spatial_effect", **effect})
+            effect_op = {"op": "spatial_effect", **effect}
+            if effect["preset"] == "float" and request["provider"] == "meta" and request["subject"]:
+                # SAM geometry, now in reframed-canvas coordinates, steers the floating frame.
+                effect_op["points"] = reframed_points(
+                    tracking["points"], source_width=getattr(info, "display_width", info.width),
+                    source_height=getattr(info, "display_height", info.height), aspect=request["aspect"])
+            ops.append(effect_op)
         if request["captions"] and info.has_audio:
             if local_transcriber_ready():
                 ops.append({"op": "captions", "language": request["language"], "burn": True, "style": "boxed", "format": "ass"})

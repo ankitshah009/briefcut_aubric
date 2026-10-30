@@ -253,3 +253,20 @@ def test_portrait_mov_proxy_preserves_time_and_remaps_letterboxed_subject(manage
     with pytest.raises(CampaignError, match="outside the picture"):
         remap_proxy_points([{"time": 0, "x": 0, "y": 0, "width": 0.1, "height": 0.2}], source_width=1080, source_height=1920, proxy_width=960, proxy_height=540, duration=1)
 
+
+
+def test_reframed_points_follow_the_track_reframe_crop() -> None:
+    from vedit.campaign import reframed_points
+
+    # 16:9 source to a 9:16 crop: the window is 0.31640625 of the width.
+    window = (1080 * 9 / 16) / 1920
+    centered = reframed_points([{"time": 0.0, "x": 0.45, "y": 0.4, "width": 0.1, "height": 0.2}],
+                               source_width=1920, source_height=1080, aspect="9:16")[0]
+    assert centered["x"] + centered["width"] / 2 == pytest.approx(0.5)
+    assert centered["width"] == pytest.approx(0.1 / window)
+    assert (centered["y"], centered["height"]) == pytest.approx((0.4, 0.2))
+    # Near the frame edge the crop clamps, so the subject sits off-center.
+    edge = reframed_points([{"time": 1.0, "x": 0.9, "y": 0.4, "width": 0.08, "height": 0.2}],
+                           source_width=1920, source_height=1080, aspect="9:16")[0]
+    assert edge["x"] + edge["width"] / 2 > 0.8
+    assert 0 <= edge["x"] and edge["x"] + edge["width"] <= 1 + 1e-9

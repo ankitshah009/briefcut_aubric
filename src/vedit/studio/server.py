@@ -126,6 +126,36 @@ def _form_bool(value: str | None, default: bool) -> bool:
     raise BriefError(f"expected true or false, got {value!r}")
 
 
+def _sessions_root() -> Path:
+    """The only tree the session API may read or write (matches ``_session_dir``)."""
+    return (Path.cwd() / "vedit-sessions").resolve()
+
+
+def _contained_root(raw: str | Path) -> Path:
+    """A session folder directly inside vedit-sessions, never an arbitrary path."""
+    try:
+        path = Path(raw).expanduser().resolve()
+        relative = path.relative_to(_sessions_root())
+    except (OSError, ValueError) as exc:
+        raise BriefError("root must be a session folder inside vedit-sessions") from exc
+    if len(relative.parts) != 1 or relative.parts[0] == "campaigns" or relative.parts[0].startswith("."):
+        raise BriefError("root must be a session folder inside vedit-sessions")
+    return path
+
+
+def _contained_source(raw: str) -> str:
+    """A clip uploaded through the studio: vedit-sessions/<session>/inbox/<file>."""
+    try:
+        path = Path(raw).expanduser().resolve()
+        relative = path.relative_to(_sessions_root())
+    except (OSError, ValueError) as exc:
+        raise BriefError("Use a clip uploaded through Studio.") from exc
+    if (len(relative.parts) != 3 or relative.parts[1] != "inbox" or relative.parts[0] == "campaigns"
+            or path.name.startswith(".") or not path.is_file()):
+        raise BriefError("Use a clip uploaded through Studio.")
+    return str(path)
+
+
 def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str], bool, bool, Path | None]:
     if not isinstance(payload, dict):
         raise BriefError("JSON object required")
@@ -138,7 +168,7 @@ def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str
         raw_paths = payload["paths"]
         if not isinstance(raw_paths, list) or any(not isinstance(item, str) for item in raw_paths):
             raise BriefError("paths must be a list of strings")
-        paths = list(raw_paths)
+        paths = [_contained_source(item) for item in raw_paths]
     body_render = _bool_field(payload, "render", False)
     analyze = _bool_field(payload, "analyze", False)
     do_render = body_render if force_render is None else force_render
@@ -147,7 +177,7 @@ def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str
     elif isinstance(payload["root"], str):
         if not payload["root"].strip():
             raise BriefError("root must be a non-empty string or null")
-        root = Path(payload["root"])
+        root = _contained_root(payload["root"])
     else:
         raise BriefError("root must be a string or null")
     return goal, paths, do_render, analyze, root
@@ -160,7 +190,7 @@ def _session_root(query: str) -> Path:
     path = Path(values[0])
     if not path.is_absolute():
         raise BriefError("root must be an absolute path")
-    return path
+    return _contained_root(path)
 
 
 def _safe_filename(raw: str) -> str:
@@ -279,6 +309,8 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
+        if path.startswith("/api/") and not self._campaign_origin_allowed(mutation=False):
+            return
         if path == "/api/capabilities" or path == "/api/campaigns" or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=False)
             return
@@ -302,6 +334,10 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
+        # Every API route, not only campaigns: a cross-site form POST or a
+        # DNS-rebound Host must never start a run or store an upload.
+        if path.startswith("/api/") and not self._campaign_origin_allowed(mutation=True):
+            return
         if path == "/api/campaigns" or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=True)
             return
@@ -319,6 +355,8 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
+        if path.startswith("/api/") and not self._campaign_origin_allowed(mutation=False):
+            return
         if path.startswith("/api/campaigns/") and path.endswith("/artifact"):
             self._handle_campaign(path, split.query, mutation=False, send_body=False)
             return
@@ -636,7 +674,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                     return
                 goal, paths, do_render, analyze, root = _run_args(payload, force_render=force_render)
             trace("run-session-enter")
-            session = run_session(goal, paths, root=root, render=do_render, analyze=analyze)
+            # HTTP sessions use only uploaded, contained sources, never paths named in the goal.
+            session = run_session(goal, paths, root=root, render=do_render, analyze=analyze, goal_paths=False)
             trace("run-session-exit")
         except (VeditError, FileNotFoundError) as exc:
             self._send_json(400, {"ok": False, "error": str(exc)})
@@ -664,9 +703,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         do_render = _form_bool(fields.get("render"), False) if force_render is None else force_render
         analyze = _form_bool(fields.get("analyze"), False)
         if fields.get("root", "").strip():
-            root = Path(fields["root"]).expanduser()
-            if not root.is_absolute():
-                root = (Path.cwd() / root).resolve()
+            root = _contained_root(fields["root"].strip())
         else:
             root = _session_dir(None, goal)
         chosen = files.get("clip") or files.get("file")
@@ -675,7 +712,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             stored = _store_clip(root, chosen[0], chosen[1])
             paths = [str(stored)]
         elif fields.get("paths", "").strip():
-            paths = [line.strip() for line in fields["paths"].splitlines() if line.strip()]
+            paths = [_contained_source(line.strip()) for line in fields["paths"].splitlines() if line.strip()]
         return goal, paths, do_render, analyze, root
 
     def _read_json(self) -> tuple[bool, Any]:
