@@ -18,3 +18,4 @@ build/
 !examples/demo/**
 
 vedit-sessions/
+**/.DS_Store
