@@ -1,0 +1,20 @@
+name: talking-head
+sources:
+  talk: ./demo/talk.mp4
+  logo: ./demo/logo.png
+ops:
+  - op: cut_silence
+  - op: highpass
+    hz: 80
+  - op: denoise
+    strength: 2
+  - op: captions
+    burn: true
+  - op: watermark
+    source: logo
+    opacity: 0.9
+    scale: 0.12
+  - op: loudnorm
+    i: -14
+  - op: export
+    presets: [youtube_1080p, shorts_9x16]

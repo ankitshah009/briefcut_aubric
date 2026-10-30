@@ -1,0 +1,21 @@
+name: podcast
+canvas:
+  width: 1920
+  height: 1080
+  fps: 30
+sources:
+  main: ../demo/talk.mp4
+  music: ../demo/bed.wav
+ops:
+  - op: cut_silence
+  - op: highpass
+    hz: 80
+  - op: captions
+    burn: true
+  - op: music
+    source: music
+    duck: true
+  - op: loudnorm
+    i: -16
+  - op: export
+    presets: [podcast_video, podcast_audio]

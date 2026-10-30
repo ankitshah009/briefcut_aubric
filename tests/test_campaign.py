@@ -1,0 +1,255 @@
+"""Campaign decisions, durable job transitions, and real compiler execution."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import math
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from vedit.campaign import CampaignError, CampaignManager, remap_proxy_points, validate_plan
+from vedit.compile import compile_brief
+from vedit.ir import Brief
+from vedit.media import probe
+from vedit.pipeline import execute, write_codegen, write_report
+
+
+@pytest.fixture
+def clip(tmp_path: Path) -> Path:
+    source = tmp_path / "vedit-sessions" / "source-test" / "inbox" / "clip.mp4"
+    source.parent.mkdir(parents=True)
+    spec = importlib.util.spec_from_file_location("campaign_test_media_helpers", Path(__file__).with_name("test_e2e.py"))
+    assert spec and spec.loader
+    helpers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helpers)
+    if not helpers._have_ffmpeg():
+        pytest.skip("ffmpeg required")
+    return helpers._make_clip(source, seconds=1.5, color="teal")
+
+
+@pytest.fixture
+def manager(tmp_path: Path):
+    instance = CampaignManager(tmp_path, start_worker=False)
+    try:
+        yield instance
+    finally:
+        instance.close()
+
+
+def request(clip: Path, **overrides):
+    return {"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False, **overrides}
+
+
+def story(**overrides):
+    return {"title": "A clear view", "segments": [{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Chosen from the source."}], "caption": "A look at the product.", "hashtags": ["making"], **overrides}
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, True, "0"])
+def test_plan_rejects_nonfinite_or_non_numeric_times(bad) -> None:
+    with pytest.raises(CampaignError):
+        validate_plan(story(segments=[{"start": bad, "end": 1}]), 2)
+
+
+def test_plan_enforces_source_bounds_and_preserves_editorial_order() -> None:
+    for segments in ([{"start": 1, "end": 0}], [{"start": 0, "end": 3}], []):
+        with pytest.raises(CampaignError):
+            validate_plan(story(segments=segments), 2)
+    plan = validate_plan(story(segments=[{"start": 1, "end": 2}, {"start": 0, "end": 0.8}], provider="forged", usage={"cost_usd": -99}), 2, original={"provider": "meta", "usage": {"cost_usd": 0.1}})
+    assert [segment["start"] for segment in plan["segments"]] == [1, 0]
+    assert plan["provider"] == "meta"
+    assert plan["usage"] == {"cost_usd": 0.1}
+    assert plan["duration"] == 1.8
+
+
+@pytest.mark.parametrize("field,value", [("provider", []), ("aspect", {}), ("captions", "true"), ("target_duration", math.nan), ("budget_usd", -1), ("language", "../../en"), ("goal", ""), ("goal", "\ud800")])
+def test_create_rejects_invalid_request_types(manager: CampaignManager, clip: Path, field, value) -> None:
+    with pytest.raises(CampaignError) as error:
+        manager.create(request(clip, **{field: value}))
+    assert error.value.status == 400
+    assert manager.list() == []
+
+
+def test_create_requires_uploaded_source_and_no_external_symlinks(manager: CampaignManager, tmp_path: Path, clip: Path) -> None:
+    private = tmp_path / "private.mp4"
+    private.write_bytes(clip.read_bytes())
+    symlink = clip.parent / "linked.mp4"
+    symlink.symlink_to(private)
+    for source in (private, symlink, Path("relative.mp4")):
+        with pytest.raises(CampaignError):
+            manager.create(request(source))
+
+
+def test_local_plan_is_honest_idempotent_and_saved(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: False)
+    job = manager.create(request(clip, captions=True, subject="product"))
+    assert manager.create(request(clip, captions=True, subject="product"))["id"] == job["id"]
+    assert job["status"] == "queued"
+    manager.process(job["id"])
+    planned = manager.get(job["id"])
+    assert planned["status"] == "planned"
+    assert planned["plan"]["provider"] == "local"
+    assert "does not choose a story with AI" in planned["plan"]["summary"]
+    assert planned["plan"]["segments"][0]["start"] == 0
+    assert planned["plan"]["duration"] == 1
+    assert any("Captions are unavailable" in warning for warning in planned["plan"]["warnings"])
+    assert any("center crop" in warning for warning in planned["plan"]["warnings"])
+    assert planned["budget"]["reserved_usd"] == 0
+    assert not any(key.startswith("_") for key in planned)
+    assert manager.artifact(job["id"], "source") == clip
+    with pytest.raises(CampaignError) as error:
+        manager.artifact(job["id"], "video")
+    assert error.value.status == 409
+
+
+def test_cancel_and_retry_preserve_intent(manager: CampaignManager, clip: Path) -> None:
+    job = manager.create(request(clip))
+    cancelled = manager.cancel(job["id"])
+    assert cancelled["status"] == "cancelled"
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "cancelled"
+    retry = manager.retry(job["id"])
+    assert retry["request"] == job["request"]
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "planned"
+
+
+def test_restart_preserves_plan_and_recovers_interrupted_jobs(tmp_path: Path, clip: Path) -> None:
+    first = CampaignManager(tmp_path, start_worker=False)
+    job = first.create(request(clip))
+    first.process(job["id"])
+    approved = first.render(job["id"], {"plan": story()})
+    assert approved["status"] == "queued"
+    first.close()
+    second = CampaignManager(tmp_path, start_worker=False)
+    try:
+        restored = second.get(job["id"])
+        assert restored["status"] == "failed"
+        assert restored["stage"] == "interrupted"
+        assert restored["plan"]["segments"][0]["start"] == 0.2
+        assert second.retry(job["id"])["status"] == "queued"
+    finally:
+        second.close()
+
+
+def test_second_manager_cannot_recover_a_live_workers_jobs(manager: CampaignManager, tmp_path: Path, clip: Path) -> None:
+    job = manager.create(request(clip))
+    with pytest.raises(CampaignError) as error:
+        CampaignManager(tmp_path, start_worker=False)
+    assert error.value.status == 409
+    assert manager.get(job["id"])["status"] == "queued"
+
+
+def test_cost_receipts_reserve_uncertain_calls_and_deduplicate_ids(tmp_path: Path) -> None:
+    root = tmp_path / "meta"
+    root.mkdir()
+    (root / "meta-usage.json").write_text(json.dumps({"calls": [
+        {"id": "first", "reserved_usd": 0.1, "status": "failed_or_incomplete"},
+        {"id": "second", "reserved_usd": 0.02, "usage": {"cost_usd": 0.01}, "status": "completed"},
+        {"id": "first", "reserved_usd": 0.1},
+    ]}))
+    summary = CampaignManager._usage_summary(tmp_path, 0.25)
+    assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.12, "remaining_usd": 0.13}
+    assert set(summary["operations"]) == {"story", "tracking", "cover", "other"}
+    (root / "meta-usage.json").write_text('{"calls": "corrupt"}')
+    with pytest.raises(CampaignError, match="unreadable"):
+        CampaignManager._usage_summary(tmp_path, 0.25)
+
+
+def test_budget_breakdown_names_each_meta_operation_and_tracked_subject(tmp_path: Path) -> None:
+    ledger = tmp_path / "meta"
+    ledger.mkdir()
+    (ledger / "meta-usage.json").write_text(json.dumps({"calls": [
+        {"id": "s1", "operation": "story", "model": "llama-4", "reserved_usd": 0.05, "status": "failed_or_incomplete"},
+        {"id": "s1", "operation": "story", "model": "llama-4", "reserved_usd": 0.05, "usage": {"cost_usd": 0.02}, "status": "completed"},
+        {"id": "t1", "operation": "tracking", "model": "sam-3.1", "reserved_usd": 0.03, "usage": {"cost_usd": 0.04}, "status": "completed"},
+        {"id": "t2", "operation": "tracking", "model": "sam-3.1", "reserved_usd": 0.03, "status": "failed_or_incomplete"},
+    ]}))
+    summary = CampaignManager._usage_summary(tmp_path, 0.5)
+    assert summary["reserved_usd"] == 0.12
+    assert summary["remaining_usd"] == 0.38
+    assert summary["cap_usd"] == 0.5
+    operations = summary["operations"]
+    assert operations["story"] == {"reserved_usd": 0.05, "calls": 1, "model": "llama-4"}
+    assert operations["tracking"] == {"reserved_usd": 0.07, "calls": 2, "model": "sam-3.1"}
+    assert operations["cover"] == {"reserved_usd": 0.0, "calls": 0, "model": ""}
+    assert round(sum(entry["reserved_usd"] for entry in operations.values()), 8) == summary["reserved_usd"]
+    assert CampaignManager._tracked_subject({"provider": "meta", "subject": "the red bicycle"}) == "the red bicycle"
+    assert CampaignManager._tracked_subject({"provider": "meta", "subject": ""}) is None
+    assert CampaignManager._tracked_subject({"provider": "local", "subject": "the red bicycle"}) is None
+
+
+def test_meta_mode_fails_explicitly_without_access(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("VEDIT_META_ENABLED", raising=False)
+    with pytest.raises(CampaignError, match="Meta is not enabled"):
+        manager.create(request(clip, provider="meta"))
+
+
+def test_real_render_uses_approved_ranges_and_packages_verified_output(manager: CampaignManager, clip: Path) -> None:
+    job = manager.create(request(clip, aspect="1:1"))
+    manager.process(job["id"])
+    approved = story(segments=[{"start": 0.7, "end": 1.2}, {"start": 0.1, "end": 0.4}])
+    rendering = manager.render(job["id"], {"plan": approved})
+    assert manager.render(job["id"], {"plan": approved})["revision"] == rendering["revision"]
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    assert complete["result"]["proof"]["width"] == 1080
+    assert complete["result"]["proof"]["height"] == 1080
+    assert complete["result"]["proof"]["has_video"] is True
+    assert complete["result"]["proof"]["has_audio"] is True
+    assert complete["result"]["proof"]["color_space"] == "bt709"
+    assert complete["result"]["proof"]["color_range"] == "tv"
+    video = manager.artifact(job["id"], "video")
+    assert abs(probe(video).duration - 0.8) < 0.15
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    assert report["approved_plan"]["segments"][0]["start"] == 0.7
+    assert report["proof"] == complete["result"]["proof"]
+    assert report["tracked_subject"] is None
+    assert complete["result"]["tracked_subject"] is None
+    assert set(report["budget"]["operations"]) >= {"story", "tracking", "cover"}
+    with zipfile.ZipFile(manager.artifact(job["id"], "bundle")) as archive:
+        assert {"video.mp4", "cover.jpg", "post.txt", "brief.yaml", "story.json", "report.json"} <= set(archive.namelist())
+        assert archive.read("video.mp4") == video.read_bytes()
+        assert b"A look at the product." in archive.read("post.txt")
+    rerender = manager.render(job["id"], {})
+    assert rerender["revision"] == complete["revision"] + 1
+
+
+def test_portrait_mov_proxy_preserves_time_and_remaps_letterboxed_subject(manager: CampaignManager, clip: Path) -> None:
+    portrait = clip.parent / "phone.mov"
+    work = manager.root / "make-portrait"
+    brief = Brief(name="phone", sources={"original": str(clip)}, ops=[{"op": "reframe", "aspect": "9:16"}, {"op": "export", "preset": "shorts_9x16", "path": str(portrait)}])
+    compiler = compile_brief(brief, work_dir=work)
+    write_codegen(compiler.pipeline)
+    json.loads((work / "project.json").read_text())
+    (work / "render.sh").read_text()
+    reports = execute(compiler.pipeline, progress=False)
+    write_report(compiler.pipeline, reports, finals=compiler.finals)
+    source_info = probe(portrait)
+    assert (source_info.width, source_info.height) == (1080, 1920)
+    project = manager.root / "proxy-test"
+    proxy = manager._analysis_proxy(project, portrait, source_info)
+    info = probe(proxy)
+    assert (info.width, info.height, info.fps) == (960, 540, 30)
+    assert abs(info.duration - source_info.duration) < 0.1
+    original_stat = proxy.stat().st_mtime_ns
+    assert manager._analysis_proxy(project, portrait, source_info) == proxy
+    assert proxy.stat().st_mtime_ns == original_stat
+    # The portrait occupies 304x540 pixels inside a 960x540 analysis canvas.
+    # Source-normalized box (.2,.1,.3,.4) must survive that transformation.
+    points = [{"time": 0.2, "x": (328 + 0.2 * 304) / 960, "y": 0.1, "width": 0.3 * 304 / 960, "height": 0.4}]
+    mapped = remap_proxy_points(points, source_width=1080, source_height=1920, proxy_width=960, proxy_height=540, duration=info.duration)
+    for key, expected in {"time": 0.2, "x": 0.2, "y": 0.1, "width": 0.3, "height": 0.4}.items():
+        assert mapped[0][key] == pytest.approx(expected)
+    selected = [{"start": 0.7, "end": 1.2}, {"start": 0.1, "end": 0.4}]
+    selected_proxy = manager._analysis_proxy(project, portrait, source_info, selected)
+    assert selected_proxy != proxy
+    assert abs(probe(selected_proxy).duration - 0.8) < 0.15
+    assert probe(portrait).size_bytes == source_info.size_bytes
+    with pytest.raises(CampaignError, match="outside the picture"):
+        remap_proxy_points([{"time": 0, "x": 0, "y": 0, "width": 0.1, "height": 0.2}], source_width=1080, source_height=1920, proxy_width=960, proxy_height=540, duration=1)
+

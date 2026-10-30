@@ -1,0 +1,17 @@
+name: slideshow
+sources:
+  img0: ./demo/logo.png
+  img1: ./demo/logo.png
+  img2: ./demo/logo.png
+  music: ./demo/bed.wav
+ops:
+  - op: slideshow
+    images: [img0, img1, img2]
+    duration: 3.0
+    fade: 0.45
+  - op: replace_audio
+    source: music
+  - op: loudnorm
+    i: -14
+  - op: export
+    presets: [youtube_1080p]

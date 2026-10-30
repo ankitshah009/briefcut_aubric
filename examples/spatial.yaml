@@ -1,0 +1,15 @@
+name: floating-frame
+sources:
+  main: demo/talk.mp4
+canvas:
+  width: 960
+  height: 540
+  fps: 30
+ops:
+  - op: spatial_effect
+    preset: float
+    intensity: 0.55
+    start: 0
+    duration: 2
+  - op: export
+    preset: web_preview

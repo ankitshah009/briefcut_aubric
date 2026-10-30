@@ -1,0 +1,19 @@
+name: youtube-1080
+canvas:
+  width: 1920
+  height: 1080
+  fps: 30
+sources:
+  main: ./demo/talk.mp4
+ops:
+  - op: cut_silence
+  - op: captions
+    burn: true
+  - op: loudnorm
+    i: -14
+  - op: fade_in
+  - op: fade_out
+  - op: thumbnail
+    at: 1.5
+  - op: export
+    presets: [youtube_1080p]

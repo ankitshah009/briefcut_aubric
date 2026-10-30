@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vedit"
+version = "1.2.0"
+description = "Briefcut by Aubric.ai: local video editing with inspectable stories and spatial effects."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Ankit Shah" }]
+keywords = ["video", "ffmpeg", "nle", "editor", "captions", "whisper"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Video",
+]
+dependencies = ["pyyaml>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+stt = ["faster-whisper>=1.0"]
+
+[project.scripts]
+vedit = "vedit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vedit = ["py.typed", "studio/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+markers = [
+  "render: needs a working ffmpeg",
+  "speech: needs whisper-cli and a local ggml model",
+]
