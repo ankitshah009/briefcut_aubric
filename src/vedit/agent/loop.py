@@ -17,7 +17,7 @@ from vedit.agent.inventory import inventory_paths
 from vedit.agent.model import Critique, Decision, Finding, Inventory, Intent, Session
 from vedit.agent.revise import revise_brief
 from vedit.compile import compile_brief
-from vedit.errors import ProbeError, VeditError
+from vedit.errors import BriefError, ProbeError, VeditError
 from vedit.ir import Brief, brief_dumps
 from vedit.media import probe, trace
 from vedit.pipeline import execute, write_codegen, write_report
@@ -51,10 +51,12 @@ def run_session(
     analyze: bool = True,
     hw: bool | None = None,
     max_revisions: int = 1,
+    goal_paths: bool = True,
 ) -> Session:
+    """``goal_paths=False`` stops file paths written in the goal from becoming sources."""
     root = _session_dir(root, goal)
     media = [str(item) for item in paths]
-    if not media:
+    if not media and goal_paths:
         media = _paths_from_goal(goal)
     if not media:
         session = _missing_media(root, goal)
@@ -68,6 +70,13 @@ def run_session(
     trace("intent-exit")
     decision = decide(intent, inventory)
     trace("decide-exit")
+    if not goal_paths:
+        # Music, logos, or images named in the goal must not pull in files the
+        # caller did not supply explicitly (the studio supplies uploads only).
+        allowed = {str(Path(item).expanduser().resolve()) for item in media}
+        for name, source in decision.brief.sources.items():
+            if str(Path(str(source)).expanduser().resolve()) not in allowed:
+                raise BriefError(f"Source '{name}' was not uploaded. Add it through Studio.")
     if hw is not None:
         decision.brief.hw = hw
     decision, captions_skipped, decisions = _settle_captions(intent, decision, inventory)

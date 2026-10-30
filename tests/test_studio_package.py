@@ -337,3 +337,70 @@ def _exchange(
         return response.status, response.read()
     finally:
         conn.close()
+
+
+def _raw(port: int, method: str, path: str, headers: dict[str, str], body: bytes = b"") -> int:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        for key, value in headers.items():
+            conn.putheader(key, value)
+        conn.putheader("Content-Length", str(len(body)))
+        conn.endheaders(body)
+        response = conn.getresponse()
+        response.read()
+        return response.status
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/api/run"), ("POST", "/api/plan"), ("POST", "/api/upload?name=x.mp4"),
+    ("GET", "/api/session?root=/tmp"), ("GET", "/api/media?root=/tmp"), ("HEAD", "/api/media?root=/tmp"),
+])
+@pytest.mark.parametrize("bad", ["host", "origin", "fetch-site"])
+def test_every_api_route_rejects_cross_site_and_rebound_hosts(tmp_path, monkeypatch, method, path, bad):
+    monkeypatch.chdir(tmp_path)
+    with _studio_server() as port:
+        headers = {"Host": f"127.0.0.1:{port}", "Content-Type": "multipart/form-data; boundary=x"}
+        headers.update({"host": {"Host": "evil.example"},
+                        "origin": {"Origin": "https://evil.example"},
+                        "fetch-site": {"Sec-Fetch-Site": "cross-site"}}[bad])
+        assert _raw(port, method, path, headers, b"--x--\r\n") == 403
+    sessions = tmp_path / "vedit-sessions"
+    assert not sessions.exists() or not any(sessions.iterdir())
+
+
+def test_session_api_confines_root_and_paths_to_vedit_sessions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    outside = tmp_path / "private.mp4"
+    outside.write_bytes(b"secret")
+    with _studio_server() as port:
+        for body in (
+            {"goal": "edit", "root": str(tmp_path / "elsewhere")},
+            {"goal": "edit", "root": str(tmp_path / "vedit-sessions" / ".." / "elsewhere")},
+            {"goal": "edit", "root": str(tmp_path / "vedit-sessions" / "campaigns")},
+            {"goal": "edit", "paths": [str(outside)]},
+        ):
+            status, raw = _exchange("POST", port, "/api/plan", body, timeout=20)
+            assert status == 400, raw
+        status, _ = _exchange("GET", port, "/api/media?root=" + str(tmp_path))
+        assert status == 400
+        status, _ = _exchange("GET", port, "/api/session?root=/etc")
+        assert status == 400
+    assert not (tmp_path / "elsewhere").exists()
+
+
+def test_paths_named_in_the_goal_never_become_sources(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    secret = tmp_path / "private.mov"
+    secret.write_bytes(b"not for the studio")
+    with _studio_server() as port:
+        status, raw = _exchange("POST", port, "/api/plan", {"goal": f"preview {secret}", "paths": []}, timeout=20)
+    payload = json.loads(raw.decode())
+    if status == 200:
+        session = payload["session"]
+        assert session["status"] == "failed"
+        assert str(secret) not in json.dumps(session.get("inventory") or {})
+    else:
+        assert status == 400
