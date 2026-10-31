@@ -2,7 +2,8 @@
 """Write local demo assets under examples/demo/.
 
 ``talk.mp4`` / ``bed.wav`` / ``logo.png`` are tiny lavfi fixtures for tests.
-``workshop.mp4`` is a ~40 s, five-scene narrated clip with real silences and
+``tracking.mp4`` is a 12 s clip with a red square drifting across the frame, for
+SAM subject tracking demos. ``workshop.mp4`` is a ~40 s, five-scene narrated clip with real silences and
 hard scene changes so silence, scene, and transcript analysis has structure to
 find. Narration uses the macOS ``say`` voice; without it the clip is silent and
 the script says so.
@@ -16,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from vedit.media import MediaInfo, probe, resolve_font, run_ffmpeg
+from vedit.media import MediaInfo, probe, resolve_ffmpeg, resolve_font, run_command, run_ffmpeg
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_DEST = REPO / "examples" / "demo"
@@ -159,6 +160,25 @@ def write_workshop(path: Path, *, scene_seconds: float = WORKSHOP_SCENE_SECONDS)
     return path, narrated
 
 
+def write_tracking(path: Path, *, seconds: float = 12.0) -> Path:
+    """A red square drifting across a slate field: a subject SAM can follow deterministically."""
+    ffmpeg = resolve_ffmpeg()
+    font = resolve_font()
+    text = f",drawtext=fontfile='{font}':text='red square demo':x=40:y=40:fontsize=40:fontcolor=white" if font else ""
+    run_command([
+        ffmpeg, "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"color=c=0x8aa0b8:s=1280x720:r=30:d={seconds}",
+        "-f", "lavfi", "-i", f"color=c=red:s=140x140:r=30:d={seconds}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}",
+        "-filter_complex",
+        "[0:v][1:v]overlay=x='(W-w)*(0.5+0.42*sin(t*0.9))':y='(H-h)*(0.5+0.3*cos(t*0.7))':shortest=1"
+        + text + ",format=yuv420p[v]",
+        "-map", "[v]", "-map", "2:a", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(path),
+    ])
+    return path
+
+
 def make_demo(dest: Path | None = None, *, seconds: float = SECONDS, workshop: bool = True) -> dict[str, Path]:
     root = Path(dest) if dest is not None else DEFAULT_DEST
     root.mkdir(parents=True, exist_ok=True)
@@ -174,6 +194,7 @@ def make_demo(dest: Path | None = None, *, seconds: float = SECONDS, workshop: b
         _verify_workshop(clip, narrated=narrated)
         if not narrated:
             print("workshop.mp4: macOS `say` unavailable; the clip has no narration.")
+        assets["tracking"] = write_tracking(root / "tracking.mp4")
     return assets
 
 

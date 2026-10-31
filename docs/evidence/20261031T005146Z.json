@@ -1,0 +1,275 @@
+{
+  "schema": "briefcut-evidence/1",
+  "recorded_at": "2026-10-31T00:51:46+00:00",
+  "machine": {
+    "hostname_redacted": true,
+    "os": "Darwin 27.0.1",
+    "machine": "arm64",
+    "cpu": "Apple M5 Max",
+    "memory_bytes": 137438953472,
+    "python": "Python 3.13.16",
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "vedit": "1.2.0"
+  },
+  "workspace": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/53bf4fa4-74c9-4799-972e-9f3c016efd10/scratchpad/meta-ws3",
+  "request": {
+    "paths": [
+      "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/53bf4fa4-74c9-4799-972e-9f3c016efd10/scratchpad/meta-ws3/vedit-sessions/source-20261030175147-53xz0s16/inbox/workshop.mp4"
+    ],
+    "goal": "Make a 20-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.",
+    "provider": "meta",
+    "target_duration": 20,
+    "aspect": "9:16",
+    "captions": true,
+    "language": "en",
+    "subject": "",
+    "budget_usd": 0.5,
+    "generate_cover": true,
+    "effect": null,
+    "caption_provider": "meta"
+  },
+  "timings_seconds": {
+    "upload": 0.002,
+    "plan": 25.767,
+    "render": 22.768,
+    "total": 48.537
+  },
+  "stages": [
+    {
+      "at": 0.006,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.007,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.514,
+      "status": "analyzing",
+      "stage": "preparing",
+      "message": "Making a small analysis copy; your original stays unchanged."
+    },
+    {
+      "at": 2.527,
+      "status": "analyzing",
+      "stage": "planning",
+      "message": "Finding a story in your footage."
+    },
+    {
+      "at": 25.769,
+      "status": "planned",
+      "stage": "review",
+      "message": "Review the story and approve the render."
+    },
+    {
+      "at": 25.787,
+      "status": "rendering",
+      "stage": "preparing",
+      "message": "Preparing your approved edit."
+    },
+    {
+      "at": 26.301,
+      "status": "rendering",
+      "stage": "transcribing",
+      "message": "Asking Meta to transcribe the approved speech."
+    },
+    {
+      "at": 30.853,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 1 of 4: assemble 5 selected moments"
+    },
+    {
+      "at": 34.387,
+      "status": "rendering",
+      "stage": "cover",
+      "message": "Creating the requested campaign cover."
+    },
+    {
+      "at": 48.537,
+      "status": "complete",
+      "stage": "complete",
+      "message": "Your campaign is ready. The video passed export verification."
+    }
+  ],
+  "notes": [
+    "Timings are wall-clock measurements of this single run, including HTTP polling at 0.5 s intervals.",
+    "A local plan is deterministic signal analysis, not model understanding. Meta mode requires live credentials."
+  ],
+  "capabilities": {
+    "local_ready": true,
+    "local_captions": true,
+    "meta_available": true,
+    "effects_supported": true
+  },
+  "job_id": "1ce072942ec140d8a8db107e7bfcda2e",
+  "source": {
+    "name": "workshop.mp4",
+    "duration": 40.021354,
+    "width": 1280,
+    "height": 720,
+    "has_audio": true,
+    "has_video": true
+  },
+  "plan": {
+    "provider": "meta",
+    "title": "Oak Bowl: Finished to Made",
+    "summary": "Opens with the finished bowl card, then follows the source order through raw oak, turning, sanding, and oil finish to show how it is made.",
+    "segments": [
+      {
+        "start": 0.5,
+        "end": 4.5,
+        "label": "Finished bowl opening",
+        "reason": "Shows solid tan background with on-screen text '1. Finished bowl', satisfying the brief to open with the finished bowl."
+      },
+      {
+        "start": 8.5,
+        "end": 12.5,
+        "label": "Raw oak",
+        "reason": "Shows solid dark-green background with on-screen text '2. Raw oak', marking the starting material stage."
+      },
+      {
+        "start": 16.5,
+        "end": 20.5,
+        "label": "Turning",
+        "reason": "Shows solid light-blue background with on-screen text '3. Turning', marking the shaping stage."
+      },
+      {
+        "start": 24.5,
+        "end": 28.5,
+        "label": "Sanding",
+        "reason": "Shows solid brown background with on-screen text '4. Sanding', marking the smoothing stage."
+      },
+      {
+        "start": 32.5,
+        "end": 36.5,
+        "label": "Oil finish",
+        "reason": "Shows solid light-lavender background with on-screen text '5. Oil finish', marking the final finishing stage."
+      }
+    ],
+    "duration": 20.0,
+    "analysis_method": null,
+    "analysis_notes": null,
+    "warnings": [],
+    "usage": {
+      "estimated_max_usd": 0.001686,
+      "cached": false,
+      "input_tokens": 11094,
+      "output_tokens": 1868,
+      "total_tokens": 12962,
+      "cost_usd": 0.001483
+    }
+  },
+  "result": {
+    "proof": {
+      "duration": 20.0,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 1347402
+    },
+    "warnings": [],
+    "cover_kind": "generated",
+    "provider": "meta",
+    "caption_provider": "meta",
+    "effect": null,
+    "tracked_subject": null,
+    "revision": 1
+  },
+  "budget": {
+    "cap_usd": 0.5,
+    "reserved_usd": 0.012686,
+    "remaining_usd": 0.487314,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.001686,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "cover": {
+        "reserved_usd": 0.01,
+        "calls": 1,
+        "model": "muse-image-1.0"
+      },
+      "transcribe": {
+        "reserved_usd": 0.001,
+        "calls": 1,
+        "model": "muse-voice-transcribe-1.0"
+      }
+    }
+  },
+  "timings_server": {
+    "plan_seconds": 25.52,
+    "render_seconds": 22.302,
+    "render_revision": 1
+  },
+  "downloaded": {
+    "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/53bf4fa4-74c9-4799-972e-9f3c016efd10/scratchpad/meta-ws3/evidence-downloads/video.mp4",
+    "video_bytes": 1347402,
+    "report": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/53bf4fa4-74c9-4799-972e-9f3c016efd10/scratchpad/meta-ws3/evidence-downloads/report.json",
+    "bundle_bytes": 2322404,
+    "probe": {
+      "path": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/53bf4fa4-74c9-4799-972e-9f3c016efd10/scratchpad/meta-ws3/evidence-downloads/video.mp4",
+      "duration": 20.0,
+      "format": "mov,mp4,m4a,3gp,3g2,mj2",
+      "size_bytes": 1347402,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_video": true,
+      "has_audio": true,
+      "streams": [
+        {
+          "index": 0,
+          "type": "video",
+          "codec": "h264",
+          "width": 1080,
+          "height": 1920,
+          "fps": 30.0,
+          "sample_rate": null,
+          "channels": null
+        },
+        {
+          "index": 1,
+          "type": "audio",
+          "codec": "aac",
+          "width": null,
+          "height": null,
+          "fps": null,
+          "sample_rate": 48000,
+          "channels": 2
+        }
+      ]
+    }
+  },
+  "report_proof": {
+    "duration": 20.0,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30.0,
+    "has_audio": true,
+    "has_video": true,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 1347402
+  },
+  "report_steps": 4,
+  "json_path": "docs/evidence/20261031T005146Z.json"
+}
