@@ -35,7 +35,7 @@ from vedit.presets import get_preset
 
 _ACTIVE = {"queued", "analyzing", "rendering"}
 _ASPECTS = {"9:16": "shorts_9x16", "16:9": "youtube_1080p", "1:1": "square_1x1"}
-_META_OPERATIONS = ("story", "tracking", "cover", "transcribe")
+_META_OPERATIONS = ("story", "tracking", "cover", "transcribe", "review")
 _CAPTION_PROVIDERS = {"local", "meta"}
 _MAX_SOURCE_BYTES = 200_000_000
 _MAX_SOURCE_SECONDS = 1_200
@@ -409,10 +409,11 @@ class CampaignManager:
             "budget_usd": _number(value.get("budget_usd", 0.25), "Campaign budget", 0.01, 5),
             "generate_cover": _boolean(value, "generate_cover", False),
             "effect": _effect(value.get("effect")),
+            "review": _boolean(value, "review", False),
         }
         if provider == "local" and request["generate_cover"]:
             raise CampaignError("Generated covers need Meta mode. A cover frame is always included locally.")
-        if provider == "meta" or (request["captions"] and caption_provider == "meta"):
+        if provider == "meta" or (request["captions"] and caption_provider == "meta") or request["review"]:
             cloud = capabilities()["meta"]
             if not cloud.get("configured") or not cloud.get("enabled"):
                 raise CampaignError("Meta is not enabled. Configure MODEL_API_KEY and VEDIT_META_ENABLED=1 on the server, or choose Local edit.", 409)
@@ -470,6 +471,9 @@ class CampaignManager:
             plan = validate_plan(value.get("plan", job["plan"]), job["source"]["duration"], original=job["plan"])
             effect = _effect(value.get("effect", job["request"].get("effect")), duration=plan["duration"])
             plan["effect"] = effect
+            tracking = value.get("tracking", not job["request"].get("tracking_disabled", False))
+            if not isinstance(tracking, bool):
+                raise CampaignError("tracking must be true or false.")
             if self._queue.full() or self._closed:
                 raise CampaignError("The render queue is unavailable. Try again shortly.", 503)
             previous = self._public(job)
@@ -477,7 +481,9 @@ class CampaignManager:
             if job["result"]:
                 job["result"]["stale"] = True
             job["request"]["effect"] = effect
-            job.update(plan=plan, status="queued", stage="queued", progress=0, message="Your approved story is queued for rendering. Your previous verified version remains available." if job["result"] else "Your approved story is queued for rendering.", error=None, cancel_requested=False, revision=job["revision"] + 1, updated_at=_now(), _action="render")
+            # The subject stays on record; only this and later revisions skip tracking.
+            job["request"]["tracking_disabled"] = not tracking
+            job.update(plan=plan, status="queued", stage="queued", progress=0, message="Your approved story is queued for rendering. Your previous verified version remains available." if job["result"] else "Your approved story is queued for rendering.", error=None, cancel_requested=False, revision=job["revision"] + 1, updated_at=_now(), _action="render", recovery=None)
             self._save(connection, job)
             connection.commit()
             self._events[ident] = threading.Event()
@@ -637,6 +643,8 @@ class CampaignManager:
     @staticmethod
     def _tracked_subject(request: dict[str, Any]) -> str | None:
         """The subject string tracking ran on, or None when no tracking was requested."""
+        if request.get("tracking_disabled"):
+            return None
         return request["subject"] if request.get("provider") == "meta" and request.get("subject") else None
 
     @staticmethod
@@ -699,7 +707,17 @@ class CampaignManager:
         cache = root / "model-plan.json"
         if request["provider"] == "meta":
             from vedit import meta
+            from vedit.story import analyze_signals, annotate_segments
 
+            # Local measurement first (scene cuts, speech bands, optional local
+            # transcript): it grounds the model prompt and gives the review
+            # screen the same scrubber and transcript as a local plan. This
+            # step never calls Meta.
+            self._update(ident, stage="measuring", progress=0.22, message="Measuring scene cuts and speech in your footage.")
+            signals = analyze_signals(source, work_dir=root / "analysis" / "signals", language=request["language"] if request["language"] != "auto" else "en", transcribe=local_transcriber_ready())
+            warnings.extend(signals.pop("warnings", []))
+            signals.pop("has_audio", None)
+            self._check_cancel(ident)
             if cache.is_file():
                 proposed = json.loads(cache.read_text(encoding="utf-8"))
             else:
@@ -707,9 +725,11 @@ class CampaignManager:
                 proxy = self._analysis_proxy(root, source, info, cancel_event=self._event(ident))
                 self._check_cancel(ident)
                 self._update(ident, stage="planning", progress=0.55, message="Finding a story in your footage.")
-                proposed = meta.plan_story(proxy, goal=request["goal"], duration=info.duration, target_duration=min(info.duration, request["target_duration"]), work_dir=root / "meta", language=request["language"], budget_usd=request["budget_usd"])
+                proposed = meta.plan_story(proxy, goal=request["goal"], duration=info.duration, target_duration=min(info.duration, request["target_duration"]), work_dir=root / "meta", language=request["language"], budget_usd=request["budget_usd"], transcript=signals.get("transcript") or None)
                 _write_json(cache, proposed)
             proposed["provider"] = "meta"
+            proposed["segments"] = annotate_segments(list(proposed.get("segments") or []), signals.get("speech") or [])
+            proposed["analysis"] = dict(signals, method="meta", notes=["Meta director selected the moments; scene cuts, speech bands and transcript come from local analysis."])
         else:
             from vedit.story import plan_local_story
 
@@ -765,6 +785,37 @@ class CampaignManager:
         if available < required:
             raise CampaignError(f"Not enough free disk space for {phase}. Estimated required: {required / 1024**2:.1f} MB; available: {available / 1024**2:.1f} MB. Free space on the project drive and retry; your verified version is preserved.")
         return {"stage": phase, "required_bytes": required, "available_bytes": available}
+
+    def _review_cut(self, ident: str, job: dict[str, Any], work: Path, video: Path, plan: dict[str, Any], duration: float, warnings: list[str]) -> dict[str, Any]:
+        """Ask Muse Spark for director's notes on a 540p copy of the verified output."""
+        from vedit import meta
+
+        request, root = job["request"], self.root / ident
+        self._update(ident, stage="reviewing", progress=0.9, message="Asking Meta to review the finished cut.")
+        try:
+            proxy_dir = work / "review-proxy"
+            proxy = proxy_dir / "review.mp4"
+            if not (proxy.is_file() and proxy.stat().st_size):
+                proxy_dir.mkdir(parents=True, exist_ok=True)
+                brief = Brief(name="review-proxy", sources={"footage": str(video)}, ops=[{"op": "fit"}, {"op": "export", "preset": "web_preview", "path": str(proxy)}], canvas=Canvas(width=960, height=540, fps=30), hw=False, work_dir=str(proxy_dir))
+                compiler = compile_brief(brief, work_dir=proxy_dir)
+                write_codegen(compiler.pipeline)
+                execute(compiler.pipeline, progress=False, cancel_event=self._event(ident))
+            self._check_cancel(ident)
+            notes = meta.review_cut(proxy, goal=request["goal"], plan=dict(plan, duration=duration), work_dir=root / "meta", language=request.get("language", "en"), budget_usd=request["budget_usd"])
+            warnings.extend(notes.get("warnings", []))
+            return notes
+        except (_Cancelled, RenderCancelled):
+            raise
+        except Exception as exc:
+            if type(exc).__name__ == "MetaError" and type(exc).__module__ == "vedit.meta":
+                message = str(exc)
+            elif isinstance(exc, (CampaignError, VeditError)):
+                message = "The finished cut could not be prepared for review."
+            else:
+                message = "The review did not complete."
+            warnings.append("Director's notes unavailable: " + message + " The verified video is unaffected.")
+            return {"error": message}
 
     def _analysis_proxy(self, root: Path, source: Path, info: Any, ranges: list[dict[str, float]] | None = None, *, cancel_event: threading.Event | None = None) -> Path:
         """Compile a canonical MP4 proxy without moving any editorial timestamps.
@@ -839,7 +890,7 @@ class CampaignManager:
         root = self.root / ident
         work = root / f"render-{job['revision']}"
         started = time.monotonic()
-        self._update(ident, status="rendering", stage="preparing", progress=0.05, message="Preparing your approved edit.")
+        self._update(ident, status="rendering", stage="preparing", progress=0.05, message="Preparing your approved edit.", recovery=None)
         source = self._source(request["paths"][0])
         info = probe(source)
         plan = validate_plan(plan, info.duration, original=plan)
@@ -854,7 +905,7 @@ class CampaignManager:
         self._update(ident, storage=storage)
         self._check_cancel(ident)
         work.mkdir(exist_ok=True)
-        if request["provider"] == "meta" and request["subject"]:
+        if request["provider"] == "meta" and request["subject"] and not request.get("tracking_disabled"):
             from vedit import meta
 
             self._update(ident, stage="tracking", progress=0.12, message="Following your chosen subject through the footage.")
@@ -871,10 +922,18 @@ class CampaignManager:
                     tracking["points"] = remap_proxy_points(tracking["points"], source_width=getattr(info, "display_width", info.width), source_height=getattr(info, "display_height", info.height), proxy_width=proxy_info.width, proxy_height=proxy_info.height, duration=duration)
                 _write_json(cache, tracking)
             if not tracking.get("points"):
+                # Persist a user-chosen way forward before failing; the job
+                # record, source, and approved plan all stay intact.
+                self._update(ident, recovery={
+                    "option": "center_crop",
+                    "message": f"Meta could not find \u201c{request['subject']}\u201d. Render this version with a center crop instead, or create a new plan with a clearer subject.",
+                })
                 raise CampaignError("The chosen subject was not found. Create a new plan with a clearer subject description or leave tracking off.")
             ops.extend([{"op": "select_ranges", "ranges": ranges}, {"op": "track_reframe", "aspect": request["aspect"], "points": tracking["points"]}])
             warnings.extend(tracking.get("warnings", []))
         else:
+            if request["provider"] == "meta" and request["subject"] and request.get("tracking_disabled"):
+                warnings.append("Subject tracking was turned off for this version; a center crop was used.")
             ops.append({"op": "reframe", "aspect": request["aspect"], "mode": "fill"})
             ops.append({"op": "select_ranges", "ranges": ranges})
         if effect is not None:
@@ -937,6 +996,11 @@ class CampaignManager:
         report["warnings"] = warnings
         report["approved_plan"] = plan
         report["effect"] = effect
+        review: dict[str, Any] | None = None
+        if request.get("review"):
+            # Director's notes never change the verified file; a failed review is a warning.
+            review = self._review_cut(ident, job, work, video, plan, output.duration, warnings)
+            report["review"] = review
         _write_json(report_path, report)
         cover = work / "cover.jpg"
         cover_kind = "frame"
@@ -982,7 +1046,7 @@ class CampaignManager:
         pending_bundle.replace(bundle)
         artifacts = {"video": str(video.relative_to(root)), "cover": str(cover.relative_to(root)), "bundle": str(bundle.relative_to(root)), "brief": str((work / "brief.yaml").relative_to(root)), "report": str(report_path.relative_to(root))}
         result = {f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in artifacts}
-        result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject, caption_provider=caption_provider)
+        result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject, caption_provider=caption_provider, review=review)
         self._check_cancel(ident)
         timings = dict(job.get("timings") or {}, render_seconds=round(time.monotonic() - started, 3), render_revision=job["revision"])
         self._update(ident, status="complete", stage="complete", progress=1, message="Your campaign is ready. The video passed export verification.", result=result, verified_revision=job["revision"], error=None, _artifacts=artifacts, timings=timings)

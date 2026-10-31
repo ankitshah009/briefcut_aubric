@@ -21,13 +21,17 @@ bash scripts/studio.sh --open
 
 The launcher creates the checkout's uv-managed virtual environment when needed and
 finds an optional local Whisper model under `.vedit-models/` (`ggml-base.en.bin` preferred). Local mode works without an account
-or model API. It starts with an explicitly labeled, editable opening cut.
+or model API. Its starting plan comes from local signal analysis: scene cuts,
+speech ranges, and transcript keywords, each moment labeled with its evidence.
 
-Optional Meta mode adds Muse Spark story planning, SAM subject tracking, and Muse
-Image covers. It requires server-side credentials and explicit enablement. A
-campaign spending cap includes uncertain attempts; retries do not reset it.
-Captions and final video rendering stay local. No model calls happen simply by
-opening Studio.
+Optional Meta mode adds Muse Spark story planning, SAM 3.1 subject tracking,
+Muse Voice Transcribe captions, and Muse Image covers through the Meta Model
+API. It requires server-side credentials (`MODEL_API_KEY`) and explicit
+enablement (`VEDIT_META_ENABLED=1`); `VEDIT_META_MODE=contributor` opts into the
+cheaper Muse Spark contributor tier. A campaign spending cap includes uncertain
+attempts; retries do not reset it. Final video rendering stays local. No model
+calls happen simply by opening Studio. `uv run vedit meta check` verifies
+credentials without buying inference.
 
 Add Floating frame, Perspective sway, or Push-in reveal inside the same editing
 flow. Control strength and timing; the effects render locally before captions.
@@ -35,8 +39,11 @@ See [spatial effects](docs/SPATIAL_EFFECTS.md) for examples and their limits.
 
 See [setup, API, and recovery](docs/CAMPAIGN.md) and the
 [hackathon demo guide](docs/HACKATHON.md). Social publishing is not implemented;
-the delivery is a downloadable campaign package. Live provider verification
-requires configured Meta access; HTTP fixture tests alone do not prove it.
+the delivery is a downloadable campaign package. All four Meta adapters were
+exercised live on 2026-10-31 on synthetic demo clips; the timed records and a
+SAM tracking contact sheet are under [docs/evidence](docs/evidence/). Repeat
+`uv run python scripts/demo_run.py --provider meta` on your own footage before
+relying on them.
 
 ```text
 intent (YAML brief | English DSL | Python API)

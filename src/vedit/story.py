@@ -400,6 +400,66 @@ def analyze_source(
     return {"duration": info.duration, "has_audio": info.has_audio, "scenes": scenes, "silences": silences, "transcript": transcript, "warnings": warnings}
 
 
+def analyze_signals(
+    source: Path,
+    *,
+    work_dir: Path,
+    language: str = "en",
+    transcribe: bool = True,
+    time_budget_s: float = 20.0,
+) -> dict[str, Any]:
+    """Measured, display-ready signals in the plan ``analysis`` shape.
+
+    Shared by local planning and by Meta-mode plans, so the Studio scrubber and
+    transcript panel behave the same whichever planner chose the moments. The
+    optional transcript is local speech recognition; nothing here calls Meta.
+    """
+    measured = analyze_source(Path(source), Path(work_dir), language=language, transcribe=transcribe, time_budget_s=time_budget_s)
+    duration = float(measured["duration"])
+    scenes = sorted({round(float(s), 3) for s in measured["scenes"] if 0 < float(s) < duration})[:MAX_SCENES]
+    speech = (speech_ranges(duration, measured["silences"]) if measured["has_audio"] else [])[:MAX_SPEECH]
+    return {
+        "method": METHOD,
+        "scenes": scenes,
+        "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in speech],
+        "transcript": _bound_transcript(measured["transcript"], duration),
+        "duration": round(duration, 3),
+        "notes": [NOTE],
+        "has_audio": bool(measured["has_audio"]),
+        "warnings": list(measured["warnings"]),
+    }
+
+
+def annotate_segments(segments: list[dict[str, Any]], speech: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add measured ``kind``/``score`` to planner segments that lack them.
+
+    ``kind`` is "speech" when at least half of the segment overlaps measured
+    speech, otherwise "scene"; ``score`` is that overlap fraction. Existing
+    values are kept.
+    """
+    out = []
+    for segment in segments:
+        item = dict(segment)
+        try:
+            start, end = float(item["start"]), float(item["end"])
+        except (KeyError, TypeError, ValueError):
+            out.append(item)
+            continue
+        length = end - start
+        covered = 0.0
+        if length > 0:
+            for band in speech:
+                try:
+                    covered += _overlap(start, end, float(band["start"]), float(band["end"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        fraction = max(0.0, min(1.0, covered / length)) if length > 0 else 0.0
+        item.setdefault("kind", "speech" if fraction >= 0.5 else "scene")
+        item.setdefault("score", round(fraction, 3))
+        out.append(item)
+    return out
+
+
 def plan_local_story(
     source: Path,
     *,

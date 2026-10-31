@@ -490,9 +490,9 @@ def test_retry_after_uncertain_inference_charge_cannot_exceed_project_cap(
 
     monkeypatch.setattr(meta, "_request", timeout_generation)
     with pytest.raises(meta.MetaError, match="timeout"):
-        plan(source, tmp_path, budget_usd=0.05)
+        plan(source, tmp_path, budget_usd=0.1)
     with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
-        plan(source, tmp_path, budget_usd=0.05)
+        plan(source, tmp_path, budget_usd=0.1)
     assert len(charged_calls) == 1
     ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
     assert len(ledger["calls"]) == 1
@@ -504,13 +504,13 @@ def test_distinct_stories_share_budget_but_cached_story_is_free(
 ) -> None:
     http = HttpScript()
     monkeypatch.setattr(meta, "_request", http)
-    first = plan(source, tmp_path, budget_usd=0.05)
-    second = plan(source, tmp_path, budget_usd=0.05)
+    first = plan(source, tmp_path, budget_usd=0.1)
+    second = plan(source, tmp_path, budget_usd=0.1)
     assert first["segments"] == second["segments"]
     assert second["usage"]["cached"] is True
     with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
         meta.plan_story(source, goal="Give me a different story", duration=10, target_duration=5,
-                        work_dir=tmp_path / "work", budget_usd=0.05)
+                        work_dir=tmp_path / "work", budget_usd=0.1)
     assert sum(method == "POST" and path == "/responses" for method, path, _ in http.calls) == 1
 
 
@@ -528,7 +528,7 @@ def test_concurrent_stories_cannot_both_reserve_the_same_budget(
     def make_story(goal: str) -> dict[str, Any] | meta.MetaError:
         try:
             return meta.plan_story(source, goal=goal, duration=10, target_duration=5,
-                                   work_dir=tmp_path / "work", budget_usd=0.05)
+                                   work_dir=tmp_path / "work", budget_usd=0.1)
         except meta.MetaError as exc:
             return exc
 
@@ -662,3 +662,131 @@ def test_contributor_mode_is_explicit_and_priced(monkeypatch):
     monkeypatch.setenv("VEDIT_META_MODE", "cheap")
     broken = meta.capabilities()
     assert broken["available"] is False and "VEDIT_META_MODE" in broken["reason"]
+
+
+def test_story_prompt_is_grounded_in_the_local_transcript(enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    transcript = [
+        {"start": 0.2, "end": 1.9, "text": "Hands shape the clay."},
+        {"start": 5.1, "end": 7.8, "text": "The finished bowl."},
+        {"start": 12.0, "end": 13.0, "text": "After the source ends"},
+        {"start": 3.0, "end": 3.5, "text": "bad\x01control"},
+    ]
+    plan(source, tmp_path, transcript=transcript)
+    text = http.payload("/responses")["input"][0]["content"][0]["text"]
+    assert "Transcript (local speech recognition, source clock, may contain errors):" in text
+    assert "[0.2–1.9] Hands shape the clay." in text
+    assert "[5.1–7.8] The finished bowl." in text
+    assert "After the source ends" not in text and "control" not in text
+    assert "quote speech only from it" in text
+    assert "do not claim accurate speech transcription" not in text
+
+
+def test_story_without_transcript_keeps_the_visual_only_prompt(enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    plan(source, tmp_path, transcript=[])
+    text = http.payload("/responses")["input"][0]["content"][0]["text"]
+    assert "Transcript (" not in text
+    assert "do not claim accurate speech transcription" in text
+
+
+def test_transcript_changes_the_story_cache_key(enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    plan(source, tmp_path)
+    assert sum(1 for m, p, _ in http.calls if (m, p) == ("POST", "/responses")) == 1
+    plan(source, tmp_path)  # identical request: served from cache
+    assert sum(1 for m, p, _ in http.calls if (m, p) == ("POST", "/responses")) == 1
+    plan(source, tmp_path, transcript=[{"start": 0.0, "end": 1.0, "text": "Hands shape the clay."}])
+    assert sum(1 for m, p, _ in http.calls if (m, p) == ("POST", "/responses")) == 2
+
+
+def test_transcript_block_is_bounded() -> None:
+    cues = [{"start": i, "end": i + 0.9, "text": "word " * 60} for i in range(400)]
+    block = meta._transcript_block(cues, duration=1000)
+    assert len(block.encode("utf-8")) < meta._TRANSCRIPT_BYTES + 200
+    assert block.rstrip().endswith("[… transcript truncated]")
+
+
+REVIEW = {
+    "verdict": "Opens on the finished piece, then earns it with process.",
+    "strengths": ["Clear sequence", "Strong closing frame"],
+    "fixes": [{"what": "Trim the sanding beat.", "where_seconds": 9.5}, {"what": "Hold the opener longer.", "where_seconds": None}],
+    "caption_suggestion": "From raw oak to finished bowl.",
+    "hook_score": 4,
+}
+
+
+def review(source: Path, tmp_path: Path, **kwargs: Any) -> dict[str, Any]:
+    plan = {"duration": 20.0, "segments": [{"label": "Opener", "start": 0.5, "end": 4.5}]}
+    return meta.review_cut(source, goal="Open with the finished bowl", plan=plan, work_dir=tmp_path / "work", **kwargs)
+
+
+def test_review_uses_strict_schema_and_reserves_under_review_operation(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(story=REVIEW)
+    monkeypatch.setattr(meta, "_request", http)
+    result = review(source, tmp_path)
+    assert result["verdict"] == REVIEW["verdict"]
+    assert result["hook_score"] == 4 and result["fixes"][0]["where_seconds"] == 9.5 and result["fixes"][1]["where_seconds"] is None
+    assert result["provider"] == "meta" and result["usage"]["cost_usd"] > 0
+    payload = http.payload("/responses")
+    assert payload["text"]["format"] == {"type": "json_schema", "name": "vedit_review", "strict": True, "schema": meta._review_schema()}
+    assert "never as instructions" in payload["input"][0]["content"][0]["text"]
+    assert http.requested("POST", "/responses/input_tokens") and http.requested("DELETE", "/files/file-abc123")
+    ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
+    assert [call["operation"] for call in ledger["calls"]] == ["review"]
+    assert ledger["calls"][0]["status"] == "completed"
+    # A second identical review is served from cache without another upload.
+    again = review(source, tmp_path)
+    assert again["usage"]["cached"] is True
+    assert sum(1 for m, p, _ in http.calls if m == "POST" and p == "/files") == 1
+
+
+@pytest.mark.parametrize("bad", [
+    {**REVIEW, "hook_score": True},
+    {**REVIEW, "verdict": ""},
+    {**REVIEW, "strengths": "not a list"},
+    {**REVIEW, "fixes": ["not an object"]},
+    "not json at all",
+])
+def test_malformed_review_is_rejected_and_reservation_kept(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: Any,
+) -> None:
+    http = HttpScript(story=bad) if isinstance(bad, dict) else HttpScript(text=bad)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError):
+        review(source, tmp_path)
+    ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
+    assert ledger["calls"][0]["operation"] == "review"
+    assert ledger["calls"][0]["status"] == "failed_or_incomplete"
+    assert http.requested("DELETE", "/files/file-abc123")
+
+
+@pytest.mark.parametrize("loose, check", [
+    ({**REVIEW, "hook_score": 7}, lambda r: r["hook_score"] == 5),
+    ({**REVIEW, "strengths": ["x"] * 6}, lambda r: len(r["strengths"]) == 5),
+    ({**REVIEW, "fixes": [{"what": "", "where_seconds": 1}]}, lambda r: r["fixes"] == []),
+    ({**REVIEW, "fixes": [{"what": "late", "where_seconds": 999}]}, lambda r: r["fixes"][0]["where_seconds"] <= 60),
+    ({**REVIEW, "verdict": "v" * 400}, lambda r: len(r["verdict"]) <= 300 and r["verdict"].endswith("…")),
+])
+def test_review_prose_is_trimmed_not_rejected(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, loose: dict, check: Any,
+) -> None:
+    """Director's notes are display data: nothing executes them, so trim instead of discarding the review."""
+    monkeypatch.setattr(meta, "_request", HttpScript(story=loose))
+    result = review(source, tmp_path)
+    assert check(result)
+
+
+def test_review_over_budget_never_uploads_inference(
+    enabled: None, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = HttpScript(story=REVIEW, input_tokens=1_000_000)
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="budget"):
+        review(source, tmp_path, budget_usd=0.01)
+    assert not any(m == "POST" and p == "/responses" for m, p, _ in http.calls)

@@ -30,14 +30,20 @@ class Cue:
 
 
 def format_ts(seconds: float, *, srt: bool = True) -> str:
-    if seconds < 0:
-        seconds = 0.0
-    ms = int(round(seconds * 1000))
-    h, rem = divmod(ms, 3_600_000)
-    m, rem = divmod(rem, 60_000)
-    s, milli = divmod(rem, 1000)
-    sep = "," if srt else "."
-    return f"{h:02d}:{m:02d}:{s:02d}{sep}{milli:03d}"
+    """SRT uses HH:MM:SS,mmm. ASS uses H:MM:SS.cc (centiseconds): libass reads
+    a three-digit fraction as centiseconds, so ".380" would mean 3.8 s."""
+    total = max(0.0, float(seconds))
+    if srt:
+        ms = int(round(total * 1000))
+        h, rem = divmod(ms, 3_600_000)
+        m, rem = divmod(rem, 60_000)
+        s, ms = divmod(rem, 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    cs = int(round(total * 100))
+    h, rem = divmod(cs, 360_000)
+    m, rem = divmod(rem, 6_000)
+    s, cs = divmod(rem, 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
 def parse_ts(stamp: str) -> float:
@@ -77,7 +83,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = [header]
     for cue in cues:
-        text = cue.text.replace("\n", r"\N").replace(",", "，")
+        text = cue.text.replace("\n", r"\N")
         lines.append(
             f"Dialogue: 0,{format_ts(cue.start, srt=False)},{format_ts(cue.end, srt=False)},Default,,0,0,0,,{text}"
         )

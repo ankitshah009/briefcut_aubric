@@ -152,7 +152,7 @@ def test_cost_receipts_reserve_uncertain_calls_and_deduplicate_ids(tmp_path: Pat
     ]}))
     summary = CampaignManager._usage_summary(tmp_path, 0.25)
     assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.12, "remaining_usd": 0.13}
-    assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "other"}
+    assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "review", "other"}
     (root / "meta-usage.json").write_text('{"calls": "corrupt"}')
     with pytest.raises(CampaignError, match="unreadable"):
         CampaignManager._usage_summary(tmp_path, 0.25)
@@ -313,3 +313,139 @@ def test_captions_op_burns_a_provided_subtitle_file_without_transcribing(tmp_pat
     assert any("given.srt" in " ".join(step.argv) for step in compiler.pipeline.steps)
     with pytest.raises(Exception):
         compile_brief(Brief(name="bad", sources={"main": str(clip)}, ops=[{"op": "captions", "file": str(tmp_path / "missing.ass")}, {"op": "export", "preset": "web_preview"}], hw=False, work_dir=str(tmp_path / "w2")), work_dir=tmp_path / "w2")
+
+
+def test_missing_subject_offers_center_crop_recovery_and_renders_without_tracking(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    calls: list[str] = []
+
+    def fake_track(proxy: Path, *, subject: str, duration: float, work_dir: Path, budget_usd: float):
+        calls.append(subject)
+        return {"points": [], "object_id": None, "provider": "meta", "usage": {"cost_usd": 0.01}, "warning": "SAM found no matching subject."}
+
+    def fake_plan(proxy: Path, **kwargs):
+        return {"title": "Tracked", "summary": "A plan.", "caption": "", "cover_prompt": "", "hashtags": [], "provider": "meta", "usage": {},
+                "segments": [{"start": 0.1, "end": 1.1, "label": "Moment", "reason": "Visible."}]}
+
+    monkeypatch.setattr(meta, "track_subject", fake_track)
+    monkeypatch.setattr(meta, "plan_story", fake_plan)
+    job = manager.create(request(clip, provider="meta", subject="purple unicorn"))
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "planned"
+    manager.render(job["id"], {})
+    manager.process(job["id"])
+    failed = manager.get(job["id"])
+    assert failed["status"] == "failed"
+    assert failed["recovery"] == {"option": "center_crop", "message": "Meta could not find “purple unicorn”. Render this version with a center crop instead, or create a new plan with a clearer subject."}
+    assert calls == ["purple unicorn"]
+    with pytest.raises(CampaignError, match="tracking must be true or false"):
+        manager.render(job["id"], {"tracking": "no"})
+    queued = manager.render(job["id"], {"tracking": False})
+    assert queued.get("recovery") is None
+    assert queued["request"]["tracking_disabled"] is True and queued["request"]["subject"] == "purple unicorn"
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    assert complete.get("recovery") is None
+    assert complete["result"]["tracked_subject"] is None
+    assert "Subject tracking was turned off for this version; a center crop was used." in complete["result"]["warnings"]
+    assert calls == ["purple unicorn"]  # the second render never asked Meta again
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    assert report["tracked_subject"] is None
+    assert "track_reframe" not in json.dumps(report)
+    # Re-enabling tracking is explicit, and the subject was kept on record.
+    enabled = manager.render(job["id"], {"tracking": True})
+    assert enabled["request"]["tracking_disabled"] is False
+
+
+def test_meta_plan_carries_local_analysis_and_grounded_transcript(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: True)
+    monkeypatch.setattr("vedit.story.analyze_source", lambda source, work_dir, **kw: {
+        "duration": 1.5, "has_audio": True, "scenes": [0.5],
+        "silences": [], "transcript": [{"start": 0.1, "end": 1.2, "text": "Made by hand."}], "warnings": [],
+    })
+    seen: dict[str, object] = {}
+
+    def fake_plan_story(proxy, **kwargs):
+        seen.update(kwargs)
+        return {**story(segments=[{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Visible bowl."}]), "summary": "s", "cover_prompt": "", "provider": "meta", "usage": {"cost_usd": 0.001}, "warnings": []}
+
+    monkeypatch.setattr(meta, "plan_story", fake_plan_story)
+    job = manager.create(request(clip, provider="meta"))
+    manager.process(job["id"])
+    planned = manager.get(job["id"])
+    assert planned["status"] == "planned", planned["error"]
+    assert seen["transcript"] == [{"start": 0.1, "end": 1.2, "text": "Made by hand."}]
+    analysis = planned["plan"]["analysis"]
+    assert analysis["method"] == "meta"
+    assert analysis["scenes"] == [0.5]
+    assert analysis["speech"] and analysis["transcript"][0]["text"] == "Made by hand."
+    assert any("Meta director selected the moments" in note for note in analysis["notes"])
+    segment = planned["plan"]["segments"][0]
+    assert segment["kind"] == "speech" and 0.5 <= segment["score"] <= 1.0
+    assert planned["plan"]["provider"] == "meta"
+
+
+def test_review_requires_meta_access_even_in_local_mode(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("VEDIT_META_ENABLED", raising=False)
+    with pytest.raises(CampaignError) as refused:
+        manager.create(request(clip, review=True))
+    assert refused.value.status == 409
+    with pytest.raises(CampaignError):
+        manager.create(request(clip, review="yes"))
+
+
+def test_directors_notes_are_attached_to_the_verified_render(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    seen: dict[str, object] = {}
+
+    def fake_review(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float):
+        info = probe(video)
+        seen.update(width=info.width, height=info.height, goal=goal, plan_duration=plan.get("duration"), work_dir=work_dir)
+        return {"verdict": "Tight and clear.", "strengths": ["Good opener"], "fixes": [{"what": "Hold the end.", "where_seconds": 0.8}], "caption_suggestion": "A clear look.", "hook_score": 4, "provider": "meta", "usage": {"cost_usd": 0.0004}, "warnings": []}
+
+    monkeypatch.setattr(meta, "review_cut", fake_review)
+    job = manager.create(request(clip, review=True))
+    manager.process(job["id"])
+    manager.render(job["id"], {"plan": story()})
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    assert complete["result"]["review"]["hook_score"] == 4
+    assert (seen["width"], seen["height"]) == (960, 540)
+    assert seen["goal"] == "Show the product clearly" and abs(float(seen["plan_duration"]) - 1.0) < 0.2
+    assert Path(seen["work_dir"]).name == "meta"
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    assert report["review"]["verdict"] == "Tight and clear."
+
+
+def test_failed_review_warns_but_keeps_the_verified_render(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+
+    def failing_review(video: Path, **kwargs):
+        raise meta.MetaError("Meta's rate limit was reached. Wait briefly, then retry.")
+
+    monkeypatch.setattr(meta, "review_cut", failing_review)
+    job = manager.create(request(clip, review=True))
+    manager.process(job["id"])
+    manager.render(job["id"], {"plan": story()})
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    assert complete["result"]["review"] == {"error": "Meta's rate limit was reached. Wait briefly, then retry."}
+    assert any(warning.startswith("Director's notes unavailable") for warning in complete["result"]["warnings"])
+    assert complete["result"]["proof"]["has_video"] is True

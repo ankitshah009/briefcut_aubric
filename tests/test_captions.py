@@ -48,3 +48,17 @@ def test_write_srt_without_cues_is_still_probeable(tmp_path):
     assert text.startswith("1\n00:00:00,000 --> 00:00:00,001\n")
     assert len(read_srt(path)) == 1
     assert read_srt(path)[0].text.strip("​ ") == ""
+
+
+def test_ass_timestamps_use_centiseconds_and_keep_commas(tmp_path):
+    """libass reads H:MM:SS.cc; a millisecond fraction shifts every cue late."""
+    from vedit.captions import Cue, format_ts, write_ass
+
+    assert format_ts(0.38, srt=False) == "0:00:00.38"
+    assert format_ts(3.5, srt=False) == "0:00:03.50"
+    assert format_ts(3661.999, srt=False) == "1:01:02.00"
+    assert format_ts(0.38) == "00:00:00,380"
+    path = tmp_path / "c.ass"
+    write_ass([Cue(0.38, 3.5, "Oiled, and ready.")], path)
+    dialogue = [line for line in path.read_text().splitlines() if line.startswith("Dialogue:")]
+    assert dialogue == ["Dialogue: 0,0:00:00.38,0:00:03.50,Default,,0,0,0,,Oiled, and ready."]

@@ -290,3 +290,26 @@ def test_run_requires_json_content_type(server: int) -> None:
     status, _, raw = request(server, "POST", "/api/run", b'{"goal":"keep","paths":[]}', {"Content-Type": "text/plain"})
     assert status == 415
     assert json.loads(raw)["ok"] is False
+
+
+def test_render_tracking_override_must_be_boolean(server: int, tmp_path: Path) -> None:
+    clip = make_clip(tmp_path / "tracking-source.mp4")
+    status, _, raw = request(server, "POST", "/api/upload?name=tracking.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
+    assert status == 201
+    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False})
+    assert status == 202
+    ident = json.loads(raw)["job"]["id"]
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        status, _, data = request(server, "GET", f"/api/campaigns/{ident}")
+        current = json.loads(data)["job"]
+        if current["status"] not in {"queued", "analyzing", "rendering"}:
+            break
+        time.sleep(0.05)
+    assert current["status"] == "planned"
+    assert current.get("recovery") is None
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/render", {"tracking": "off"})
+    assert status == 400
+    assert "tracking must be true or false" in json.loads(raw)["error"]
+    status, _, raw = request(server, "GET", f"/api/campaigns/{ident}")
+    assert json.loads(raw)["job"]["revision"] == 0

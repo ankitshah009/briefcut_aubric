@@ -182,6 +182,8 @@ def run(args: argparse.Namespace) -> dict:
         }
         if args.caption_provider != "local":
             request["caption_provider"] = args.caption_provider
+        if args.review:
+            request["review"] = True
         record["request"] = request
         stages: list[dict] = record["stages"]
 
@@ -227,6 +229,7 @@ def run(args: argparse.Namespace) -> dict:
             "effect": result.get("effect"),
             "tracked_subject": result.get("tracked_subject"),
             "revision": result.get("revision"),
+            "review": result.get("review"),
         }
         record["budget"] = complete.get("budget")
         record["timings_server"] = complete.get("timings")
@@ -340,6 +343,23 @@ def write_markdown(record: dict, path: Path) -> None:
         "",
         "Warnings from the render: " + ("; ".join((record.get("result") or {}).get("warnings") or []) or "none"),
         "",
+    ]
+    review = (record.get("result") or {}).get("review")
+    if review:
+        lines += ["## Director's notes (Muse Spark)", ""]
+        if review.get("error"):
+            lines.append(f"Review unavailable: {review['error']}")
+        else:
+            lines.append(f"Hook score {review.get('hook_score')}/5. {review.get('verdict', '')}")
+            lines += [""] + [f"- Working: {item}" for item in review.get("strengths") or []]
+            lines += [f"- Fix: {fix.get('what')}" + (f" (at {fix['where_seconds']:.1f}s)" if fix.get("where_seconds") is not None else "") for fix in review.get("fixes") or []]
+            if review.get("caption_suggestion"):
+                lines += ["", f"Suggested caption: {review['caption_suggestion']}"]
+            usage = review.get("usage") or {}
+            if usage.get("cost_usd") is not None:
+                lines += ["", f"Review cost: ${float(usage['cost_usd']):.4f} ({review.get('model')})."]
+        lines.append("")
+    lines += [
         "Full record: `" + str(record.get("json_path", "")) + "`.",
         "",
     ]
@@ -359,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--subject", default="", help="Meta mode only: subject to keep in frame")
     parser.add_argument("--budget", type=float, default=0.25)
     parser.add_argument("--generate-cover", action="store_true")
+    parser.add_argument("--review", action="store_true", help="ask Muse Spark for director's notes on the finished cut (Meta credentials required)")
     parser.add_argument("--effect", choices=["float", "tilt", "push"], default=None)
     parser.add_argument("--effect-intensity", type=float, default=0.55)
     parser.add_argument("--effect-duration", type=float, default=3)

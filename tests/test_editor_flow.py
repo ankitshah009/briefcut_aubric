@@ -32,6 +32,8 @@ _EDITOR_IDS = (
     "analysis-badge",
     "caption-provider",
     "run-facts",
+    "review",
+    "director-notes",
     "shortcuts",
     "clip",
     "drop",

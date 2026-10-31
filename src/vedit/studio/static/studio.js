@@ -61,7 +61,7 @@
   function provider() { return $("provider-meta").checked ? "meta" : "local"; }
   function readSettings() {
     const chosenProvider = provider();
-    return { goal: $("goal").value.trim(), provider: chosenProvider, target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: chosenProvider === "meta" ? $("subject").value.trim() : "", budget_usd: Number($("budget").value), generate_cover: chosenProvider === "meta" && $("cover-mode").value === "meta", caption_provider: captionProvider() };
+    return { goal: $("goal").value.trim(), provider: chosenProvider, target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: chosenProvider === "meta" ? $("subject").value.trim() : "", budget_usd: Number($("budget").value), generate_cover: chosenProvider === "meta" && $("cover-mode").value === "meta", caption_provider: captionProvider(), review: chosenProvider === "meta" && $("review").checked };
   }
   function metaTranscribeAvailable() { const caps = state.capabilities; const meta = caps && caps.meta || {}; return !!(meta.enabled && meta.configured && meta.features && meta.features.transcribe); }
   function captionProvider() { return $("captions").checked && metaTranscribeAvailable() && $("caption-provider").value === "meta" ? "meta" : "local"; }
@@ -96,6 +96,7 @@
     $("make").textContent = state.job && ["complete", "failed", "cancelled"].includes(state.job.status) ? "Render this version" : "Make the video";
     $("cancel-job").disabled = state.busy || !!(state.job && state.job.cancel_requested);
     $("retry-job").disabled = state.busy;
+    $("render-center-crop").disabled = state.busy || state.settingsDirty || !state.draft;
     for (const control of $("story-content").querySelectorAll("input,textarea,button")) {
       if (control.id === "make") continue;
       control.disabled = locked || !state.draft;
@@ -343,6 +344,7 @@
     $("subject").value = req.subject || "";
     if ([0.25, 0.5, 1, 2].includes(Number(req.budget_usd))) $("budget").value = String(req.budget_usd);
     $("cover-mode").value = req.generate_cover ? "meta" : "frame";
+    $("review").checked = !!req.review;
     fillEffect(req.effect);
     $("cloud-consent").checked = false;
     updateMode();
@@ -396,7 +398,9 @@
     $("budget-status").hidden = !(job.request && job.request.provider === "meta" && job.budget);
     if (job.budget) $("budget-status").textContent = budgetText(job.budget);
     $("recovery-panel").hidden = !recoverable;
-    $("recovery-message").textContent = recoverable ? errorMessage(job.error || job.message || "This job was interrupted. Try again using the saved footage.") : "";
+    const centerCrop = recoverable && job.recovery && job.recovery.option === "center_crop";
+    $("render-center-crop").hidden = !centerCrop;
+    $("recovery-message").textContent = recoverable ? errorMessage(centerCrop && job.recovery.message || job.error || job.message || "This job was interrupted. Try again using the saved footage.") : "";
     $("delivery-panel").hidden = !verified;
     $("preview-final").disabled = !verified;
     $("preview-final").textContent = finalLabel(job);
@@ -466,9 +470,50 @@
     $("proof-has_audio").textContent = proof.has_audio ? "Present" : "No audio track";
     $("proof-has_video").textContent = proof.has_video ? "Present" : "No video track";
     $("proof-color").textContent = [proof.color_space || proof.color && proof.color.space, proof.color_range || proof.color && proof.color.range].filter(Boolean).join(" / ") || "Not tagged";
-    $("proof-subject").textContent = result.tracked_subject ? result.tracked_subject : "None requested";
+    const trackingOff = state.job && state.job.request && state.job.request.tracking_disabled && state.job.request.subject;
+    $("proof-subject").textContent = result.tracked_subject ? result.tracked_subject : trackingOff ? "Off (center crop)" : "None requested";
     paintWarnings("delivery-warnings", result.warnings || []);
     paintRunFacts(state.job, result);
+    paintDirectorNotes(result.review, state.job && state.job.request && state.job.request.review);
+  }
+
+  function paintDirectorNotes(review, requested) {
+    const panel = $("director-notes");
+    const show = !!(requested || review);
+    panel.hidden = !show;
+    if (!show) return;
+    const error = review && typeof review.error === "string" ? review.error : (!review ? "The review did not run for this version." : "");
+    $("director-error").hidden = !error;
+    $("director-error").textContent = error;
+    const ok = !!review && !error;
+    $("director-verdict").textContent = ok ? review.verdict || "" : "";
+    const score = ok ? Math.max(0, Math.min(5, Math.round(finite(review.hook_score, 0)))) : 0;
+    $("hook-score").textContent = "";
+    $("hook-score").hidden = !ok;
+    if (ok) {
+      for (let i = 1; i <= 5; i += 1) { const dot = element("i", i <= score ? "is-on" : ""); dot.setAttribute("aria-hidden", "true"); $("hook-score").appendChild(dot); }
+      $("hook-score").appendChild(element("span", "", "Hook " + score + "/5"));
+    }
+    const strengths = $("director-strengths"); strengths.textContent = "";
+    (ok && Array.isArray(review.strengths) ? review.strengths : []).forEach((text) => strengths.appendChild(element("li", "", String(text))));
+    if (ok && !strengths.children.length) strengths.appendChild(element("li", "muted", "No specific strengths listed."));
+    const fixes = $("director-fixes"); fixes.textContent = "";
+    (ok && Array.isArray(review.fixes) ? review.fixes : []).forEach((fix) => {
+      const item = element("li", "", "");
+      const where = fix && Number.isFinite(Number(fix.where_seconds)) && fix.where_seconds !== null ? Number(fix.where_seconds) : null;
+      if (where !== null) {
+        const jump = element("button", "text-button fix-time", time(where) + "." + String(Math.round((where % 1) * 10)));
+        jump.type = "button"; jump.title = "Jump to this moment in the finished video";
+        jump.addEventListener("click", () => { if (state.preview !== "final") setPreview("final"); const player = $("player"); const seek = () => { player.currentTime = Math.max(0, where); player.play().catch(() => {}); }; if (player.readyState >= 1) seek(); else player.addEventListener("loadedmetadata", seek, { once: true }); });
+        item.appendChild(jump); item.appendChild(document.createTextNode(" "));
+      }
+      item.appendChild(document.createTextNode(String(fix && fix.what || "")));
+      fixes.appendChild(item);
+    });
+    if (ok && !fixes.children.length) fixes.appendChild(element("li", "muted", "Nothing flagged."));
+    const caption = ok && typeof review.caption_suggestion === "string" ? review.caption_suggestion.trim() : "";
+    $("director-caption-wrap").hidden = !caption;
+    $("director-caption").textContent = caption;
   }
 
   function setPreview(version) {
@@ -622,7 +667,8 @@
     return clone(state.draft);
   }
 
-  async function renderCampaign() {
+  async function renderCampaign(options) {
+    const overrides = options || {};
     if (isActive() || !state.job) return;
     if (state.settingsDirty) { showError("Create a story to apply your changed settings before rendering."); return; }
     clearError();
@@ -631,7 +677,9 @@
     state.busy = true; setControls();
     const id = state.job.id;
     try {
-      const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/render", { method: "POST", body: { plan, effect: readEffect() } });
+      const body = { plan, effect: readEffect() };
+      if (typeof overrides.tracking === "boolean") body.tracking = overrides.tracking;
+      const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/render", { method: "POST", body });
       if (!data.job) throw new Error("The render was not started. Your story is still saved.");
       storageRemove(draftKey(id));
       markTiming(id, "renderStart", null); markTiming(id, "renderEnd", null); markTiming(id, "renderStart", Date.now());
@@ -971,8 +1019,17 @@
   $("add-segment").addEventListener("click", addSegment);
   $("cancel-job").addEventListener("click", () => jobAction("cancel"));
   $("retry-job").addEventListener("click", () => jobAction("retry"));
+  $("render-center-crop").addEventListener("click", () => renderCampaign({ tracking: false }));
   $("reconnect-job").addEventListener("click", () => { clearError(); state.pollFailures = 0; $("reconnect-job").hidden = true; if (state.job) schedulePoll(); });
   $("copy-caption").addEventListener("click", copyPost);
+    $("use-director-caption").addEventListener("click", () => {
+      const caption = $("director-caption").textContent.trim();
+      if (!caption || !state.draft) return;
+      $("post-caption").value = caption;
+      $("post-caption").dispatchEvent(new Event("input", { bubbles: true }));
+      $("post-caption").focus();
+      toast("Caption replaced with the director’s suggestion. Render this version to use it.");
+    });
   $("story-title").addEventListener("input", () => { if (!state.draft) return; state.draft.title = $("story-title").value; $("project-name").textContent = state.draft.title || "Untitled project"; saveDraft(); });
   $("post-caption").addEventListener("input", () => { if (!state.draft) return; state.draft.caption = $("post-caption").value; saveDraft(); });
   $("hashtags").addEventListener("input", () => { if (!state.draft) return; state.draft.hashtags = $("hashtags").value.split(/[\s,]+/).map((tag) => tag.replace(/^#+/, "")).filter(Boolean); saveDraft(); });

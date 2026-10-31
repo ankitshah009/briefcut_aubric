@@ -81,6 +81,7 @@
             <label for="subject">Keep this subject in frame <span class="optional">optional</span></label><input type="text" id="subject" maxlength="150" placeholder="The person in the blue apron">
             <div class="field-pair"><div><label for="budget">Project API limit</label><select id="budget"><option value="0.25">$0.25</option><option value="0.5">$0.50</option><option value="1">$1.00</option><option value="2">$2.00</option></select></div><div><label for="cover-mode">Cover</label><select id="cover-mode"><option value="frame">Frame from video</option><option value="meta">Generate with Meta</option></select></div></div>
             <p id="budget-status" class="field-note" hidden></p>
+            <label class="check-field"><input type="checkbox" id="review"><span>Ask Meta to review the finished cut <small class="fine-print">Director’s notes · Muse Spark</small></span></label>
             <label class="check-field consent"><input type="checkbox" id="cloud-consent"><span>Send this clip to Meta using my configured API access.</span></label>
           </div>
           <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" disabled><span>Add captions</span></label><span id="caption-availability" class="fine-print">Checking local speech model</span></div>
@@ -144,9 +145,16 @@
         <div class="delivery-assets"><a id="download-bundle" class="button button-primary" download>Download campaign <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3"/></svg></a><a id="download-video" class="button button-secondary" download>Video</a><a id="download-cover" class="button button-secondary" download>Cover image</a></div>
         <div class="delivery-details"><img id="cover-image" alt="Campaign cover" hidden><div><p id="delivery-summary"></p><p id="delivery-note" class="field-note">The campaign includes the video, cover, post copy, and edit record. Publish it when you’re ready.</p><div id="delivery-warnings" class="warning-message" hidden></div></div></div>
         <dl id="run-facts" class="run-facts" aria-label="Run facts"><div><dt>Time to story</dt><dd id="fact-plan">—</dd></div><div><dt>Time to finished video</dt><dd id="fact-render">—</dd></div><div><dt>Source → output</dt><dd id="fact-shape">—</dd></div><div><dt>Story planned by</dt><dd id="fact-provider">—</dd></div><div><dt>Captions</dt><dd id="fact-captions">—</dd></div><div><dt>Meta spend</dt><dd id="fact-spend">—</dd></div></dl>
+        <section id="director-notes" class="director-notes" aria-labelledby="director-heading" hidden>
+          <div class="director-heading"><div><h3 id="director-heading">Director’s notes</h3><p class="fine-print">Muse Spark reviewed the finished video. Opinions, not measurements.</p></div><span id="hook-score" class="hook-score" aria-label="Hook score"></span></div>
+          <p id="director-verdict" class="director-verdict"></p>
+          <div class="director-columns"><div><h4>Working</h4><ul id="director-strengths"></ul></div><div><h4>Could be tighter</h4><ul id="director-fixes"></ul></div></div>
+          <div id="director-caption-wrap" class="director-caption" hidden><h4>Suggested caption</h4><p id="director-caption"></p><button type="button" id="use-director-caption" class="text-button">Use this caption</button></div>
+          <p id="director-error" class="warning-message" hidden></p>
+        </section>
         <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr><tr><th scope="row">Tracked subject</th><td id="proof-subject">—</td></tr></tbody></table></details>
       </section>
-      <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div>
+      <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><div class="recovery-actions"><button type="button" id="render-center-crop" class="button button-primary" hidden>Render with center crop</button><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div></div>
       <footer class="workspace-footer"><span class="local-dot" aria-hidden="true"></span><span>Built around your footage. Finished on your machine.</span><span id="save-status"></span></footer>
     </div>
   </main>
