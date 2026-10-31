@@ -20,3 +20,5 @@ build/
 vedit-sessions/
 **/.DS_Store
 .vedit-models/
+.env.local
+.env

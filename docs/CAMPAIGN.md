@@ -51,7 +51,7 @@ There are no paid model calls in the default local workflow. Keep `VEDIT_META_EN
 
 Cloud inference sends an analysis copy and instructions to the configured Meta service. Local rendering does not make those model requests private or offline. A local cover is a frame from the video; generated imagery is a separate operation and must be identified as such.
 
-The adapter uses Standard mode with `muse-spark-1.3`, `sam-3.1`, and `muse-image-1.0`. It does not silently switch to a cheaper data-contribution mode. For authorized use, set these in your own terminal before launching Studio:
+The adapter uses Standard mode with `muse-spark-1.3`, `sam-3.1`, `muse-image-1.0`, and `muse-voice-transcribe-1.0` by default. It never switches modes silently: set `VEDIT_META_MODE=contributor` to plan stories with `muse-spark-1.3-contributor` ($0.10 / $0.20 per million tokens instead of $1.25 / $4.25). Contributor mode permits Meta to use the submitted content to train future models, so choose it deliberately. SAM, Muse Image, and Voice Transcribe have no contributor variant and keep their standard prices. For authorized use, set these in your own terminal before launching Studio:
 
 ```sh
 # Set MODEL_API_KEY through your local secret-management workflow first.

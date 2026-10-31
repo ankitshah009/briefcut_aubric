@@ -21,6 +21,7 @@
 - Hardening from a code review: every `/api/*` route now applies the Host/Origin check (not only campaigns); `/api/run` and `/api/plan` require `Content-Type: application/json` for JSON bodies and never echo render command lines; request bodies read under a socket timeout; `create()` refuses when the worker queue is full instead of persisting an orphaned job.
 - Correctness fixes: loudness measurement no longer decodes the video stream (`-vn`), `render.sh` shell-quotes step descriptions, failed or cancelled steps delete partial outputs so `--resume` cannot trust a truncated file, dense tracked `spatial_effect` graphs use the file-backed `-/filter_complex` form, and a transcript with no speech writes a probeable one-cue SRT instead of an empty file that broke the burn.
 - The Whisper model under `.vedit-models/` is resolved at call time rather than at import.
+- `VEDIT_META_MODE=contributor` is an explicit opt-in that plans stories with `muse-spark-1.3-contributor` at $0.10 / $0.20 per million tokens; capabilities and the ledger report the mode. `scripts/studio.sh` sources an untracked `.env.local` for `MODEL_API_KEY` and these switches.
 
 ## 1.2.0
 

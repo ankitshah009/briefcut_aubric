@@ -643,3 +643,22 @@ def test_capabilities_and_check_access_describe_transcription(enabled: None, mon
 def test_check_access_is_free_and_safe_when_meta_is_off() -> None:
     access = meta.check_access()
     assert access == {"ok": False, "models": [], "reason": "Set MODEL_API_KEY in the server environment and restart Studio to connect Meta."}
+
+
+def test_contributor_mode_is_explicit_and_priced(monkeypatch):
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "k")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.delenv("VEDIT_META_MODE", raising=False)
+    standard = meta.capabilities()
+    assert standard["mode"] == "standard" and standard["models"]["story"] == "muse-spark-1.3"
+    assert standard["prices"]["input_per_million"] == 1.25
+    monkeypatch.setenv("VEDIT_META_MODE", "contributor")
+    cheap = meta.capabilities()
+    assert cheap["mode"] == "contributor" and cheap["models"]["story"] == "muse-spark-1.3-contributor"
+    assert cheap["prices"]["input_per_million"] == 0.1 and cheap["prices"]["output_per_million"] == 0.2
+    assert cheap["models"]["tracking"] == "sam-3.1"  # no contributor variant exists
+    monkeypatch.setenv("VEDIT_META_MODE", "cheap")
+    broken = meta.capabilities()
+    assert broken["available"] is False and "VEDIT_META_MODE" in broken["reason"]

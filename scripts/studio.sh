@@ -40,5 +40,12 @@ if [[ -z "${VEDIT_WHISPER_MODEL:-}" ]]; then
   done
 fi
 
+# Optional local secrets (never committed): MODEL_API_KEY, VEDIT_META_ENABLED, VEDIT_META_MODE.
+if [[ -f "$project_dir/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$project_dir/.env.local"
+  set +a
+fi
 "$python_bin" -m vedit doctor
 exec "$python_bin" -m vedit studio "$@"

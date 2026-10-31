@@ -31,6 +31,7 @@ from vedit.media import probe
 
 _BASE = "https://api.meta.ai/v1"
 _MODEL = "muse-spark-1.3"
+_CONTRIBUTOR_MODEL = "muse-spark-1.3-contributor"
 _MAX_FILE = 200_000_000
 _MAX_RESPONSE = 64_000_000
 _MAX_IMAGE = 16_000_000
@@ -38,6 +39,28 @@ _TIMEOUT = 90
 _OUTPUT_TOKENS = 8192
 _INPUT_PRICE = 1.25 / 1_000_000
 _OUTPUT_PRICE = 4.25 / 1_000_000
+# Contributor mode is an explicit opt-in (VEDIT_META_MODE=contributor): Meta may
+# train on the submitted content in exchange for the lower Muse Spark price.
+# SAM, Muse Image and Voice Transcribe have no contributor variant.
+_CONTRIBUTOR_INPUT_PRICE = 0.10 / 1_000_000
+_CONTRIBUTOR_OUTPUT_PRICE = 0.20 / 1_000_000
+
+
+def _mode() -> str:
+    value = os.environ.get("VEDIT_META_MODE", "standard").strip().lower()
+    if value not in {"standard", "contributor"}:
+        raise MetaError("VEDIT_META_MODE must be 'standard' or 'contributor'.")
+    return value
+
+
+def _story_model() -> str:
+    return _CONTRIBUTOR_MODEL if _mode() == "contributor" else _MODEL
+
+
+def _story_prices() -> tuple[float, float]:
+    if _mode() == "contributor":
+        return _CONTRIBUTOR_INPUT_PRICE, _CONTRIBUTOR_OUTPUT_PRICE
+    return _INPUT_PRICE, _OUTPUT_PRICE
 _FRAME_PRICE = .20 / 1000
 _IMAGE_PRICE = .01
 _TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
@@ -73,13 +96,18 @@ def capabilities() -> dict[str, Any]:
         reason = "Set MODEL_API_KEY in the server environment and restart Studio to connect Meta."
     elif not enabled:
         reason = "Set VEDIT_META_ENABLED=1 in the server environment to allow Meta calls."
+    try:
+        mode, story_model, (price_in, price_out) = _mode(), _story_model(), _story_prices()
+    except MetaError as exc:
+        mode, story_model, (price_in, price_out) = "invalid", _MODEL, (_INPUT_PRICE, _OUTPUT_PRICE)
+        available, reason = False, str(exc)
     return {
         "configured": configured, "enabled": enabled, "available": available,
-        "model": _MODEL,
+        "model": story_model,
         "features": {"story": available, "tracking": available, "cover": available, "transcribe": available},
-        "models": {"story": _MODEL, "tracking": "sam-3.1", "cover": "muse-image-1.0", "transcribe": _TRANSCRIBE_MODEL},
-        "reason": reason, "mode": "standard", "prices_as_of": "2026-10-29",
-        "prices": {"input_per_million": 1.25, "output_per_million": 4.25,
+        "models": {"story": story_model, "tracking": "sam-3.1", "cover": "muse-image-1.0", "transcribe": _TRANSCRIBE_MODEL},
+        "reason": reason, "mode": mode, "prices_as_of": "2026-10-29",
+        "prices": {"input_per_million": round(price_in * 1_000_000, 4), "output_per_million": round(price_out * 1_000_000, 4),
                    "sam_per_thousand_frames": .20, "cover_per_image": .01,
                    "transcribe_per_hour": _TRANSCRIBE_PRICE_PER_HOUR},
     }
@@ -349,7 +377,8 @@ def _usage(response: dict[str, Any], *, kind: str, maximum: float) -> dict[str, 
         usage["cost_usd"] = round(max(50, usage["video_frames_processed"]) * _FRAME_PRICE, 8)
     elif kind == "story" and {"input_tokens", "output_tokens"} <= usage.keys():
         # Treat cached input at full price to keep displayed costs conservative.
-        usage["cost_usd"] = round(usage["input_tokens"] * _INPUT_PRICE + usage["output_tokens"] * _OUTPUT_PRICE, 8)
+        price_in, price_out = _story_prices()
+        usage["cost_usd"] = round(usage["input_tokens"] * price_in + usage["output_tokens"] * price_out, 8)
     else:
         usage["cost_usd"] = round(maximum, 8)
         usage["cost_is_estimate"] = True
@@ -430,7 +459,7 @@ def plan_story(source: Path, *, goal: str, duration: float, target_duration: flo
     language = _text(language, "Language", 40)
     budget = _budget(budget_usd)
     cache = _cache_path(source, work_dir, "story", {"goal": goal, "duration": duration,
-                        "target_duration": target_duration, "language": language, "model": _MODEL})
+                        "target_duration": target_duration, "language": language, "model": _story_model()})
     if cached := _cached(cache):
         checked = _validate_story(cached, duration, target_duration)
         checked.update(provider="meta", usage=cached["usage"], warnings=cached.get("warnings", []))
@@ -447,14 +476,16 @@ def plan_story(source: Path, *, goal: str, duration: float, target_duration: flo
     )
     notices: list[str] = []
     with _uploaded(source, work_dir, notices) as file_id:
-        request = {"model": _MODEL, "store": False, "max_output_tokens": _OUTPUT_TOKENS,
+        model = _story_model()
+        request = {"model": model, "store": False, "max_output_tokens": _OUTPUT_TOKENS,
                    "input": [{"type": "message", "role": "user", "content": [
                        {"type": "input_text", "text": prompt}, {"type": "input_file", "file_id": file_id}]}],
                    "text": {"format": {"type": "json_schema", "name": "vedit_story", "strict": True, "schema": _story_schema()}}}
         counted = _request("POST", "/responses/input_tokens", payload=request, retry_safe=True)
         tokens = _number(counted.get("input_tokens"), "Meta input token count", maximum=1_048_576)
-        maximum = tokens * _INPUT_PRICE + _OUTPUT_TOKENS * _OUTPUT_PRICE
-        call_id = _reserve(work_dir, "story", _MODEL, maximum, budget)
+        price_in, price_out = _story_prices()
+        maximum = tokens * price_in + _OUTPUT_TOKENS * price_out
+        call_id = _reserve(work_dir, "story", model, maximum, budget)
         try:
             response = _request("POST", "/responses", payload=request)
             usage = _usage(response, kind="story", maximum=maximum)
