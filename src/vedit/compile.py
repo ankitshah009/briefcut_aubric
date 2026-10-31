@@ -686,7 +686,20 @@ def _title(c: Compiler, op: dict[str, Any]) -> None:
     text = str(op.get("text") or "")
     if not text:
         raise CompileError("title requires text")
-    c.add_vf(title_filter(text, c.canvas.height, y_ratio=float(op.get("y_ratio", 0.78)), size=int(op.get("size", 56))))
+    start = end = None
+    if op.get("start") is not None:
+        start = _finite_number(op.get("start"), "title.start")
+        if start < 0:
+            raise CompileError("title.start must be >= 0")
+    if op.get("duration") is not None:
+        length = _finite_number(op.get("duration"), "title.duration")
+        if length <= 0:
+            raise CompileError("title.duration must be > 0")
+        end = (start or 0.0) + length
+    c.add_vf(title_filter(
+        text, c.canvas.height, y_ratio=float(op.get("y_ratio", 0.78)), size=int(op.get("size", 56)),
+        box=bool(op.get("box", False)), start=start, end=end,
+    ))
 
 
 def _existing_media(c: Compiler, spec: Any | None = None) -> Path:
@@ -1030,7 +1043,10 @@ def _spatial_effect(c: Compiler, op: dict[str, Any]) -> None:
     normalized = _join([video, f"fps={fps:.8f}", "setsar=1", "format=yuv420p"])
     graph = [
         f"[0:v:0]{normalized},split=3[original][backdrop][surface]",
-        "[backdrop]drawbox=x=0:y=0:w=iw:h=ih:color=0x172236:t=fill[background]",
+        # The lifted plane floats over a blurred, darkened copy of the same frame,
+        # the usual vertical-short treatment, instead of a flat slate card.
+        "[backdrop]boxblur=luma_radius=min(w\\,h)/40:luma_power=2:chroma_radius=min(cw\\,ch)/40:chroma_power=2,"
+        "eq=brightness=-0.12:saturation=0.85[background]",
         # The transparent outer pixels are essential: perspective clamps
         # sampling at input edges, so opaque edges would otherwise smear.
         "[surface]format=yuva420p,pad=iw+4:ih+4:2:2:color=0xe5eaf2,"

@@ -313,3 +313,103 @@ def test_render_tracking_override_must_be_boolean(server: int, tmp_path: Path) -
     assert "tracking must be true or false" in json.loads(raw)["error"]
     status, _, raw = request(server, "GET", f"/api/campaigns/{ident}")
     assert json.loads(raw)["job"]["revision"] == 0
+
+
+def _settle(server: int, ident: str, timeout: float = 90) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status, _, data = request(server, "GET", f"/api/campaigns/{ident}")
+        assert status == 200
+        current = json.loads(data)["job"]
+        if current["status"] not in {"queued", "analyzing", "rendering"}:
+            return current
+        time.sleep(0.05)
+    pytest.fail("Campaign did not finish within the integration deadline")
+
+
+def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_duration: float, plan_segments: list[dict]) -> dict:
+    helpers = Path(__file__).with_name("test_e2e.py")
+    spec = importlib.util.spec_from_file_location("campaign_http_revise_helpers", helpers)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not module._have_ffmpeg():
+        pytest.skip("ffmpeg required")
+    clip = module._make_clip(tmp_path / "revise-source.mp4", seconds=seconds, color="olive")
+    status, _, raw = request(server, "POST", "/api/upload?name=revise.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
+    assert status == 201
+    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": json.loads(raw)["paths"], "goal": "Show the product", "captions": False, "target_duration": target_duration})
+    assert status == 202, raw
+    ident = json.loads(raw)["job"]["id"]
+    planned = _settle(server, ident)
+    assert planned["status"] == "planned", planned.get("error")
+    plan = dict(planned["plan"], segments=plan_segments)
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/render", {"plan": plan})
+    assert status == 202, raw
+    complete = _settle(server, ident)
+    assert complete["status"] == "complete", complete.get("error")
+    return complete
+
+
+def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(server: int, tmp_path: Path) -> None:
+    # A 1 s moment against a 15 s target fails the duration check, but there is
+    # no footage to add: the lint has nothing deterministic to apply.
+    complete = _verified_campaign(server, tmp_path, seconds=1.0, target_duration=15, plan_segments=[{"start": 0.0, "end": 1.0, "label": "All", "reason": "Everything."}])
+    ident = complete["id"]
+    result = complete["result"]
+    names = [check["name"] for check in result["checks"]]
+    assert names[:4] == ["auto: cuts land on sentence boundaries", "auto: duration matches the target", "auto: moments inside the source and in order", "auto: captions cover the speech"]
+    assert result["total"] == len(result["checks"]) and result["passed"] == sum(1 for check in result["checks"] if check["passed"])
+    assert result["checks"][1]["passed"] is False and result["patches"] == []
+    assert len(complete["versions"]) == 1
+    version = complete["versions"][0]
+    assert version["revision"] == 1 and version["status"] == "verified" and version["source"] == "approved"
+    assert version["proof"] == result["proof"] and version["checks"] == result["checks"] and version["applied_patches"] == []
+    assert version["video_url"].endswith("name=video&v=1") and version["report_url"].endswith("name=report&v=1")
+    assert version["timings"]["render_seconds"] > 0
+    status, _, raw = request(server, "GET", version["report_url"])
+    assert status == 200 and json.loads(raw)["checks"] == result["checks"]
+    for mode, message in (("auto", "No automatic fixes to apply."), ("director", "No director's fixes to apply.")):
+        status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": mode})
+        assert status == 409, raw
+        assert json.loads(raw)["error"] == message
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "note", "note": "Tighten the opener."})
+    assert status == 409
+    assert json.loads(raw)["error"] == "Director's notes need Meta mode."
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "sideways"})
+    assert status == 400
+    status, _, raw = request(server, "GET", f"/api/campaigns/{ident}/revise")
+    assert status == 405
+    assert json.loads(request(server, "GET", f"/api/campaigns/{ident}")[2])["job"]["revision"] == 1
+
+
+def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int, tmp_path: Path) -> None:
+    # A 3 s moment against a 0.5 s target: the lint proposes trimming the end.
+    complete = _verified_campaign(server, tmp_path, seconds=3.0, target_duration=0.5, plan_segments=[{"start": 0.0, "end": 3.0, "label": "All", "reason": "Everything."}])
+    ident = complete["id"]
+    patches = complete["result"]["patches"]
+    assert patches == [{"op": "trim_end", "segment": 1, "seconds": 0.5, "reason": patches[0]["reason"], "source": "auto"}]
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "auto"})
+    assert status == 202, raw
+    queued = json.loads(raw)["job"]
+    assert queued["revision"] == 2 and queued["status"] == "queued"
+    assert queued["result"]["stale"] is True and queued["result"]["revision"] == 1
+    assert queued["revision_source"] == "auto"
+    assert queued["applied_patches"][0]["before"] == {"start": 0.0, "end": 3.0} and queued["applied_patches"][0]["after"] == {"start": 0.0, "end": 0.5}
+    assert queued["plan"]["segments"][0]["end"] == 0.5 and queued["plan"]["duration"] == 0.5
+    assert "end moved to 0.50 s" in queued["plan"]["segments"][0]["reason"]
+    revised = _settle(server, ident)
+    assert revised["status"] == "complete", revised.get("error")
+    assert revised["result"]["revision"] == 2 and abs(revised["result"]["proof"]["duration"] - 0.5) < 0.2
+    assert revised["result"]["checks"][1]["passed"] is True and revised["result"]["patches"] == []
+    assert [version["revision"] for version in revised["versions"]] == [1, 2]
+    first, second = revised["versions"]
+    assert first["status"] == "verified" and first["video_url"].endswith("&v=1")
+    assert second["source"] == "auto" and second["applied_patches"][0]["op"] == "trim_end" and second["video_url"].endswith("&v=2")
+    assert abs(second["proof"]["duration"] - 0.5) < 0.2 and abs(first["proof"]["duration"] - 3.0) < 0.2
+    # Both verified files stay downloadable.
+    for version in (first, second):
+        status, _, raw = request(server, "GET", version["video_url"], headers={"Range": "bytes=0-127"})
+        assert status == 206 and len(raw) == 128
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "auto"})
+    assert status == 409

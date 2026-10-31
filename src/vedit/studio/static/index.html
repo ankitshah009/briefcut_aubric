@@ -49,6 +49,7 @@
             <button type="button" class="prompt-chip" data-goal="Make a product story. Open with the finished product, show the making process, and end with a clear invitation to learn more.">Product story</button>
             <button type="button" class="prompt-chip" data-goal="Make a concise talking-head highlight. Keep the clearest useful idea and preserve the speaker's meaning.">Best moment</button>
             <button type="button" class="prompt-chip" data-goal="Make a short behind-the-scenes video. Show the process in a clear sequence and keep the original sound.">Behind the scenes</button>
+            <button type="button" class="prompt-chip" data-goal="Make a product story: open with the finished piece, then how it is made. Trim the pauses, add a title card, fade out at the end.">Product story, edited</button>
           </div>
           <div class="field-pair">
             <div><label for="target-duration">Length</label><select id="target-duration"><option value="15">15 seconds</option><option value="30" selected>30 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option></select></div>
@@ -123,7 +124,7 @@
         <div class="story-heading"><div><h2 id="story-heading">The story</h2><p id="story-description">Review the moments before you make the video.</p></div><div class="story-heading-right"><span id="analysis-badge" class="analysis-badge" hidden></span><span id="story-duration" class="duration-badge" hidden></span></div></div>
         <div id="story-empty" class="story-empty"><span class="story-empty-line" aria-hidden="true"><i></i><i></i><i></i></span><p>Your selected moments will appear here.</p><span>Each cut stays linked to the original footage.</span></div>
         <div id="story-content" hidden>
-          <div id="decisions" class="decision-summary" aria-label="Edit decisions"><p id="say-pauses"></p><p id="say-shape"></p><p id="say-captions"></p><p id="say-clip"></p><p id="say-effects"></p></div>
+          <div id="decisions" class="decision-summary" aria-label="Edit decisions"><p id="say-pauses"></p><p id="say-shape"></p><p id="say-captions"></p><p id="say-clip"></p><p id="say-effects"></p><p id="say-edits"></p></div>
           <p id="analysis-notes" class="analysis-notes" hidden></p>
           <div class="story-order-heading"><h3>Story order</h3><span>How the moments play in the finished video</span></div>
           <div class="timeline" id="timeline" aria-label="Story order"></div>
@@ -142,16 +143,25 @@
 
       <section id="delivery-panel" class="delivery-panel" aria-labelledby="delivery-heading" hidden>
         <div class="delivery-heading"><span class="success-icon" aria-hidden="true">✓</span><div><h2 id="delivery-heading">Ready for the world.</h2><p id="delivery-description">Your video is rendered and verified. Take the whole campaign with you.</p><span id="verified-version" class="verified-version"></span></div></div>
+        <div id="version-tabs" class="version-tabs" role="group" aria-label="Rendered versions" hidden></div>
         <div class="delivery-assets"><a id="download-bundle" class="button button-primary" download>Download campaign <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3"/></svg></a><a id="download-video" class="button button-secondary" download>Video</a><a id="download-cover" class="button button-secondary" download>Cover image</a></div>
         <div class="delivery-details"><img id="cover-image" alt="Campaign cover" hidden><div><p id="delivery-summary"></p><p id="delivery-note" class="field-note">The campaign includes the video, cover, post copy, and edit record. Publish it when you’re ready.</p><div id="delivery-warnings" class="warning-message" hidden></div></div></div>
-        <dl id="run-facts" class="run-facts" aria-label="Run facts"><div><dt>Time to story</dt><dd id="fact-plan">—</dd></div><div><dt>Time to finished video</dt><dd id="fact-render">—</dd></div><div><dt>Source → output</dt><dd id="fact-shape">—</dd></div><div><dt>Story planned by</dt><dd id="fact-provider">—</dd></div><div><dt>Captions</dt><dd id="fact-captions">—</dd></div><div><dt>Meta spend</dt><dd id="fact-spend">—</dd></div></dl>
+        <dl id="run-facts" class="run-facts" aria-label="Run facts"><div><dt>Time to story</dt><dd id="fact-plan">—</dd></div><div><dt>Time to finished video</dt><dd id="fact-render">—</dd></div><div><dt>Source → output</dt><dd id="fact-shape">—</dd></div><div><dt>Story planned by</dt><dd id="fact-provider">—</dd></div><div><dt>Captions</dt><dd id="fact-captions">—</dd></div><div><dt>Meta spend</dt><dd id="fact-spend">—</dd></div><div><dt>Checks</dt><dd id="fact-checks">—</dd></div></dl>
+        <section id="checks-section" class="checks" aria-labelledby="checks-heading" hidden>
+          <div class="checks-heading"><h3 id="checks-heading">The receipts</h3><span id="checks-summary" class="fine-print"></span></div>
+          <ul id="checks-list" class="checks-list"></ul>
+          <div id="auto-fixes" class="fixes-bar" hidden><p id="auto-fixes-text"></p><button type="button" id="apply-auto" class="button button-secondary">Apply automatic fixes</button></div>
+        </section>
+        <section id="version-changes" class="version-changes" aria-labelledby="version-changes-heading" hidden><h3 id="version-changes-heading">What changed</h3><p id="version-note" class="version-note" hidden></p><ul id="version-changes-list"></ul></section>
         <section id="director-notes" class="director-notes" aria-labelledby="director-heading" hidden>
           <div class="director-heading"><div><h3 id="director-heading">Director’s notes</h3><p class="fine-print">Muse Spark reviewed the finished video. Opinions, not measurements.</p></div><span id="hook-score" class="hook-score" aria-label="Hook score"></span></div>
           <p id="director-verdict" class="director-verdict"></p>
           <div class="director-columns"><div><h4>Working</h4><ul id="director-strengths"></ul></div><div><h4>Could be tighter</h4><ul id="director-fixes"></ul></div></div>
           <div id="director-caption-wrap" class="director-caption" hidden><h4>Suggested caption</h4><p id="director-caption"></p><button type="button" id="use-director-caption" class="text-button">Use this caption</button></div>
+          <div id="director-patches" class="director-patches" hidden><h4>Director’s fixes</h4><ul id="director-patch-list"></ul><button type="button" id="apply-director" class="button button-primary">Apply director’s fixes</button></div>
           <p id="director-error" class="warning-message" hidden></p>
         </section>
+        <form id="revise-form" class="revise-box" autocomplete="off"><label for="revise-note">Director’s note</label><div class="revise-row"><input type="text" id="revise-note" maxlength="500" placeholder="Hold the finished bowl longer, then cut to the lathe." aria-describedby="revise-hint"><button type="submit" id="revise-submit" class="button button-secondary">Revise with a note</button></div><p id="revise-hint" class="fine-print">Director’s notes need Meta mode.</p></form>
         <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr><tr><th scope="row">Tracked subject</th><td id="proof-subject">—</td></tr></tbody></table></details>
       </section>
       <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><div class="recovery-actions"><button type="button" id="render-center-crop" class="button button-primary" hidden>Render with center crop</button><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div></div>
@@ -166,6 +176,7 @@
       <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge the selected moment 0.1 s; hold <kbd>Shift</kbd> for 1 s</td></tr>
       <tr><td><kbd>1</kbd> – <kbd>8</kbd></td><td>Select and preview a moment</td></tr>
       <tr><td><kbd>C</kbd></td><td>Switch between source and finished video</td></tr>
+      <tr><td><kbd>V</kbd></td><td>Cycle through rendered versions</td></tr>
       <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
     </tbody></table>
     <div class="shortcuts-footer"><button type="button" id="shortcuts-close" class="button button-secondary">Done</button></div></div></dialog>

@@ -393,7 +393,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             if path == "/api/capabilities" and not mutation:
                 self._send_json(200, {"ok": True, **capabilities()})
                 return
-            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|retry|cancel|artifact))?)?", path)
+            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact))?)?", path)
             if match is None:
                 self._send_json(404, {"ok": False, "error": "Campaign route not found."})
                 return
@@ -449,6 +449,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 job = manager.create(payload)
             elif action == "render":
                 job = manager.render(job_id, payload)
+            elif action == "revise":
+                job = manager.revise(job_id, payload)
             elif action == "retry":
                 job = manager.retry(job_id)
             elif action == "cancel":

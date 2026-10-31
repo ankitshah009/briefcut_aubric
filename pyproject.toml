@@ -21,13 +21,20 @@ dependencies = ["pyyaml>=6.0"]
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 stt = ["faster-whisper>=1.0"]
+mcp = [
+    "mcp>=1.2",
+]
 
 [project.scripts]
 vedit = "vedit.cli:main"
 
 [dependency-groups]
 # uv installs this group by default (`uv sync`, `uv run`); the `dev` extra above stays for pip users.
-dev = ["pytest>=8.0"]
+dev = [
+    "mcp>=1.2",
+    "pytest>=8.0",
+    "pytest-xdist>=3.8.0",
+]
 
 [tool.uv]
 # uv owns the environment: `uv sync`, then `uv run vedit doctor` / `uv run pytest`.

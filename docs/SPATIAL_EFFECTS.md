@@ -7,7 +7,7 @@ do not infer scene depth, reveal unseen sides of a product, or create a 3D model
 
 | Effect | Good starting point | What moves |
 | --- | --- | --- |
-| Floating frame (`float`) | A product detail or a playful opening | The video frame floats against a slate background. |
+| Floating frame (`float`) | A product detail or a playful opening | The video frame floats over a blurred, darkened copy of the same footage, the usual vertical-short backdrop. |
 | Perspective sway (`tilt`) | A short reveal or a detail worth holding | The frame changes perspective over the selected interval. |
 | Push-in reveal (`push`) | An opening moment or a visual emphasis | The framing moves toward the footage, then returns smoothly. |
 

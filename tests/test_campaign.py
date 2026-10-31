@@ -152,7 +152,7 @@ def test_cost_receipts_reserve_uncertain_calls_and_deduplicate_ids(tmp_path: Pat
     ]}))
     summary = CampaignManager._usage_summary(tmp_path, 0.25)
     assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.12, "remaining_usd": 0.13}
-    assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "review", "other"}
+    assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "review", "patch", "other"}
     (root / "meta-usage.json").write_text('{"calls": "corrupt"}')
     with pytest.raises(CampaignError, match="unreadable"):
         CampaignManager._usage_summary(tmp_path, 0.25)
@@ -280,7 +280,8 @@ def test_meta_captions_transcribe_only_the_approved_speech_and_burn_it(manager: 
     def fake_transcribe(wav: Path, *, duration: float, work_dir: Path, language: str, budget_usd: float):
         info = probe(wav)
         seen.update(duration=duration, wav_duration=info.duration, channels=info.audio.channels, rate=info.audio.sample_rate, language=language, work_dir=work_dir)
-        return {"cues": [{"start": 0.1, "end": 0.7, "text": "Made by hand."}], "provider": "meta", "usage": {"cost_usd": 0.0001}}
+        # Doubled words at a turn edge and a split sentence, as Meta Voice Transcribe returns them.
+        return {"cues": [{"start": 0.1, "end": 0.4, "text": "made by by hand,"}, {"start": 0.4, "end": 0.7, "text": "hand, the the finished bowl."}], "provider": "meta", "usage": {"cost_usd": 0.0001}}
 
     monkeypatch.setattr(meta, "transcribe_audio", fake_transcribe)
     job = manager.create(request(clip, captions=True, caption_provider="meta", language="es"))
@@ -300,7 +301,9 @@ def test_meta_captions_transcribe_only_the_approved_speech_and_burn_it(manager: 
     assert "captions_transcribe" not in report["steps"]
     with zipfile.ZipFile(manager.artifact(job["id"], "bundle")) as archive:
         assert {"captions.srt", "captions.ass"} <= set(archive.namelist())
-        assert b"Made by hand." in archive.read("captions.srt")
+        srt = archive.read("captions.srt")
+        assert b"00:00:00,100 --> 00:00:00,700\nMade by hand, the finished bowl." in srt
+        assert b"the the" not in srt and b"by by" not in srt
 
 
 def test_captions_op_burns_a_provided_subtitle_file_without_transcribing(tmp_path: Path, clip: Path) -> None:
@@ -449,3 +452,149 @@ def test_failed_review_warns_but_keeps_the_verified_render(manager: CampaignMana
     assert complete["result"]["review"] == {"error": "Meta's rate limit was reached. Wait briefly, then retry."}
     assert any(warning.startswith("Director's notes unavailable") for warning in complete["result"]["warnings"])
     assert complete["result"]["proof"]["has_video"] is True
+
+
+def test_meta_plan_is_snapped_to_transcript_sentences(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Muse Spark chose 0.0–2.7 ("...oiled and"); the campaign finishes the sentence where the speech ends before review."""
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: True)
+    monkeypatch.setattr("vedit.campaign.probe", lambda path: type("Info", (), {"has_video": True, "has_audio": True, "duration": 40.0, "width": 1280, "height": 720})())
+    workshop = [
+        {"start": 0.0, "end": 2.69, "text": "This is the finished oak bowl, oiled and"},
+        {"start": 2.69, "end": 5.0, "text": "ready for the table."},
+        {"start": 5.0, "end": 7.44, "text": "It started as a rough blank from a fallen"},
+        {"start": 7.44, "end": 8.0, "text": "tree."},
+        {"start": 8.0, "end": 11.2, "text": "Here is the raw oak blank, still wet and"},
+        {"start": 11.2, "end": 12.0, "text": "heavy."},
+        {"start": 12.0, "end": 16.0, "text": "The grain tells me where the bowl wants to be."},
+        {"start": 32.0, "end": 35.13, "text": "A coat of food safe oil brings out the"},
+        {"start": 35.13, "end": 36.0, "text": "color."},
+        {"start": 36.0, "end": 40.0, "text": "24 hours later, the bowl is ready to use."},
+    ]
+    from vedit.analyze import Range
+
+    heard = [(0.53, 3.72), (4.74, 7.3), (8.56, 11.38), (12.41, 14.78), (32.53, 35.1), (36.13, 39.19)]
+    silences = [Range(a, b) for a, b in zip([0.0] + [e for _, e in heard], [s for s, _ in heard] + [40.0]) if b > a]
+    monkeypatch.setattr("vedit.story.analyze_source", lambda source, work_dir, **kw: {
+        "duration": 40.0, "has_audio": True, "scenes": [8.0, 16.0, 24.0, 32.0], "silences": silences, "transcript": workshop, "warnings": [],
+    })
+    monkeypatch.setattr(CampaignManager, "_analysis_proxy", lambda self, root, source, info, ranges=None, cancel_event=None: clip)
+
+    def fake_plan_story(proxy, **kwargs):
+        return {
+            "title": "Oak Bowl: Finished to Start", "summary": "s", "caption": "", "cover_prompt": "", "hashtags": [],
+            "segments": [
+                {"start": 0.0, "end": 2.7, "label": "Finished bowl reveal", "reason": "Rests on speech [0.0–2.7] 'This is the finished oak bowl, oiled and'."},
+                {"start": 8.0, "end": 11.2, "label": "Raw oak blank", "reason": "Rests on speech [8.0–11.2]."},
+                {"start": 32.0, "end": 35.1, "label": "Oil finish", "reason": "Rests on speech [32.0–35.1]."},
+            ],
+            "provider": "meta", "usage": {"cost_usd": 0.001}, "warnings": [],
+        }
+
+    monkeypatch.setattr(meta, "plan_story", fake_plan_story)
+    job = manager.create(request(clip, provider="meta", target_duration=20))
+    manager.process(job["id"])
+    planned = manager.get(job["id"])
+    assert planned["status"] == "planned", planned["error"]
+    segments = planned["plan"]["segments"]
+    # Sentence ends are clamped to measured speech (+0.15 s), so "oiled and" is finished at 3.97 s, not at the next sentence's first phoneme.
+    assert [(s["start"], s["end"]) for s in segments] == [(0.0, 3.97), (8.0, 11.63), (32.0, 35.35)]
+    assert segments[0]["reason"].endswith("end moved to sentence end at 4.0 s.")
+    assert segments[0]["label"] == "Finished bowl reveal" and planned["plan"]["duration"] == pytest.approx(10.95, abs=0.01)
+    analysis = planned["plan"]["analysis"]
+    assert analysis["sentences"][0] == {"start": 0.28, "end": 3.97, "text": "This is the finished oak bowl, oiled and ready for the table."}
+    assert len(analysis["sentences"]) == 6
+    # The validator keeps the sentence list bounded and display-only.
+    checked = validate_plan(planned["plan"], 40.0, original={"analysis": {"sentences": [{"start": 0, "end": 5, "text": "x" * 601}, {"start": 1, "end": 2, "text": "ok."}, "junk"]}})
+    assert checked["analysis"] is None  # an oversize sentence invalidates the untrusted block as a whole
+    checked = validate_plan(planned["plan"], 40.0, original={"analysis": {"sentences": [{"start": 1, "end": 2, "text": "ok."}, "junk"]}})
+    assert checked["analysis"]["sentences"] == [{"start": 1.0, "end": 2.0, "text": "ok."}]
+
+
+def test_brief_edits_drive_the_render_and_the_receipts(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: False)
+    goal = "Show the finished bowl. Trim the pauses, add a title card, fade out at the end, cta: Order yours"
+    job = manager.create(request(clip, goal=goal))
+    manager.process(job["id"])
+    planned = manager.get(job["id"])
+    assert planned["status"] == "planned", planned["error"]
+    # Decisions are visible before any render, derived from the brief alone.
+    assert planned["plan"]["decisions"][0].startswith("Removed pauses longer than 0.6 s")
+    assert planned["plan"]["decisions"][1].startswith("Title card ‘")
+    assert planned["plan"]["decisions"][2] == "Fade out 0.5 s"
+    assert len(planned["plan"]["ignored_edits"]) == 1 and planned["plan"]["ignored_edits"][0].startswith("Call to action ‘Order yours’")
+    manager.render(job["id"], {"plan": story(title="The oak bowl")})
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    brief = manager.artifact(job["id"], "brief").read_text()
+    for op in ("cut_silence", "title", "fade_out", "loudnorm"):
+        assert f"op: {op}" in brief, op
+    assert "The oak bowl" in brief
+    assert brief.index("op: cut_silence") < brief.index("op: title") < brief.index("op: fade_out")
+    work = manager.root / job["id"] / "render-1"
+    project = json.loads((work / "project.json").read_text())
+    names = [step["name"] for step in project["steps"]]
+    export = next(step for step in project["steps"] if step["name"].startswith("export_"))
+    assert names.index("cut_silence") < names.index(export["name"])
+    export_argv = " ".join(export["argv"])
+    assert "drawtext=" in export_argv and "enable='between(t,0.000,2.500)'" in export_argv and "--fade-out 0.5" in export_argv
+    assert (work / "keep_ranges.json").is_file()
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    assert report["approved_plan"]["decisions"][1] == "Title card ‘The oak bowl’ for 2.5 s"
+    check = next(item for item in report["checks"] if item["name"] == "auto: requested edits applied")
+    assert check["passed"] is False and check["at"] is None
+    assert "Applied: Removed pauses" in check["note"] and "Not applied: Call to action" in check["note"]
+    assert complete["result"]["proof"]["has_video"] and complete["result"]["proof"]["has_audio"]
+    assert abs(probe(manager.artifact(job["id"], "video")).duration - 1.0) < 0.3
+
+
+def test_brief_can_turn_loudness_normalization_off(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: False)
+    job = manager.create(request(clip, goal="Show the product clearly. Do not normalize the audio."))
+    manager.process(job["id"])
+    assert manager.get(job["id"])["plan"]["decisions"] == ["Kept the original loudness (no normalization)"]
+    manager.render(job["id"], {"plan": story()})
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "complete", manager.get(job["id"])["error"]
+    assert "op: loudnorm" not in manager.artifact(job["id"], "brief").read_text()
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    check = next(item for item in report["checks"] if item["name"] == "auto: requested edits applied")
+    assert check["passed"] is True and check["note"] == "Applied: Kept the original loudness (no normalization)."
+    plain = manager.create(request(clip))
+    manager.process(plain["id"])
+    assert manager.get(plain["id"])["plan"]["decisions"] == [] and manager.get(plain["id"])["plan"]["ignored_edits"] == []
+
+
+def test_validate_plan_bounds_the_decision_sentences() -> None:
+    plan = validate_plan(story(decisions=["x" * 400] * 30 + [7, ""], ignored_edits="not a list"), 1.5)
+    assert len(plan["decisions"]) == 12
+    assert all(len(item) <= 200 for item in plan["decisions"])
+    assert plan["ignored_edits"] == []
+    assert validate_plan(story(), 1.5)["decisions"] == []
+    kept = validate_plan(story(decisions=["Fade out 0.5 s"], ignored_edits=["Watermark: upload a logo"]), 1.5)
+    assert kept["decisions"] == ["Fade out 0.5 s"] and kept["ignored_edits"] == ["Watermark: upload a logo"]
+
+
+def test_meta_captions_follow_the_trimmed_clock(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: False)
+    monkeypatch.setattr(meta, "transcribe_audio", lambda wav, **kw: {"cues": [{"start": 0.1, "end": 0.7, "text": "Made by hand."}], "provider": "meta", "usage": {"cost_usd": 0.0001}})
+    job = manager.create(request(clip, captions=True, caption_provider="meta", goal="Trim the pauses and fade out"))
+    manager.process(job["id"])
+    manager.render(job["id"], {"plan": story()})
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    work = manager.root / job["id"] / "render-1"
+    keeps = json.loads((work / "keep_ranges.json").read_text())["keeps"]
+    assert keeps and keeps[0]["start"] == 0  # a steady tone has no pauses: cues keep their times
+    assert "00:00:00,100 --> 00:00:00,700" in (work / "captions.srt").read_text()
+    names = [step["name"] for step in json.loads((work / "project.json").read_text())["steps"]]
+    assert "captions_transcribe" not in names and "cut_silence" in names

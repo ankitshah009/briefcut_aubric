@@ -1,6 +1,6 @@
 # Latest measured run
 
-Recorded 2026-10-31T01:20:14+00:00 by `scripts/demo_run.py`. One run, one machine. Timings are wall-clock and include HTTP polling. Re-run with `uv run python scripts/demo_run.py` to refresh.
+Recorded 2026-10-31T08:39:45+00:00 by `scripts/demo_run.py`. One run, one machine. Timings are wall-clock and include HTTP polling. Re-run with `uv run python scripts/demo_run.py` to refresh.
 
 ## Machine
 
@@ -20,63 +20,94 @@ Recorded 2026-10-31T01:20:14+00:00 by `scripts/demo_run.py`. One run, one machin
 | Clip | `workshop.mp4` |
 | Source | 40.02 s, 1280×720, audio=True |
 | Provider | meta |
-| Target | 20 s, 9:16 |
+| Target | 25 s, 9:16 |
 | Captions | True (meta) |
-| Effect | {'preset': 'push', 'intensity': 0.55, 'start': 0, 'duration': 3} |
-| Subject tracking | off |
+| Effect | {'preset': 'float', 'intensity': 0.55, 'start': 0, 'duration': 3} |
+| Subject tracking | the wooden bowl |
 
 ## Timings
 
 | Stage | Seconds |
 | --- | --- |
-| Upload | 0.004 s |
-| Time to editable plan | 32.284 s |
-| Time to verified render | 79.255 s |
-| Total | 111.542 s |
+| Upload | 0.010 s |
+| Time to editable plan | 63.790 s |
+| Time to verified render | 120.433 s |
+| Total | 184.233 s |
 
 ## Plan
 
-Provider `meta`, analysis `meta`. 5 segment(s), 18.0 s.
+Provider `meta`, analysis `meta`. 5 segment(s), 21.563 s.
 
 | # | Source range | Label | Reason |
 | --- | --- | --- | --- |
-| 1 | 0.00–2.70 s | Finished bowl reveal | Visible tan card reads '1. Finished bowl', opening the story with the completed piece as brief requires. Rests on speech [0.0–2.7] 'This is the finished oak bowl, oiled and'. |
-| 2 | 8.00–11.20 s | Raw oak blank | Visible dark card reads '2. Raw oak', showing the starting material. Rests on speech [8.0–11.2] 'Here is the raw oak blank, still wet and'. |
-| 3 | 16.00–20.00 s | Turning on lathe | Visible blue card reads '3. Turning', showing shaping step. Rests on speech [16.0–18.8] 'On the lathe the shape appears in long,' and [18.8–20.0] 'steady cuts.'. |
-| 4 | 24.00–29.00 s | Sanding smooth | Visible brown card reads '4. Sanding', showing smoothing step. Rests on speech [24.0–26.4] 'Sanding goes from coarse to fine, with' and [26.4–29.0] 'the lathe turning slowly.'. |
-| 5 | 32.00–35.10 s | Oil finish | Visible light card reads '5. Oil finish', showing final coating step. Rests on speech [32.0–35.1] 'A coat of food safe oil brings out the'. |
+| 1 | 0.00–4.58 s | finished oak bowl on table | Top-down view of smooth finished bowl with concentric grain on dark planks is visible throughout; speech [0.0-5.0] states 'This is the finished oak bowl, oiled and ready for the table.'; end moved back to sentence boundary at 4.6 s. |
+| 2 | 8.00–12.00 s | raw oak blank close-up | Blurry close-up of rough wood cross-section with wavy growth rings is visible; speech [8.0-12.0] states 'Here is the raw oak blank, still wet and heavy.' |
+| 3 | 16.00–20.00 s | bowl shape forming on lathe | Bowl with tool at rim and shavings visible as shape is cut; speech [16.0-20.0] states 'On the lathe the shape appears in long, steady cuts.' |
+| 4 | 24.00–29.00 s | sanding the turning bowl | Continued turning view with tool contact and surface refinement visible; speech [24.0-29.0] states 'Sanding goes from coarse to fine, with the lathe turning slowly.' |
+| 5 | 32.00–35.98 s | oiled surface detail | Tool removed, clean bowl with warm glowing grain visible top-down; speech [32.0-36.0] states 'A coat of food safe oil brings out the color.' |
 
-## Verified output
+## Verified output (version 2)
 
 | Item | Server proof | Local probe of the downloaded file |
 | --- | --- | --- |
-| Duration | 18.0 | 18.0 |
+| Duration | 21.966667 | 21.966667 |
 | Size | 1080×1920 | 1080×1920 |
 | Audio / video | True / True | True / True |
 | Codec | — | h264 @ 30.0 fps |
 | Color | bt709 / tv (bt709/bt709) | not reported by `vedit probe`; see report.json |
-| Bytes | 1212356 | 1212356 |
+| Bytes | 4501627 | 4501627 |
 
-Meta spend reserved: $0.0176 of a $0.50 cap. Local mode makes no model calls.
+Meta spend reserved: $0.2882 of a $0.50 cap. Local mode makes no model calls.
 
 Warnings from the render: none
 
+## Receipts (checks on the first verified render)
+
+15 of 15 checks passed.
+
+| Check | Result | At | Note |
+| --- | --- | --- | --- |
+| auto: cuts land on sentence boundaries | pass | — | every cut sits on a sentence boundary |
+| auto: duration matches the target | pass | — | 21.6 s cut vs 25.0 s target |
+| auto: moments inside the source and in order | pass | — | 5 moments inside the source, no overlaps |
+| auto: captions cover the speech | pass | — | 95% of 15.1 s of speech has a caption |
+| auto: requested edits applied | pass | — | The brief asked for no specific edits. |
+| auto: subject stays in frame (SAM 3.1) | pass | — | 452 tracked boxes cover 100% of 21.6 s; longest gap 0.2 s; subject centre inside the 9:16 crop in 100% of boxes |
+| director: Vertical format | pass | 1.5 s | Center vertical column with side bars reads as vertical story. |
+| director: Story about the oak bowl | pass | 2.0 s | All visuals and captions stay on the oak bowl from finish to making. |
+| director: Opens with finished bowl | pass | 0.0 s | Finished bowl on table plays 0.00-4.58s as briefed. |
+| director: Shows how it is made after opening | pass | 9.5 s | Blank at 4.58s, lathe forming at 8.59s, sanding at 12.59s, oiled detail at 17.59s. |
+| director: Runtime within 25s ceiling | pass | 21.6 s | 21.6s cut is under 25s ceiling with complete sentences. |
+| director: Hook inside first 3 seconds | pass | 0.5 s | Finished bowl grain fills frame instantly with clear caption. |
+| director: No mid-sentence cuts | pass | — | All five captions play as complete sentences with no truncation. |
+| director: Pacing holds for short story | pass | 8.6 s | Even ~4s beats move blank-lathe-sand-oil without drag. |
+| director: Caption legibility | pass | 2.1 s | White bottom captions stay legible over dark wood throughout. |
+
+## Self-correcting loop
+
+Mode `note` with note: "Hold the finished bowl a beat longer before the first cut, then tighten the sanding moment.". Version 2 rendered in 130.492 s and passed 13 of 15 checks.
+
+- trim_end moment 1: {'start': 0.0, 'end': 4.585} → {'start': 0.0, 'end': 5.58} — hold the finished bowl a beat longer before the first cut
+- trim_end moment 4: {'start': 24.0, 'end': 29.0} → {'start': 24.0, 'end': 28.0} — tighten the sanding moment
+- trim_end moment 4: {'start': 24.0, 'end': 28.0} → {'start': 24.0, 'end': 28.363} — Moment 4 ends mid-sentence at 28.00 s; snap to the sentence boundary at 28.36 s.
+
+## Versions
+
+| v | Source | Status | Checks | Duration |
+| --- | --- | --- | --- | --- |
+| 1 | approved | verified | 15/15 | 21.6 |
+| 2 | note | verified | 13/15 | 21.966667 |
+
 ## Director's notes (Muse Spark)
 
-Hook score 2/5. Structure is correct but cut reads as title cards over flat color, not a bowl story. No finished bowl or process is actually seen, and the cropped opening kills the hook. Replace cards with real footage and fix titles to serve the 20-second reveal-then-make goal.
+Hook score 4/5. pass
 
-- Working: Follows approved story order: finished reveal then raw, turning, sanding, oil finish.
-- Working: Even chapter pacing across 18.0s suits vertical short attention span.
-- Working: Numbered lower-thirds plus subtitles keep steps clear even without sound.
-- Working: Closes on oil finish, giving a complete making arc.
-- Fix: 0.0-3.0s opening hook shows flat tan card and cropped title '. Finished bow' with cut-off line 'oiled and' - replace with real finished-bowl hero close-up and fix to '1. Finished bowl'. (at 1.0s)
-- Fix: 3.0-6.0s Raw oak section is dark green card with no wood visible - lay in actual raw blank footage per outline to show wet/heavy starting point. (at 4.5s)
-- Fix: 6.5-9.5s Turning section is blue card with no lathe action and stuttered subtitle 'the the shape' - add real turning cuts and clean audio/caption. (at 7.5s)
-- Fix: 10.0-14.0s Sanding section is brown card with no hands or dust visible and duplicated 'lathe lathe' - add real sanding detail and tighten edit. (at 11.5s)
-- Fix: 15.0-18.0s Oil finish closer is grey card with no application visible - add real oiling wipe to pay off transformation and hold end frame for story close. (at 16.0s)
+- Working: Opens exactly on brief with finished bowl at 0.00s
+- Working: Clear reverse-story logic: hero then raw blank to oiled detail
+- Working: Tight 21.6s runtime respects 25s ceiling and keeps momentum
 
-Suggested caption: Finished bowl first, then how it happens: raw oak to turning to sanding to oil.
+Suggested caption: Finished oak bowl first, then how it's made — blank to lathe to oil.
 
-Review cost: $0.0009 (muse-spark-1.3-contributor).
+Review cost: $0.0012 (muse-spark-1.3-contributor).
 
-Full record: `docs/evidence/20261031T012014Z.json`.
+Full record: `docs/evidence/20261031T083945Z.json`.

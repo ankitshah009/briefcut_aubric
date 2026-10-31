@@ -118,6 +118,9 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("tools", help="stdio tool protocol")
     p.set_defaults(func=cmd_tools)
 
+    p = sub.add_parser("mcp", help="MCP server over stdio for coding agents (Claude Code, Cursor, ...)")
+    p.set_defaults(func=cmd_mcp)
+
     p = sub.add_parser("story", help="deterministic local story plan from scene cuts, speech, and transcript keywords")
     p.add_argument("clip", help="source video")
     p.add_argument("--goal", required=True, help="what the finished video should do")
@@ -414,6 +417,15 @@ def cmd_agent(args: argparse.Namespace) -> int:
 def cmd_tools(_args: argparse.Namespace) -> int:
     from vedit.agent.tools import serve_stdio
 
+    return serve_stdio()
+
+
+def cmd_mcp(_args: argparse.Namespace) -> int:
+    try:
+        from vedit.mcp_server import serve_stdio
+    except ImportError as exc:
+        print(f"vedit: the MCP server needs the `mcp` package ({exc}). Install it with `uv sync` or `uv pip install 'vedit[mcp]'`.", file=sys.stderr)
+        return 2
     return serve_stdio()
 
 

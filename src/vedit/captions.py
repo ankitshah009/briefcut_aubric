@@ -52,11 +52,122 @@ def parse_ts(stamp: str) -> float:
     return int(h) * 3600 + int(m) * 60 + float(rest)
 
 
+_TERMINAL_END = re.compile(r"""[.!?…]["'”’)\]]*$""")
+_WORD_STRIP = re.compile(r"""^[^\w]+|[^\w]+$""")
+
+
+def _word_key(word: str) -> str:
+    return _WORD_STRIP.sub("", word).casefold()
+
+
+def _capitalize(text: str) -> str:
+    for index, char in enumerate(text):
+        if char.isalpha():
+            return text[:index] + char.upper() + text[index + 1 :]
+        if char.isdigit():
+            return text
+    return text
+
+
+def polish_cues(cues: list[Cue], *, max_chars: int = 84, max_gap: float = 0.35) -> list[Cue]:
+    """Clean provider cues for burn-in without touching timing except by merging.
+
+    - Immediately repeated words collapse case-insensitively ("the the" -> "the"),
+      also across a cue boundary when the next cue opens with the previous cue's
+      last word (a Meta Voice Transcribe habit at turn edges).
+    - A cue that does not end a sentence merges with the next one when it starts
+      within ``max_gap`` seconds and the joined text fits ``max_chars``; a very
+      short trailing cue (<= 0.8 s or <= 2 words) merges into its predecessor
+      the same way. whisper-cli's ``-ml`` line splitting produces both shapes.
+    - Whitespace is normalized, each cue starts with a capital, empties are dropped.
+    """
+    cleaned: list[Cue] = []
+    for cue in cues:
+        text = " ".join(cue.text.split())
+        if text:
+            cleaned.append(Cue(float(cue.start), float(cue.end), text))
+
+    # Collapse doubled words, looking back across the cue boundary.
+    collapsed: list[Cue] = []
+    for cue in cleaned:
+        words: list[str] = []
+        for word in cue.text.split():
+            if words:
+                previous = words[-1]
+            elif collapsed:
+                previous = collapsed[-1].text.split()[-1]
+            else:
+                previous = None
+            key = _word_key(word)
+            if previous is not None and key and key == _word_key(previous):
+                # Keep whichever copy carries the punctuation ("lathe lathe," -> "lathe,").
+                if _WORD_STRIP.search(word) and not _WORD_STRIP.search(previous):
+                    if words:
+                        words[-1] = word
+                    else:
+                        head = collapsed[-1].text.split()
+                        head[-1] = word
+                        collapsed[-1] = Cue(collapsed[-1].start, collapsed[-1].end, " ".join(head))
+                continue
+            words.append(word)
+        if words:
+            collapsed.append(Cue(cue.start, cue.end, " ".join(words)))
+        elif collapsed:
+            # The whole cue repeated the previous word; its time still belongs to that word.
+            last = collapsed[-1]
+            collapsed[-1] = Cue(last.start, max(last.end, cue.end), last.text)
+
+    # Merge fragments into whole sentences where the clock allows.
+    merged: list[Cue] = []
+    for cue in collapsed:
+        if merged:
+            previous = merged[-1]
+            gap = cue.start - previous.end
+            joined = f"{previous.text} {cue.text}"
+            fits = len(joined) <= max_chars and gap <= max_gap
+            open_ended = not _TERMINAL_END.search(previous.text)
+            short_trailer = (cue.end - cue.start) <= 0.8 or len(cue.text.split()) <= 2
+            if fits and (open_ended or short_trailer):
+                merged[-1] = Cue(previous.start, max(previous.end, cue.end), joined)
+                continue
+        merged.append(cue)
+
+    return [Cue(cue.start, cue.end, _capitalize(cue.text)) for cue in merged]
+
+
+def wrap_cue_text(text: str, *, max_line: int = 42) -> list[str]:
+    """Split long caption text into two balanced lines at a word boundary.
+
+    Text at or under ``max_line`` characters stays on one line. Longer text
+    breaks once, choosing the word gap that keeps the halves closest in
+    length, with a slight preference for breaking after punctuation. Text
+    that already carries line breaks is left as laid out.
+    """
+    text = text.strip()
+    if "\n" in text:
+        return [line.strip() for line in text.split("\n") if line.strip()]
+    if len(text) <= max_line:
+        return [text]
+    words = text.split()
+    if len(words) < 2:
+        return [text]
+    best: tuple[float, list[str]] | None = None
+    for index in range(1, len(words)):
+        left, right = " ".join(words[:index]), " ".join(words[index:])
+        score = abs(len(left) - len(right))
+        if left[-1] in ",.;:!?":
+            score -= 1.5
+        if best is None or score < best[0]:
+            best = (score, [left, right])
+    assert best is not None
+    return best[1]
+
+
 def write_srt(cues: list[Cue], path: Path) -> None:
     blocks = []
     for i, cue in enumerate(cues, start=1):
         blocks.append(
-            f"{i}\n{format_ts(cue.start)} --> {format_ts(cue.end)}\n{cue.text.strip()}\n"
+            f"{i}\n{format_ts(cue.start)} --> {format_ts(cue.end)}\n" + "\n".join(wrap_cue_text(cue.text)) + "\n"
         )
     if not blocks:
         # No speech was heard. FFmpeg's subtitles filter cannot probe an empty
@@ -83,7 +194,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = [header]
     for cue in cues:
-        text = cue.text.replace("\n", r"\N")
+        text = r"\N".join(wrap_cue_text(cue.text))
         lines.append(
             f"Dialogue: 0,{format_ts(cue.start, srt=False)},{format_ts(cue.end, srt=False)},Default,,0,0,0,,{text}"
         )
@@ -147,10 +258,17 @@ def find_whisper_model(*, allow_stub: bool = False) -> Path | None:
             return candidate
     real: Path | None = None
     stub: Path | None = None
-    # A checkout launched via scripts/studio.sh keeps its model under
-    # .vedit-models/; resolve the working directory at call time, not import.
+    # Shared models live outside any checkout: $VEDIT_MODELS_DIR or ~/.vedit/models/.
+    # A checkout launched via scripts/studio.sh may still keep one under
+    # .vedit-models/; resolve both directories at call time, not import.
+    shared = Path(os.environ.get("VEDIT_MODELS_DIR") or os.path.expanduser("~/.vedit/models"))
     local = Path.cwd() / ".vedit-models"
-    candidates = (local / "ggml-base.en.bin", local / "ggml-base.bin", *_WHISPER_MODELS)
+    candidates = [shared / "ggml-base.en.bin", shared / "ggml-base.bin"]
+    try:
+        candidates += sorted(path for path in shared.glob("ggml-*.bin") if path not in candidates)
+    except OSError:
+        pass
+    candidates += [local / "ggml-base.en.bin", local / "ggml-base.bin", *_WHISPER_MODELS]
     for candidate in candidates:
         if not candidate.is_file():
             continue
@@ -252,16 +370,35 @@ def burn_filter(subtitle_path: Path, *, style: str = "lower-third") -> str:
     )
 
 
-def title_filter(text: str, canvas_height: int, *, y_ratio: float = 0.78, size: int = 56) -> str:
+def title_filter(
+    text: str,
+    canvas_height: int,
+    *,
+    y_ratio: float = 0.78,
+    size: int = 56,
+    box: bool = False,
+    start: float | None = None,
+    end: float | None = None,
+) -> str:
+    """Centered drawtext. ``start``/``end`` limit it to a window on the clip clock; ``box`` adds a dark card."""
     if not has_filter("drawtext"):
         raise CaptionError("drawtext filter missing — point VEDIT_FFMPEG at ffmpeg-full")
     font = escape_filter_path(resolve_font())
     _ = canvas_height  # kept for callers; position is expression-based so any frame size works
-    return (
+    spec = (
         f"drawtext=fontfile='{font}':text='{escape_drawtext(text)}':"
         f"fontsize={size}:fontcolor=white:borderw=3:bordercolor=black:"
         f"x=(w-text_w)/2:y=h*{y_ratio:.3f}-text_h/2"
     )
+    if box:
+        spec += ":box=1:boxcolor=black@0.55:boxborderw=22"
+    if start is not None and end is not None:
+        spec += f":enable='between(t,{start:.3f},{end:.3f})'"
+    elif start is not None:
+        spec += f":enable='gte(t,{start:.3f})'"
+    elif end is not None:
+        spec += f":enable='lt(t,{end:.3f})'"
+    return spec
 
 
 def ffmpeg_has_text() -> bool:
@@ -288,6 +425,7 @@ def transcribe_to_files(
         keeps = [Range(float(k["start"]), float(k["end"])) for k in data.get("keeps") or []]
         if keeps:
             cues = remap_cues(cues, keeps)
+    cues = polish_cues(cues)
     write_srt(cues, srt)
     write_ass(cues, ass, canvas_width=width, canvas_height=height)
     return cues

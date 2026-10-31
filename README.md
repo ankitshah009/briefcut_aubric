@@ -15,18 +15,31 @@ cover, post copy, captions when a local speech model is available, and a verifie
 render report. Planning and rendering run as persistent jobs; closing the browser
 does not interrupt them. Review and change the selected moments before rendering.
 
+Every cut is snapped to a transcript sentence boundary. Editing phrases in the
+brief ("trim the pauses", "add a title card", "fade out at the end", `hook:`,
+`cta:`) become engine ops and are listed as decisions on the plan; the "Product
+story, edited" chip is an example. After the render, "The receipts" list the
+probe of the file and the checks that passed or failed, each with a jump to the
+moment: automatic checks from `src/vedit/lint.py` (sentence boundaries, duration,
+bounds, caption coverage, requested edits) and, in Meta mode with review on,
+Director's notes from Muse Spark with its own checks and proposed fixes. "Apply
+director's fixes", "Apply automatic fixes", or a typed director's note render
+the next version; the previous verified version stays downloadable under its own
+tab with its own report.
+
 ```bash
 bash scripts/studio.sh --open
 ```
 
 The launcher creates the checkout's uv-managed virtual environment when needed and
-finds an optional local Whisper model under `.vedit-models/` (`ggml-base.en.bin` preferred). Local mode works without an account
+finds an optional local Whisper model in the shared `~/.vedit/models/` directory (or `VEDIT_MODELS_DIR`), then under the checkout's `.vedit-models/` (`ggml-base.en.bin` preferred). Local mode works without an account
 or model API. Its starting plan comes from local signal analysis: scene cuts,
 speech ranges, and transcript keywords, each moment labeled with its evidence.
 
-Optional Meta mode adds Muse Spark story planning, SAM 3.1 subject tracking,
-Muse Voice Transcribe captions, and Muse Image covers through the Meta Model
-API. It requires server-side credentials (`MODEL_API_KEY`) and explicit
+Optional Meta mode adds Muse Spark story planning and review, SAM 3.1 subject
+tracking, Muse Voice Transcribe captions, and Muse Image covers through the Meta
+Model API. The model returns ranges, checks, and patches as data; the local
+compiler is the only thing that renders. It requires server-side credentials (`MODEL_API_KEY`) and explicit
 enablement (`VEDIT_META_ENABLED=1`); `VEDIT_META_MODE=contributor` opts into the
 cheaper Muse Spark contributor tier. A campaign spending cap includes uncertain
 attempts; retries do not reset it. Final video rendering stays local. No model
@@ -39,11 +52,19 @@ See [spatial effects](docs/SPATIAL_EFFECTS.md) for examples and their limits.
 
 See [setup, API, and recovery](docs/CAMPAIGN.md) and the
 [hackathon demo guide](docs/HACKATHON.md). Social publishing is not implemented;
-the delivery is a downloadable campaign package. All four Meta adapters were
-exercised live on 2026-10-31 on synthetic demo clips; the timed records and a
-SAM tracking contact sheet are under [docs/evidence](docs/evidence/). Repeat
-`uv run python scripts/demo_run.py --provider meta` on your own footage before
-relying on them.
+the delivery is a downloadable campaign package. The full Meta loop (Spark plan,
+SAM tracking, Meta captions, Muse Image cover, Director's notes, and a director's
+revision to version 2) ran live on 2026-10-31 on the generated demo clip; the
+timed records and a SAM tracking contact sheet are under
+[docs/evidence](docs/evidence/). Repeat
+`uv run python scripts/demo_run.py --provider meta --review --revise director`
+on your own footage before relying on them.
+
+The demo clip `examples/demo/workshop.mp4` is stylised computer-generated
+footage: five 8 s scenes of an oak bowl on a workbench (finished bowl, raw
+blank, turning, sanding, oil finish) built from FFmpeg filters with film grain
+and a vignette, no baked-in text, narrated by the macOS `say` voice. It is not a
+recording.
 
 ```text
 intent (YAML brief | English DSL | Python API)
@@ -80,6 +101,8 @@ session/
 
 `vedit tools` is that loop as stdio JSON for an external agent: `doctor`, `inventory`, `parse_intent`, `decide`, `plan`, `render`, `critique`, `revise`. The English parser is deterministic. The agent does not call an LLM. `report.json` is the proof. No paid caption or enhance APIs.
 
+`vedit mcp` serves the Campaign Studio manager over MCP on stdio for coding agents (`claude mcp add briefcut -e VEDIT_WORKSPACE=/path -- uv run vedit mcp`): import a clip, plan, render, read the receipts and artifact paths; see [MCP for coding agents](docs/CAMPAIGN.md#mcp-for-coding-agents).
+
 Open `Briefcut.app` to use the native editor window. Choose a clip, describe the
 story, review the selected moments, and make the video. The result includes a
 playable preview and a probe of the delivered file. Downloads open a native Save
@@ -102,7 +125,8 @@ For local clients, `POST /api/upload?name=clip.mp4` with an `application/octet-s
 |---|---|
 | Cut / trim / concat / speed / reverse / freeze | FFmpeg trim, concat, setpts |
 | Remove silence (jump-cut) | `silencedetect` → keep-ranges → `select`/`aselect` |
-| Captions | local `whisper-cli` or `faster-whisper` → SRT/ASS → burn-in |
+| Captions | local `whisper-cli` or `faster-whisper` (or Meta Voice Transcribe in Studio) → polished sentence cues, two lines ≤ 42 chars → SRT/ASS → burn-in |
+| Story plan checks | `lint.py`: sentence boundaries, duration vs target, bounds and order, caption coverage; patches applied by a pure function |
 | Titles, watermarks, PIP | `drawtext` / `overlay` (ffmpeg-full) |
 | Music duck under speech | `sidechaincompress` |
 | Loudness | two-pass EBU R128 `loudnorm` |
@@ -144,7 +168,7 @@ cd briefcut
 uv sync                        # creates .venv on CPython 3.13 and installs vedit + pytest
 export VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 uv run vedit doctor
-uv run python scripts/make_demo.py   # tiny talk.mp4 / bed.wav / logo.png under examples/demo/
+uv run python scripts/make_demo.py   # talk.mp4 / bed.wav / logo.png and the generated workshop.mp4 under examples/demo/
 ```
 
 `uv sync` reads `uv.lock` and `.python-version`; `uv run <cmd>` keeps the environment in sync. `scripts/studio.sh` runs `uv sync` automatically when `.venv` is missing.
@@ -153,12 +177,12 @@ Optional captions (free, local):
 
 ```bash
 brew install whisper-cpp
-mkdir -p .vedit-models
-curl -L -o .vedit-models/ggml-base.en.bin \
+mkdir -p ~/.vedit/models
+curl -L -o ~/.vedit/models/ggml-base.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 ```
 
-`scripts/studio.sh` and `vedit doctor` find any `.vedit-models/ggml-*.bin` in the checkout (`.vedit-models/` is gitignored). Set `VEDIT_WHISPER_MODEL` to use a model stored elsewhere.
+`scripts/studio.sh`, `scripts/demo_run.py`, and `vedit doctor` find any `ggml-*.bin` in `~/.vedit/models/` (shared across projects; override the directory with `VEDIT_MODELS_DIR`) and then in the checkout's gitignored `.vedit-models/`. Set `VEDIT_WHISPER_MODEL` to use one specific model file.
 
 ## Tell it what to do
 
@@ -230,5 +254,7 @@ Not a Premiere/Resolve clone. A GUI timeline you click through is the wrong prod
 ## Tests
 
 ```bash
-VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run pytest
+VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run pytest -n auto
 ```
+
+Tests run in parallel with pytest-xdist; CI uses the same `-n auto`.

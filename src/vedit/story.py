@@ -32,11 +32,43 @@ MAX_SCENES = 400
 MAX_SPEECH = 400
 MAX_CUES = 600
 MAX_TRANSCRIPT_BYTES = 60_000
+MAX_SENTENCE_CHARS = 600
+SENTENCE_GAP = 0.8
+SENTENCE_PAD = 0.15
+SENTENCE_LEAD = 0.1
+SNAP_EXTEND = 1.6
+SNAP_SHRINK = 0.8
+SNAP_FINISH = 3.0
+SNAP_OVERSHOOT = 0.15
+LABEL_CHARS = 40
 TRANSCRIBE_MAX_SECONDS = 600.0
 
-_SHOWINFO = re.compile(r"pts_time:([0-9.]+)")
 _WORD = re.compile(r"[a-z0-9][a-z0-9'\-]{1,}")
 _HOOK_HINT = re.compile(r"\b(open with|opening|start with|hook|begin with|first show)\b", re.I)
+_PROCESS_HINT = re.compile(
+    r"\b(how (it|they|we|this|these|those|things?)('s| is| are| was| were|'re)? (made|built|done|crafted|created|produced|works?)"
+    r"|how to|process|steps?|step by step|behind the scenes|making of|from (start|blank|raw|scratch) to|journey|workflow|tutorial|walkthrough)\b",
+    re.I,
+)
+COVERAGE_MILD = 0.15
+COVERAGE_STRONG = 1.0
+SCENE_THRESHOLD = 0.3
+SCENE_FALLBACK = 0.1
+_SCENE_SCORE = re.compile(r"pts_time:([0-9.]+)\s*\n\s*lavfi\.scene_score=([0-9.]+)")
+_TERMINAL = re.compile(r"[.!?…]+[\"'”’)\]]*$")
+_SNAP_EPS = 0.05
+# Words that describe the request (format, length, editing verbs) rather than
+# what the footage is about. Dropped from titles and hashtags.
+_INSTRUCTION_WORDS = frozenset(
+    "make create build produce cut edit turn write story stories video videos clip clips reel reels short shorts "
+    "second seconds sec secs minute minutes min mins long length vertical horizontal square landscape portrait "
+    "open opening start starting begin beginning end ending close closing finish finally first last then next after before "
+    "show showing hook intro outro cta caption captions title titles format aspect ratio target duration "
+    "how what where why when which who made done using use".split()
+)
+_ABOUT = re.compile(r"\b(?:about|of|featuring)\s+(?:(the|a|an|my|our|this|these|his|her|their)\s+)?([^.:;!?\n]+)", re.I)
+_PHRASE_STOP = re.compile(r"\b(and|then|that|which|with|to|so|where|who|while|but|or|for|from)\b", re.I)
+_THE_PHRASE = re.compile(r"\b(?:the|a|an|my|our)\s+((?:[A-Za-z][A-Za-z'\-]*\s*){1,3})", re.I)
 _STOPWORDS = frozenset(
     "a an and are as at be been but by can could do does for from had has have how i if in into is it its just "
     "make making me more most my no not of on one only or our out over so some than that the their them then there "
@@ -57,6 +89,7 @@ class Moment:
     kind: str = "speech"
     evidence: list[str] = field(default_factory=list)
     words: list[str] = field(default_factory=list)
+    span: int = 0  # scene (or temporal span) index the moment belongs to
 
     @property
     def duration(self) -> float:
@@ -80,24 +113,84 @@ def keywords(goal: str) -> list[str]:
     return seen
 
 
-def _title_from_goal(goal: str, limit: int = 60) -> str:
-    first = re.split(r"(?<=[.!?])\s+", goal.strip(), maxsplit=1)[0].strip().rstrip(".!?,;: ")
-    if not first:
-        first = "Your story"
-    if len(first) > limit:
-        cut = first[:limit].rsplit(" ", 1)[0].rstrip(",;:- ")
-        first = (cut or first[:limit]).rstrip() + "…"
-    return first[0].upper() + first[1:]
+def content_words(text: str) -> list[str]:
+    """Goal/transcript words that describe the subject, not the request.
+
+    Drops stopwords, numbers and instruction words (format, length, editing
+    verbs) so "Make a 20-second vertical story about the oak bowl" keeps only
+    "oak" and "bowl".
+    """
+    seen: list[str] = []
+    for word in tokens(text):
+        if word in _INSTRUCTION_WORDS or any(ch.isdigit() for ch in word):
+            continue
+        if word not in seen:
+            seen.append(word)
+    return seen
 
 
-def _hashtags(goal: str, limit: int = 5) -> list[str]:
+def _clip_title(text: str, limit: int) -> str:
+    text = " ".join(text.split()).strip(" ,;:-–")
+    if len(text) > limit:
+        cut = text[:limit].rsplit(" ", 1)[0].rstrip(",;:- ")
+        text = (cut or text[:limit]).rstrip() + "…"
+    return text[:1].upper() + text[1:] if text else ""
+
+
+def _subject_phrase(goal: str) -> str:
+    """The thing the brief is about: "about the oak bowl" → "the oak bowl"."""
+    match = _ABOUT.search(goal)
+    if match:
+        phrase = _PHRASE_STOP.split(match.group(2), maxsplit=1)[0]
+        words = [w.strip(",") for w in phrase.split() if w.lower() not in _INSTRUCTION_WORDS and not any(ch.isdigit() for ch in w)]
+        if words and any(w.lower() not in _STOPWORDS for w in words):
+            article = f"{match.group(1).capitalize()} " if match.group(1) else ""
+            return article + " ".join(words)
+    for match in _THE_PHRASE.finditer(goal):
+        words = [w for w in match.group(1).split() if w.lower() not in _INSTRUCTION_WORDS and w.lower() not in _STOPWORDS]
+        if words and not any(ch.isdigit() for w in words for ch in w):
+            return "The " + " ".join(words)
+    return ""
+
+
+def _title_from_goal(goal: str, transcript: list[dict[str, Any]] | None = None, limit: int = 60) -> str:
+    """A short, content-based title: the brief's subject, else its content words, else the first spoken sentence."""
+    phrase = _subject_phrase(goal)
+    if phrase:
+        return _clip_title(phrase, limit)
+    words = content_words(goal)[:4]
+    if words:
+        return _clip_title(" ".join(words), limit)
+    for sentence in sentences_from_transcript(transcript or []):
+        text = _clip_title(sentence["text"].rstrip(".!?… "), limit)
+        if text:
+            return text
+    return "Your story"
+
+
+def _hashtags(goal: str, transcript: list[dict[str, Any]] | None = None, limit: int = 5) -> list[str]:
+    """3–5 content tags: the brief's content words first, then the most frequent transcript words."""
     tags: list[str] = []
-    for word in keywords(goal):
+
+    def add(word: str) -> None:
         clean = re.sub(r"[^a-z0-9]", "", word)
-        if len(clean) >= 4 and clean not in tags:
+        if len(clean) >= 3 and not clean.isdigit() and clean not in tags and len(tags) < limit:
             tags.append(clean)
-        if len(tags) >= limit:
-            break
+
+    for word in content_words(goal):
+        add(word)
+    if len(tags) < limit and transcript:
+        counts: dict[str, int] = {}
+        order: list[str] = []
+        for cue in transcript:
+            for word in content_words(str(cue.get("text", ""))):
+                if word not in counts:
+                    order.append(word)
+                counts[word] = counts.get(word, 0) + 1
+        for word in sorted(order, key=lambda w: (-counts[w], order.index(w))):
+            add(word)
+            if len(tags) >= limit:
+                break
     return ["#" + tag for tag in tags]
 
 
@@ -157,12 +250,22 @@ def score_candidates(
     speech: list[Range],
     transcript: list[dict[str, Any]],
     goal_keywords: list[str],
+    sentences: list[dict[str, Any]] | None = None,
+    spans: list[float] | None = None,
+    span_label: str = "scene",
 ) -> list[Moment]:
-    """Attach a bounded score and evidence to each candidate piece."""
+    """Attach a bounded score and evidence to each candidate piece.
+
+    ``spans`` are the boundaries (scene cuts, or equal time spans when no cuts
+    were found) that tag each moment with the part of the source it comes from,
+    so selection can prefer parts not yet represented.
+    """
     if not pieces:
         return []
     moments: list[Moment] = []
     keyword_set = set(goal_keywords)
+    sentence_ends = sorted({round(float(s["end"]), 3) for s in (sentences or []) if isinstance(s, dict) and "end" in s})
+    edges = sorted(float(s) for s in (spans or []) if 0 < float(s) < duration)
     speech_pieces = [p for p in pieces if any(_overlap(p.start, p.end, s.start, s.end) > 0 for s in speech)]
     first_speech = min(speech_pieces, key=lambda p: p.start) if speech_pieces else None
     last_speech = max(speech_pieces, key=lambda p: p.end) if speech_pieces else None
@@ -185,6 +288,8 @@ def score_candidates(
             evidence.append("mentions " + ", ".join(f'"{w}"' for w in matched[:4]) + " from your brief")
         if near_cut is not None:
             evidence.append(f"follows a scene change at {near_cut:.1f}s")
+        if any(abs(piece.end - end) <= _SNAP_EPS for end in sentence_ends):
+            evidence.append(f"ends on a sentence end at {piece.end:.1f}s")
         if first_speech is not None and piece is first_speech:
             score += 0.15
             kind = "hook"
@@ -195,39 +300,115 @@ def score_candidates(
             evidence.append("last spoken moment")
         if not evidence:
             evidence.append(f"Picture-only range {piece.start:.1f}–{piece.end:.1f}s")
-        moments.append(Moment(piece.start, piece.end, round(min(1.0, max(0.0, score)), 3), kind, evidence, matched))
+        span = 0
+        if edges:
+            midpoint = (piece.start + piece.end) / 2
+            span = sum(1 for edge in edges if edge <= midpoint)
+            evidence.append(f"{span_label} {span + 1} of {len(edges) + 1}")
+        moments.append(Moment(piece.start, piece.end, round(min(1.0, max(0.0, score)), 3), kind, evidence, matched, span))
     return moments
 
 
-def select_moments(moments: list[Moment], target: float, *, max_segments: int = MAX_SEGMENTS) -> list[Moment]:
-    """Greedy, non-overlapping, fits the target; returns chronological order."""
+def coverage_weight(goal: str, *, spans: bool) -> float:
+    """How strongly selection should spread across scenes: strong for process briefs, mild otherwise, none without spans."""
+    if not spans:
+        return 0.0
+    return COVERAGE_STRONG if _PROCESS_HINT.search(goal) else COVERAGE_MILD
+
+
+def _trimmed(moment: Moment, length: float) -> Moment:
+    return Moment(moment.start, moment.start + length, moment.score, moment.kind, moment.evidence + [f"trimmed to the {length:.1f}s target"], moment.words, moment.span)
+
+
+def select_moments(moments: list[Moment], target: float, *, max_segments: int = MAX_SEGMENTS, coverage: float = 0.0) -> list[Moment]:
+    """Greedy, non-overlapping, fits the target; returns chronological order.
+
+    ``coverage`` is a bonus added to the score of moments whose ``span`` (scene)
+    is not yet represented among the chosen ones. It is re-evaluated after every
+    pick, so a strong bonus walks the scenes (hook first, then the best moment
+    of each unrepresented scene) before the remaining budget goes to the best
+    scores; zero reproduces plain score order.
+    """
     if not moments or target <= 0:
         return []
     chosen: list[Moment] = []
     total = 0.0
-    for moment in sorted(moments, key=lambda m: (-m.score, m.start)):
-        if len(chosen) >= max_segments:
-            break
-        if any(_overlap(moment.start, moment.end, c.start, c.end) > 0 for c in chosen):
-            continue
+    while len(chosen) < max_segments:
         remaining = target - total
         if remaining < MIN_SEGMENT:
             break
-        if moment.duration <= remaining + 0.05:
-            chosen.append(moment)
-            total += moment.duration
-        elif remaining >= 1.0 and not chosen:
-            trimmed = Moment(moment.start, moment.start + remaining, moment.score, moment.kind, moment.evidence + [f"trimmed to the {remaining:.1f}s target"], moment.words)
-            chosen.append(trimmed)
-            total += trimmed.duration
+        represented = {c.span for c in chosen}
+        candidates = [m for m in moments if not any(_overlap(m.start, m.end, c.start, c.end) > 0 for c in chosen)]
+        unrepresented = {m.span for m in candidates} - represented
+        fair = remaining / max(1, len(unrepresented))
+
+        def rank(moment: Moment) -> tuple[float, float]:
+            bonus = 0.0
+            if coverage > 0 and moment.span not in represented:
+                # A moment that eats more than its fair share of what is left
+                # would crowd out the scenes still waiting; nudge toward ones
+                # that leave room, without overturning real score gaps.
+                bonus = max(0.0, coverage - min(0.2, 0.1 * max(0.0, moment.duration - fair) / fair))
+            return (-(moment.score + bonus), moment.start)
+
+        ranked = sorted(candidates, key=rank)
+        picked: Moment | None = None
+        for moment in ranked:
+            if moment.duration <= remaining + 0.05:
+                picked = moment
+                break
+            if not chosen and remaining >= 1.0:
+                picked = _trimmed(moment, remaining)
+                break
+        if picked is None:
+            break
+        chosen.append(picked)
+        total += picked.duration
     if not chosen:
         best = max(moments, key=lambda m: (m.score, -m.start))
-        end = min(best.end, best.start + target)
-        chosen = [Moment(best.start, end, best.score, best.kind, best.evidence + [f"trimmed to the {target:.1f}s target"], best.words)]
+        chosen = [_trimmed(best, min(best.duration, target))]
     return sorted(chosen, key=lambda m: m.start)
 
 
-def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook_first: bool) -> list[Moment]:
+def temporal_spans(duration: float, target: float, sentences: list[dict[str, Any]] | None = None) -> list[float]:
+    """Equal span boundaries used in place of scene cuts when none were detected.
+
+    The count is roughly the target length divided by a typical sentence (the
+    median transcript sentence, else 4 s), so one sentence per span fills the
+    target; at least two spans, at most eight.
+    """
+    if duration <= 0 or target <= 0:
+        return []
+    lengths = sorted(float(s["end"]) - float(s["start"]) for s in (sentences or []) if isinstance(s, dict))
+    typical = lengths[len(lengths) // 2] if len(lengths) >= 3 else 4.0
+    count = int(max(2, min(MAX_SEGMENTS, round(target / max(typical, MIN_SEGMENT)))))
+    if duration / count < MIN_PIECE:
+        count = max(2, int(duration // MIN_PIECE))
+    return [round(duration * i / count, 3) for i in range(1, count)]
+
+
+def _post_copy(title: str, segments: list[dict[str, Any]], sentences: list[dict[str, Any]], *, limit: int = 220, quotes: int = 2) -> str:
+    """Title plus one or two complete sentences spoken inside the selected moments."""
+    parts = [title.rstrip(".!?… ") + "."] if title else []
+    used = 0
+    for segment in segments:
+        for sentence in sentences:
+            text = " ".join(str(sentence.get("text", "")).split())
+            if not _TERMINAL.search(text):
+                continue  # only complete sentences, never a cut-off quote
+            if float(sentence["start"]) < float(segment["start"]) - _SNAP_EPS or float(sentence["end"]) > float(segment["end"]) + _SNAP_EPS:
+                continue
+            if text in parts:
+                continue
+            if len(" ".join(parts + [text])) <= limit:
+                parts.append(text)
+                used += 1
+            if used >= quotes:
+                return " ".join(parts)
+    return " ".join(parts)
+
+
+def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook_first: bool, pad: float = PAD) -> list[Moment]:
     """Add breathing room around cuts without exceeding the target length."""
     ordered = sorted(chosen, key=lambda m: m.start)
     budget = max(0.0, target - sum(m.duration for m in ordered))
@@ -235,8 +416,8 @@ def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook
     for index, moment in enumerate(ordered):
         prev_end = padded[-1].end if padded else 0.0
         next_start = ordered[index + 1].start if index + 1 < len(ordered) else duration
-        lead = min(PAD, budget / 2, moment.start - max(prev_end, 0.0))
-        tail = min(PAD, budget - max(0.0, lead), max(0.0, min(next_start, duration) - moment.end))
+        lead = min(pad, budget / 2, moment.start - max(prev_end, 0.0))
+        tail = min(pad, budget - max(0.0, lead), max(0.0, min(next_start, duration) - moment.end))
         lead, tail = max(0.0, lead), max(0.0, tail)
         budget -= lead + tail
         padded.append(Moment(round(moment.start - lead, 3), round(moment.end + tail, 3), moment.score, moment.kind, moment.evidence, moment.words))
@@ -245,6 +426,332 @@ def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook
         if hooks:
             padded = hooks + [m for m in padded if m is not hooks[0]]
     return padded
+
+
+# ---------------------------------------------------------------------------
+# Sentences: cut points that do not chop speech mid-word
+# ---------------------------------------------------------------------------
+
+
+def _speech_bounds(speech: Any) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    for item in speech or []:
+        try:
+            if isinstance(item, dict):
+                start, end = float(item["start"]), float(item["end"])
+            else:
+                start, end = float(item.start), float(item.end)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(start) and math.isfinite(end) and end > start:
+            out.append((start, end))
+    return sorted(out)
+
+
+def sentences_from_transcript(transcript: list[dict[str, Any]], *, duration: float = math.inf, speech: Any = None) -> list[dict[str, Any]]:
+    """Group consecutive cues into sentences ending at terminal punctuation.
+
+    Whisper and silence detection split at breaths, not sentences, so a cue can
+    end with "oiled and". Consecutive cues are joined until one ends with
+    ``. ! ? …`` (closing quotes allowed); a pause of ``SENTENCE_GAP`` seconds or
+    more between cues also closes a sentence, so unpunctuated transcripts still
+    break at natural pauses. Each sentence is ``{start, end, text}`` on the
+    source clock, bounded like the transcript itself.
+
+    Whisper cue ends run on to the next cue's start, so a cue-timed "sentence
+    end" is really where the next sentence begins. With ``speech`` (measured
+    speech ranges, dicts or ``Range`` objects) each sentence is clamped to the
+    speech that overlaps it plus ``SENTENCE_PAD``, and never past the next
+    sentence's start minus ``SENTENCE_LEAD``; without speech, cue times stand.
+    """
+    sentences: list[dict[str, Any]] = []
+    group: list[tuple[float, float, str]] = []
+
+    def flush() -> None:
+        if not group:
+            return
+        start = min(item[0] for item in group)
+        end = max(item[1] for item in group)
+        text = " ".join(item[2] for item in group)[:MAX_SENTENCE_CHARS]
+        if end > start and len(sentences) < MAX_CUES:
+            sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
+        group.clear()
+
+    for cue in transcript or []:
+        if not isinstance(cue, dict):
+            continue
+        try:
+            start, end = float(cue["start"]), float(cue["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        text = " ".join(str(cue.get("text", "")).split())
+        if not text or not (math.isfinite(start) and math.isfinite(end)) or end <= start or start >= duration:
+            continue
+        start, end = max(0.0, start), min(duration, end)
+        if group and start - group[-1][1] >= SENTENCE_GAP:
+            flush()
+        group.append((start, end, text))
+        if _TERMINAL.search(text):
+            flush()
+    flush()
+    return _clamp_to_speech(sentences, _speech_bounds(speech))
+
+
+def _clamp_to_speech(sentences: list[dict[str, Any]], speech: list[tuple[float, float]]) -> list[dict[str, Any]]:
+    """Trim cue-timed sentences to the speech actually heard inside them.
+
+    Each speech range belongs to the sentence holding its midpoint (a range
+    that merely spills over a cue boundary belongs to the sentence it mostly
+    occupies, so the next sentence's first word never pulls an end outward).
+    A sentence then runs from its first word minus ``SENTENCE_PAD`` (never
+    before the previous sentence ends, nor more than 0.5 s before its cue) to
+    its last word plus the pad, and never past the next sentence's start minus
+    ``SENTENCE_LEAD``. Sentences with no measured speech keep cue times.
+    """
+    if not speech or not sentences:
+        return sentences
+    heard: list[list[tuple[float, float]]] = [[] for _ in sentences]
+    for start, end in speech:
+        midpoint = (start + end) / 2
+        owner = next((i for i, s in enumerate(sentences) if s["start"] <= midpoint < s["end"]), None)
+        if owner is None:
+            overlaps = [(min(end, s["end"]) - max(start, s["start"]), i) for i, s in enumerate(sentences)]
+            best = max(overlaps)
+            owner = best[1] if best[0] > 0 else None
+        if owner is not None:
+            heard[owner].append((start, end))
+    previous_end = 0.0
+    clamped: list[bool] = []
+    for index, sentence in enumerate(sentences):
+        done = False
+        if heard[index]:
+            cue_start, cue_end = sentence["start"], sentence["end"]
+            start = max(previous_end, cue_start - 0.5, min(s for s, _ in heard[index]) - SENTENCE_PAD)
+            end = min(cue_end, max(e for _, e in heard[index]) + SENTENCE_PAD)
+            if end - start >= MIN_SEGMENT:
+                sentence["start"], sentence["end"] = round(max(0.0, start), 3), round(end, 3)
+                done = True
+        clamped.append(done)
+        previous_end = sentence["end"]
+    for index, (current, following) in enumerate(zip(sentences, sentences[1:])):
+        limit = following["start"] - SENTENCE_LEAD
+        if clamped[index] and current["end"] > limit >= current["start"] + MIN_SEGMENT:
+            current["end"] = round(limit, 3)
+    return sentences
+
+
+def _containing_sentence(point: float, sentences: list[dict[str, float]]) -> dict[str, float] | None:
+    for sentence in sentences:
+        if sentence["start"] + _SNAP_EPS < point < sentence["end"] - _SNAP_EPS:
+            return sentence
+    return None
+
+
+def _with_note(segment: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+    if not notes:
+        return segment
+    if isinstance(segment.get("evidence"), list):
+        segment["evidence"] = list(segment["evidence"]) + notes
+    reason = segment.get("reason")
+    if isinstance(reason, str) or "evidence" not in segment:
+        base = (reason or "").strip().rstrip(".")
+        suffix = "; ".join(notes) + "."
+        if base:
+            room = 600 - len(suffix) - 2
+            if len(base) > room:
+                base = base[: max(0, room - 1)].rstrip() + "…"
+            segment["reason"] = f"{base}; {suffix}"
+        else:
+            segment["reason"] = suffix[:1].upper() + suffix[1:]
+    return segment
+
+
+def snap_to_sentences(
+    segments: list[dict[str, Any]],
+    sentences: list[dict[str, Any]],
+    *,
+    duration: float,
+    extend: float = SNAP_EXTEND,
+    shrink: float = SNAP_SHRINK,
+    finish: float = SNAP_FINISH,
+    target: float | None = None,
+    overshoot: float = SNAP_OVERSHOOT,
+) -> list[dict[str, Any]]:
+    """Move segment edges off the middle of a sentence. Pure; returns copies.
+
+    An end inside a sentence moves to that sentence's end when the extension is
+    at most ``extend`` seconds, otherwise back to the sentence's start when that
+    shrink is at most ``shrink`` seconds and the segment stays at least
+    ``MIN_SEGMENT`` long. A start inside a sentence moves back to the sentence
+    start within ``extend``, else forward to the sentence end within ``shrink``.
+    A segment that lies wholly inside one sentence cannot back off without
+    vanishing, so it may finish that sentence with up to ``finish`` seconds.
+    Edges within 50 ms of a boundary are tidied onto it without a note.
+    Neighbours in source order never overlap, nothing leaves ``[0, duration]``,
+    the given (editorial) order is kept, and every adjusted segment gets a note
+    in its ``reason`` (and ``evidence`` list when present). With ``target``,
+    when the snapped total exceeds the target by more than ``overshoot``, the
+    last extended segments are shrunk to the sentence start instead, and when
+    none can shrink their extensions are reverted; nothing is ever dropped.
+    Segments that overlap on input, or have unusable times, are
+    returned unchanged.
+    """
+    out = [dict(segment) for segment in segments]
+    if not out or not sentences:
+        return out
+    duration = float(duration)
+    if not math.isfinite(duration) or duration <= 0:
+        return out
+    bounds: list[dict[str, float]] = []
+    for sentence in sentences:
+        try:
+            start, end = float(sentence["start"]), float(sentence["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(start) and math.isfinite(end)):
+            continue
+        start, end = max(0.0, start), min(duration, end)
+        if end - start > _SNAP_EPS:
+            bounds.append({"start": start, "end": end})
+    bounds.sort(key=lambda s: (s["start"], s["end"]))
+    if not bounds:
+        return out
+
+    work: list[dict[str, float] | None] = []
+    for segment in out:
+        try:
+            start, end = float(segment["start"]), float(segment["end"])
+        except (KeyError, TypeError, ValueError):
+            work.append(None)
+            continue
+        if not (math.isfinite(start) and math.isfinite(end)) or end <= start or start < 0 or end > duration + _SNAP_EPS:
+            work.append(None)
+            continue
+        work.append({"orig_start": start, "orig_end": end, "start": start, "end": min(end, duration)})
+
+    def min_len(item: dict[str, float]) -> float:
+        return min(MIN_SEGMENT, item["orig_end"] - item["orig_start"])
+
+    edges = sorted({value for sentence in bounds for value in (sentence["start"], sentence["end"])})
+
+    def tidy(point: float) -> float:
+        nearest = min(edges, key=lambda edge: abs(edge - point))
+        return nearest if abs(nearest - point) <= _SNAP_EPS else point
+
+    # Independent snaps first.
+    for item in work:
+        if item is None:
+            continue
+        item["start"], item["end"] = tidy(item["start"]), tidy(item["end"])
+        if item["end"] - item["start"] < min_len(item):
+            item["start"], item["end"] = item["orig_start"], item["orig_end"]
+        sentence = _containing_sentence(item["start"], bounds)
+        if sentence is not None:
+            if item["start"] - sentence["start"] <= extend:
+                item["start"] = sentence["start"]
+            elif sentence["end"] - item["start"] <= shrink and item["end"] - sentence["end"] >= min_len(item):
+                item["start"] = sentence["end"]
+        sentence = _containing_sentence(item["end"], bounds)
+        if sentence is not None:
+            # The segment sits inside this one sentence (or starts in the silence
+            # just before it): backing off would erase it, so it may finish instead.
+            whole = sentence["start"] - item["start"] < min_len(item)
+            if sentence["end"] - item["end"] <= (finish if whole else extend):
+                item["end"] = sentence["end"]
+            elif item["end"] - sentence["start"] <= shrink and sentence["start"] - item["start"] >= min_len(item):
+                item["end"] = sentence["start"]
+
+    # Source-order neighbours: a cut inside one sentence can pull both sides
+    # into it. Give the sentence to whichever side costs less, else revert.
+    order = sorted((i for i, item in enumerate(work) if item is not None), key=lambda i: (work[i]["orig_start"], work[i]["orig_end"]))
+    for a, b in zip(order, order[1:]):
+        first, second = work[a], work[b]
+        assert first is not None and second is not None
+        if first["orig_end"] > second["orig_start"] + _SNAP_EPS:
+            first["start"], first["end"] = first["orig_start"], first["orig_end"]
+            second["start"], second["end"] = second["orig_start"], second["orig_end"]
+            continue
+        if first["end"] <= second["start"] + 1e-9:
+            continue
+        options: list[tuple[float, float]] = []
+        boundary = first["end"]  # second starts where first ends
+        cost = abs(boundary - second["orig_start"])
+        if cost <= (shrink if boundary > second["orig_start"] else extend) and second["end"] - boundary >= min_len(second):
+            options.append((cost, boundary))
+        boundary = second["start"]  # first ends where second starts
+        cost = abs(first["orig_end"] - boundary)
+        if cost <= (shrink if boundary < first["orig_end"] else finish) and boundary - first["start"] >= min_len(first):
+            options.append((cost + 1e-6, boundary))  # ties favour the earlier segment keeping its sentence
+        if options:
+            _, boundary = min(options)
+            first["end"], second["start"] = boundary, boundary
+        else:
+            first["end"], second["start"] = first["orig_end"], second["orig_start"]
+
+    for item in work:
+        if item is not None and item["end"] - item["start"] < min_len(item) - 1e-9:
+            item["start"], item["end"] = item["orig_start"], item["orig_end"]
+
+    # Duration sanity: shrink the last extended segments rather than dropping any.
+    if target is not None and math.isfinite(float(target)) and float(target) > 0:
+        cap = float(target) * (1 + overshoot) + _SNAP_EPS
+        total = sum(item["end"] - item["start"] for item in work if item is not None)
+        extended = [item for item in reversed(work) if item is not None and item["end"] > item["orig_end"] + 1e-9]
+        for item in extended:  # last segments first: shrink to the sentence start where the segment survives
+            if total <= cap:
+                break
+            sentence = _containing_sentence(item["orig_end"], bounds)
+            floor = max(MIN_SEGMENT, min(MIN_PIECE, 0.5 * (item["orig_end"] - item["orig_start"])))
+            if sentence is not None and sentence["start"] - item["start"] >= floor:
+                total -= item["end"] - sentence["start"]
+                item["end"] = sentence["start"]
+        for item in extended:  # still over: give the extension back rather than exceed the cap
+            if total <= cap:
+                break
+            if item["end"] > item["orig_end"] + 1e-9:
+                total -= item["end"] - item["orig_end"]
+                item["end"] = item["orig_end"]
+
+    for segment, item in zip(out, work):
+        if item is None:
+            continue
+        notes: list[str] = []
+        if item["start"] < item["orig_start"] - _SNAP_EPS:
+            notes.append(f"start moved back to sentence start at {item['start']:.1f} s")
+        elif item["start"] > item["orig_start"] + _SNAP_EPS:
+            notes.append(f"start moved forward to sentence boundary at {item['start']:.1f} s")
+        if item["end"] > item["orig_end"] + _SNAP_EPS:
+            notes.append(f"end moved to sentence end at {item['end']:.1f} s")
+        elif item["end"] < item["orig_end"] - _SNAP_EPS:
+            notes.append(f"end moved back to sentence boundary at {item['end']:.1f} s")
+        if item["start"] != item["orig_start"] or item["end"] != item["orig_end"]:
+            segment["start"], segment["end"] = round(item["start"], 3), round(item["end"], 3)
+        _with_note(segment, notes)
+    return out
+
+
+def snap_ranges(pieces: list[Range], sentences: list[dict[str, Any]], *, duration: float) -> list[Range]:
+    """Candidate pieces aligned to sentences before scoring, so selection budgets whole sentences."""
+    if not sentences or not pieces:
+        return pieces
+    ordered = sorted(pieces, key=lambda r: (r.start, r.end))
+    snapped = snap_to_sentences([{"start": p.start, "end": p.end} for p in ordered], sentences, duration=duration)
+    out = [Range(round(float(s["start"]), 3), round(float(s["end"]), 3)) for s in snapped]
+    return [p for p in out if p.duration >= MIN_SEGMENT]
+
+
+def _segment_label(start: float, end: float, sentences: list[dict[str, Any]], *, limit: int = LABEL_CHARS) -> str:
+    """A short snippet of the first sentence the segment mostly contains, or ''."""
+    for sentence in sentences:
+        covered = _overlap(start, end, float(sentence["start"]), float(sentence["end"]))
+        length = float(sentence["end"]) - float(sentence["start"])
+        if length > 0 and (covered / length >= 0.5 or covered >= 0.5 * max(0.0, end - start)):
+            text = " ".join(str(sentence.get("text", "")).split())
+            if len(text) > limit:
+                cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ")
+                text = (cut or text[: limit - 1]).rstrip() + "…"
+            return text
+    return ""
 
 
 def require_target_duration(target_duration: object) -> float:
@@ -281,6 +788,7 @@ def build_plan(
     speech = speech_ranges(duration, silences) if has_audio else []
     speech = speech[:MAX_SPEECH]
     transcript = _bound_transcript(transcript, duration)
+    sentences = sentences_from_transcript(transcript, duration=duration, speech=speech)
     target = min(float(target_duration), duration)
     goal_keys = keywords(goal)
     hook_first = bool(_HOOK_HINT.search(goal))
@@ -289,7 +797,9 @@ def build_plan(
         chosen = [Moment(0.0, round(duration, 3), 1.0, "opening", ["The whole clip fits the requested length"])]
     else:
         if speech:
-            pieces = merge_pieces(split_at_scenes(speech, scenes))
+            # Pieces aligned to transcript sentences first, so the budget below
+            # is spent on whole sentences instead of breath-sized fragments.
+            pieces = snap_ranges(merge_pieces(split_at_scenes(speech, scenes)), sentences, duration=duration)
         elif scenes:
             edges = [0.0, *scenes, duration]
             pieces = merge_pieces([Range(a, b) for a, b in zip(edges, edges[1:]) if b - a >= MIN_SEGMENT])
@@ -297,21 +807,32 @@ def build_plan(
         else:
             pieces = []
             warnings.append("No scene changes or speech were detected; the plan uses the opening of the clip. Adjust the moments by hand.")
-        moments = score_candidates(pieces, duration=duration, scenes=scenes, speech=speech, transcript=transcript, goal_keywords=goal_keys)
+        # Spread the selection across the source: scene cuts when detected,
+        # otherwise equal time spans, so a "how it is made" brief is not spent
+        # on four consecutive sentences from the first two scenes.
+        spans, span_label = (scenes, "scene") if scenes else (temporal_spans(duration, target, sentences), "span")
+        moments = score_candidates(pieces, duration=duration, scenes=scenes, speech=speech, transcript=transcript, goal_keywords=goal_keys, sentences=sentences, spans=spans, span_label=span_label)
         if not moments:
             moments = [Moment(0.0, min(duration, max(target, MIN_SEGMENT)), 0.2, "opening", ["Opening of the clip"])]
-        chosen = _pad_and_order(select_moments(moments, target), duration, target=target, hook_first=hook_first)
+        selected = select_moments(moments, target, coverage=coverage_weight(goal, spans=bool(spans)))
+        # Sentence bounds already include the pauses around speech; padding
+        # would only push an edge back into the neighbouring sentence.
+        chosen = _pad_and_order(selected, duration, target=target, hook_first=hook_first, pad=0.0 if sentences else PAD)
 
     segments = []
     for index, moment in enumerate(chosen, 1):
         label = {"hook": "Opening hook", "closing": "Closing moment", "scene": "Visual moment", "opening": "Opening cut"}.get(moment.kind, "Spoken moment")
         if moment.words:
             label = f"{label}: {', '.join(moment.words[:2])}"
+        spoken = _segment_label(moment.start, moment.end, sentences) if moment.kind != "opening" else ""
         segments.append({
             "start": round(moment.start, 3), "end": round(moment.end, 3),
-            "label": label[:100], "reason": ("; ".join(moment.evidence) + ".")[:600],
+            "label": (spoken or label)[:100], "reason": ("; ".join(moment.evidence) + ".")[:600],
             "score": round(float(moment.score), 3), "kind": moment.kind if moment.kind in KINDS else "speech",
         })
+    if sentences and duration > target_duration + 0.05:
+        # Padding may have nudged an edge back into a neighbouring sentence.
+        segments = snap_to_sentences(segments, sentences, duration=duration, target=target)
     total = round(sum(s["end"] - s["start"] for s in segments), 3)
     transcript_note = f" and {len(transcript)} transcript cues" if transcript else ""
     summary = (
@@ -319,17 +840,13 @@ def build_plan(
         f"Selected {len(segments)} moment{'s' if len(segments) != 1 else ''} totalling {total:g}s of {duration:.1f}s. "
         "This is deterministic signal analysis; local mode does not choose a story with AI. Review every moment before rendering."
     )
-    caption = goal.strip()
-    if transcript:
-        first = str(transcript[0].get("text", "")).strip()
-        if first:
-            caption = f"{caption}\n\n“{first[:200]}”"
+    title = _title_from_goal(goal, transcript)
     return {
-        "title": _title_from_goal(goal),
+        "title": title,
         "summary": summary[:1500],
         "segments": segments,
-        "caption": caption[:2200],
-        "hashtags": _hashtags(goal),
+        "caption": _post_copy(title, segments, sentences),
+        "hashtags": _hashtags(goal, transcript),
         "cover_prompt": "",
         "provider": "local",
         "usage": {"estimated_cost_usd": 0},
@@ -338,6 +855,7 @@ def build_plan(
             "scenes": scenes,
             "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in speech],
             "transcript": transcript,
+            "sentences": sentences,
             "duration": round(duration, 3),
             "notes": [NOTE],
         },
@@ -369,15 +887,42 @@ def _bound_transcript(transcript: list[dict[str, Any]], duration: float) -> list
 # ---------------------------------------------------------------------------
 
 
-def detect_scenes_fast(source: Path, *, threshold: float = 0.3, width: int = 320) -> list[float]:
-    """Scene cuts measured on a downscaled picture: much faster, same cut times."""
-    result = run_ffmpeg(["-i", str(source), "-an", "-vf", f"scale={width}:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"])
+def pick_scene_cuts(candidates: list[tuple[float, float]], *, threshold: float = SCENE_THRESHOLD, fallback: float = SCENE_FALLBACK, duration: float | None = None) -> list[float]:
+    """Choose cut times from ``(time, scene_score)`` pairs.
+
+    Strong changes (score ≥ ``threshold``) are cuts as before. When there are
+    none, hard cuts between similar-looking shots (same palette, same subject)
+    still score ≥ ``fallback`` while camera motion rarely does; those are kept
+    sparsely: at least 2 s apart, strongest first, at most one per 5 s of
+    source (and at least four), so motion noise cannot flood the list.
+    """
+    clean = sorted((float(t), float(s)) for t, s in candidates if math.isfinite(float(t)) and math.isfinite(float(s)) and float(t) >= 0)
     out: list[float] = []
-    for raw in _SHOWINFO.findall(result.stderr):
-        value = float(raw)
-        if not out or value - out[-1] > 0.08:
-            out.append(value)
-    return out
+    for time, score in clean:
+        if score >= threshold and (not out or time - out[-1] > 0.08):
+            out.append(time)
+    if out:
+        return out
+    cap = max(4, int(duration / 5)) if duration and math.isfinite(duration) and duration > 0 else 8
+    weak = sorted((c for c in clean if c[1] >= fallback), key=lambda c: (-c[1], c[0]))
+    kept: list[float] = []
+    for time, _ in weak:
+        if all(abs(time - other) >= 2.0 for other in kept):
+            kept.append(time)
+        if len(kept) >= cap:
+            break
+    return sorted(kept)
+
+
+def detect_scenes_fast(source: Path, *, threshold: float = SCENE_THRESHOLD, width: int = 320, duration: float | None = None) -> list[float]:
+    """Scene cuts measured on a downscaled picture: much faster, same cut times.
+
+    Frames scoring at least ``SCENE_FALLBACK`` are collected in one pass and
+    ``pick_scene_cuts`` decides which are cuts.
+    """
+    result = run_ffmpeg(["-i", str(source), "-an", "-vf", f"scale={width}:-2,select='gte(scene,{min(threshold, SCENE_FALLBACK)})',metadata=print:file=-", "-f", "null", "-"])
+    candidates = [(float(t), float(s)) for t, s in _SCENE_SCORE.findall(result.stdout or "")]
+    return pick_scene_cuts(candidates, threshold=threshold, duration=duration)
 
 
 def analyze_source(
@@ -394,7 +939,7 @@ def analyze_source(
         raise StoryError("Choose a playable video with a measurable duration.")
     warnings: list[str] = []
     work_dir.mkdir(parents=True, exist_ok=True)
-    scenes = detect_scenes_fast(source)
+    scenes = detect_scenes_fast(source, duration=info.duration)
     silences = detect_silence(source, threshold_db=-35.0, min_silence=0.35) if info.has_audio else []
     transcript: list[dict[str, Any]] = []
     if transcribe and info.has_audio:
@@ -433,11 +978,13 @@ def analyze_signals(
     duration = float(measured["duration"])
     scenes = sorted({round(float(s), 3) for s in measured["scenes"] if 0 < float(s) < duration})[:MAX_SCENES]
     speech = (speech_ranges(duration, measured["silences"]) if measured["has_audio"] else [])[:MAX_SPEECH]
+    transcript = _bound_transcript(measured["transcript"], duration)
     return {
         "method": METHOD,
         "scenes": scenes,
         "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in speech],
-        "transcript": _bound_transcript(measured["transcript"], duration),
+        "transcript": transcript,
+        "sentences": sentences_from_transcript(transcript, duration=duration, speech=speech),
         "duration": round(duration, 3),
         "notes": [NOTE],
         "has_audio": bool(measured["has_audio"]),

@@ -27,9 +27,14 @@ if [[ -z "${VEDIT_FFMPEG:-}" && -x /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg ]]; 
   export VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 fi
 
-# Discover a local Whisper model under .vedit-models/ (prefer base.en, then base, then any ggml).
+# Discover a Whisper model: the shared ~/.vedit/models/ first (usable across projects),
+# then the checkout's .vedit-models/ (prefer base.en, then base, then any ggml).
 if [[ -z "${VEDIT_WHISPER_MODEL:-}" ]]; then
+  models_home="${VEDIT_MODELS_DIR:-$HOME/.vedit/models}"
   for candidate in \
+    "$models_home/ggml-base.en.bin" \
+    "$models_home/ggml-base.bin" \
+    "$models_home"/ggml-*.bin \
     "$project_dir/.vedit-models/ggml-base.en.bin" \
     "$project_dir/.vedit-models/ggml-base.bin" \
     "$project_dir"/.vedit-models/ggml-*.bin; do

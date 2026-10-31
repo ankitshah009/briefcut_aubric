@@ -136,10 +136,13 @@ def test_real_effect_motion_preserves_audio_and_outside_window(source, baseline,
     assert _mean_difference(pixels["after"], baseline) < 1
     assert _mean_difference(pixels["middle"], baseline) > 10
     assert _mean_difference(pixels["moving"], pixels["middle"]) > 3
-    # Outside the transformed plane is an intentional dark stage, not an
-    # extrapolated blue source edge. The center keeps the source content.
-    red, green, blue = pixels["middle"][:3]
-    assert 10 < red < 50 and 15 < green < 60 and 30 < blue < 85
+    # Outside the transformed plane is a blurred, darkened copy of the frame
+    # (the usual vertical-short backdrop), not an extrapolated source edge or
+    # a flat card. The corner is visibly darker than the source corner while
+    # the center keeps the source content.
+    corner, source_corner = pixels["middle"][:3], baseline[:3]
+    assert sum(corner) < sum(source_corner) - 24
+    assert all(channel <= original for channel, original in zip(corner, source_corner))
     center = (270 * 960 + 480) * 3
     assert pixels["middle"][center + 2] > 220
 

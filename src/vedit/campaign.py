@@ -24,18 +24,21 @@ from pathlib import Path
 from typing import Any
 
 from vedit.agent.explain import local_transcriber_ready
+from vedit.analyze import Range
+from vedit.brief_ops import bounded_strings, edit_decisions
 from vedit.compile import compile_brief
 from vedit.effects import REQUIRED_EFFECT_FILTERS, EffectError, effect_catalogue, validate_effect
 from vedit.errors import RenderCancelled, VeditError
 from vedit.ir import Brief, Canvas, brief_dumps
-from vedit.captions import Cue, write_ass, write_srt
+from vedit.captions import Cue, polish_cues, read_srt, remap_cues, write_ass, write_srt
 from vedit.media import has_filter, probe, resolve_ffmpeg, resolve_ffprobe, run_ffmpeg
 from vedit.pipeline import Pipeline, execute, write_codegen, write_report
 from vedit.presets import get_preset
+from vedit.lint import apply_patches, lint_plan, subject_in_frame_check
 
 _ACTIVE = {"queued", "analyzing", "rendering"}
 _ASPECTS = {"9:16": "shorts_9x16", "16:9": "youtube_1080p", "1:1": "square_1x1"}
-_META_OPERATIONS = ("story", "tracking", "cover", "transcribe", "review")
+_META_OPERATIONS = ("story", "tracking", "cover", "transcribe", "review", "patch")
 _CAPTION_PROVIDERS = {"local", "meta"}
 _MAX_SOURCE_BYTES = 200_000_000
 _MAX_SOURCE_SECONDS = 1_200
@@ -193,7 +196,37 @@ def validate_plan(value: Any, duration: float, *, original: dict[str, Any] | Non
         "duration": round(total, 3),
         "warnings": trusted.get("warnings", []),
         "analysis": _analysis(trusted.get("analysis"), duration),
+        # Display-only sentences describing which brief instructions the render
+        # applies. Recomputed from the goal at render; never executable.
+        "decisions": bounded_strings(value.get("decisions")),
+        "ignored_edits": bounded_strings(value.get("ignored_edits")),
     }
+
+
+def _read_keeps(path: Path) -> list[Range]:
+    """Kept intervals (on the assembled, pre-trim clock) written by the cut_silence step."""
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    keeps = []
+    items = data.get("keeps") if isinstance(data, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and isinstance(item.get("start"), (int, float)) and isinstance(item.get("end"), (int, float)) and item["end"] > item["start"]:
+            keeps.append(Range(float(item["start"]), float(item["end"])))
+    return keeps
+
+
+def _untrimmed_time(seconds: float, keeps: list[Range]) -> float:
+    """Map a time on the trimmed clock back to the assembled (pre-trim) clock."""
+    cursor = 0.0
+    for keep in keeps:
+        if seconds <= cursor + keep.duration:
+            return keep.start + max(0.0, seconds - cursor)
+        cursor += keep.duration
+    return keeps[-1].end if keeps else seconds
 
 
 def _analysis(value: Any, duration: float) -> dict[str, Any] | None:
@@ -222,8 +255,18 @@ def _analysis(value: Any, duration: float) -> dict[str, Any] | None:
             size += len(text.encode("utf-8"))
             if end > start and text and size <= 60_000:
                 transcript.append({"start": round(start, 3), "end": round(end, 3), "text": text})
+        sentences, size = [], 0
+        for item in (value.get("sentences") or [])[:600]:
+            if not isinstance(item, dict):
+                continue
+            start = _number(item.get("start"), "Sentence start", 0, duration)
+            end = _number(item.get("end"), "Sentence end", 0, duration)
+            text = _text(item.get("text", ""), "Sentence text", 600)
+            size += len(text.encode("utf-8"))
+            if end > start and text and size <= 60_000:
+                sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
         notes = [_text(note, "Analysis note", 300) for note in (value.get("notes") or [])[:8] if isinstance(note, str)]
-        return {"method": method, "scenes": scenes, "speech": speech, "transcript": transcript, "duration": round(duration, 3), "notes": notes}
+        return {"method": method, "scenes": scenes, "speech": speech, "transcript": transcript, "sentences": sentences, "duration": round(duration, 3), "notes": notes}
     except CampaignError:
         return None
 
@@ -334,6 +377,18 @@ class CampaignManager:
             result["verified_revision"] = revision
         else:
             result["verified_revision"] = None
+        # One entry per completed render, oldest first; artifact URLs pin ?v=N
+        # so an older version stays downloadable after a later revision.
+        versions = []
+        for entry in job.get("versions") or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("revision"), int):
+                continue
+            item = dict(entry)
+            if item.get("status") == "verified":
+                for name in ("video", "cover", "bundle", "brief", "report"):
+                    item[f"{name}_url"] = CampaignManager._url(job["id"], name, revision=item["revision"])
+            versions.append(item)
+        result["versions"] = versions
         return result
 
     def _load(self, connection: sqlite3.Connection, ident: str) -> dict[str, Any]:
@@ -470,25 +525,136 @@ class CampaignManager:
                 raise CampaignError("Create a story plan before rendering.", 409)
             plan = validate_plan(value.get("plan", job["plan"]), job["source"]["duration"], original=job["plan"])
             effect = _effect(value.get("effect", job["request"].get("effect")), duration=plan["duration"])
-            plan["effect"] = effect
             tracking = value.get("tracking", not job["request"].get("tracking_disabled", False))
             if not isinstance(tracking, bool):
                 raise CampaignError("tracking must be true or false.")
-            if self._queue.full() or self._closed:
-                raise CampaignError("The render queue is unavailable. Try again shortly.", 503)
-            previous = self._public(job)
-            job["result"], job["verified_revision"] = previous["result"], previous["verified_revision"]
-            if job["result"]:
-                job["result"]["stale"] = True
-            job["request"]["effect"] = effect
-            # The subject stays on record; only this and later revisions skip tracking.
-            job["request"]["tracking_disabled"] = not tracking
-            job.update(plan=plan, status="queued", stage="queued", progress=0, message="Your approved story is queued for rendering. Your previous verified version remains available." if job["result"] else "Your approved story is queued for rendering.", error=None, cancel_requested=False, revision=job["revision"] + 1, updated_at=_now(), _action="render", recovery=None)
-            self._save(connection, job)
-            connection.commit()
-            self._events[ident] = threading.Event()
-            self._queue.put_nowait(ident)
-            return self._public(job)
+            return self._enqueue_render(connection, job, plan, effect, tracking, revision_source="approved", applied_patches=[], note=None)
+
+    def _enqueue_render(self, connection: sqlite3.Connection, job: dict[str, Any], plan: dict[str, Any], effect: dict[str, Any] | None, tracking: bool, *,
+                        revision_source: str, applied_patches: list[dict[str, Any]], note: str | None) -> dict[str, Any]:
+        """Queue a new revision of a validated plan; the caller holds the lock and connection.
+
+        The previous verified result stays on the job (marked stale) until the
+        new render passes verification, so a revision never replaces a file.
+        """
+        ident = job["id"]
+        plan["effect"] = effect
+        if self._queue.full() or self._closed:
+            raise CampaignError("The render queue is unavailable. Try again shortly.", 503)
+        previous = self._public(job)
+        job["result"], job["verified_revision"] = previous["result"], previous["verified_revision"]
+        if job["result"]:
+            job["result"]["stale"] = True
+        job["request"]["effect"] = effect
+        # The subject stays on record; only this and later revisions skip tracking.
+        job["request"]["tracking_disabled"] = not tracking
+        if revision_source == "approved":
+            message = "Your approved story is queued for rendering. Your previous verified version remains available." if job["result"] else "Your approved story is queued for rendering."
+        else:
+            message = f"Version {job['revision'] + 1} is queued with the applied fixes. Version {previous['verified_revision']} remains available."
+        job.update(plan=plan, status="queued", stage="queued", progress=0, message=message, error=None, cancel_requested=False,
+                   revision=job["revision"] + 1, updated_at=_now(), _action="render", recovery=None,
+                   revision_source=revision_source, applied_patches=applied_patches, note=note)
+        self._save(connection, job)
+        connection.commit()
+        self._events[ident] = threading.Event()
+        self._queue.put_nowait(ident)
+        return self._public(job)
+
+    def _revisable(self, connection: sqlite3.Connection, ident: str) -> dict[str, Any]:
+        job = self._load(connection, ident)
+        if job["status"] in _ACTIVE:
+            raise CampaignError("Wait for the current render to finish before revising.", 409)
+        if not job.get("plan") or not job.get("source"):
+            raise CampaignError("Create a story plan before revising.", 409)
+        if not isinstance(job.get("result"), dict):
+            raise CampaignError("Render a verified version before revising it.", 409)
+        return job
+
+    def _apply_note(self, ident: str, job: dict[str, Any], duration: float) -> dict[str, Any]:
+        """Turn the stored director's note into patches with Meta, then lint and apply them."""
+        from vedit import meta
+
+        request, plan = job["request"], job["plan"]
+        self._update(ident, stage="noting", progress=0.03, message="Asking Meta to turn your note into changes to the story.")
+        analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
+        proposal = meta.patch_plan(goal=request["goal"], note=job.get("note") or "", plan=plan, sentences=analysis.get("sentences") or None,
+                                   work_dir=self.root / ident / "meta", budget_usd=request["budget_usd"], language=request.get("language", "en"))
+        patches = list(proposal.get("patches") or [])
+        if not patches:
+            raise CampaignError("Meta could not turn that note into a change to the story. Try naming a moment and what should happen to it.")
+        new_plan, applied = apply_patches(plan, patches, duration=duration)
+        if not any(item.get("skipped") is None for item in applied):
+            why = next((item.get("skipped") for item in applied if item.get("skipped")), "nothing to change")
+            raise CampaignError(f"No fixes from the note could be applied safely ({why}). The verified version is unchanged.")
+        relint = lint_plan(new_plan, target_duration=request["target_duration"], duration=duration, sentences=analysis.get("sentences") or None)
+        if relint.get("patches"):
+            new_plan, tidy = apply_patches(new_plan, relint["patches"], duration=duration)
+            applied = applied + [item for item in tidy if item.get("skipped") is None]
+        new_plan = validate_plan(new_plan, duration, original=plan)
+        new_plan["effect"] = plan.get("effect")
+        self._update(ident, plan=new_plan, applied_patches=applied, note_summary=str(proposal.get("summary") or ""), _pending_note=False)
+        job["plan"], job["applied_patches"], job["_pending_note"] = new_plan, applied, False
+        return new_plan
+
+    def revise(self, ident: str, value: Any) -> dict[str, Any]:
+        """Render version N+1 from structured patches; the verified version N is kept.
+
+        ``mode`` is ``director`` (apply Meta's review patches), ``auto`` (apply
+        the deterministic lint patches), or ``note`` (turn a free-text note
+        into patches with Meta first). Patches are applied by the pure patcher
+        and the result is validated like any approved plan.
+        """
+        if not isinstance(value, dict):
+            raise CampaignError("Send a JSON object with a revision mode.")
+        mode = value.get("mode")
+        if not isinstance(mode, str) or mode not in {"director", "auto", "note"}:
+            raise CampaignError("Choose director, auto, or note as the revision mode.")
+        note: str | None = None
+        patches: list[dict[str, Any]] = []
+        with self._lock, self._connect() as connection:
+            job = self._revisable(connection, ident)
+            request = job["request"]
+            if mode == "note":
+                note = _text(value.get("note", ""), "Director's note", 500, required=True)
+                uses_meta = request.get("provider") == "meta" or (request.get("captions") and request.get("caption_provider") == "meta") or request.get("review")
+                if not uses_meta:
+                    raise CampaignError("Director's notes need Meta mode.", 409)
+                cloud = capabilities()["meta"]
+                if not cloud.get("configured") or not cloud.get("enabled"):
+                    raise CampaignError("Meta is not enabled. Configure MODEL_API_KEY and VEDIT_META_ENABLED=1 on the server, or choose Local edit.", 409)
+            else:
+                patches = [patch for patch in (job["result"].get("patches") or []) if isinstance(patch, dict) and patch.get("source") == mode]
+                if not patches:
+                    raise CampaignError("No director's fixes to apply." if mode == "director" else "No automatic fixes to apply.", 409)
+        with self._lock, self._connect() as connection:
+            job = self._revisable(connection, ident)
+            duration = job["source"]["duration"]
+            if mode == "note":
+                # The model call happens in the worker with its own progress stage, so the
+                # request returns at once and a slow answer never blocks the editor.
+                plan = validate_plan(dict(job["plan"]), duration, original=job["plan"])
+                effect = _effect(job["request"].get("effect"), duration=plan["duration"])
+                tracking = not job["request"].get("tracking_disabled", False)
+                job["_pending_note"] = True
+                return self._enqueue_render(connection, job, plan, effect, tracking, revision_source="note", applied_patches=[], note=note)
+            new_plan, applied = apply_patches(job["plan"], patches, duration=duration)
+            if not any(item.get("skipped") is None for item in applied):
+                why = next((item.get("skipped") for item in applied if item.get("skipped")), "nothing to change")
+                raise CampaignError(f"No fixes could be applied safely ({why}). The verified version is unchanged.", 409)
+            if mode != "auto":
+                # The deterministic lint runs again on the patched story and its fixes
+                # are applied last, so a model patch that lands inside a sentence is
+                # snapped back to a boundary before anything is rendered.
+                analysis = new_plan.get("analysis") if isinstance(new_plan.get("analysis"), dict) else {}
+                relint = lint_plan(new_plan, target_duration=job["request"]["target_duration"], duration=duration, sentences=analysis.get("sentences") or None)
+                if relint.get("patches"):
+                    new_plan, tidy = apply_patches(new_plan, relint["patches"], duration=duration)
+                    applied = applied + [item for item in tidy if item.get("skipped") is None]
+            plan = validate_plan(new_plan, duration, original=job["plan"])
+            effect = _effect(job["request"].get("effect"), duration=plan["duration"])
+            tracking = not job["request"].get("tracking_disabled", False)
+            return self._enqueue_render(connection, job, plan, effect, tracking, revision_source=mode, applied_patches=applied, note=note)
 
     def retry(self, ident: str) -> dict[str, Any]:
         with self._lock, self._connect() as connection:
@@ -594,6 +760,7 @@ class CampaignManager:
     def process(self, ident: str) -> None:
         """Execute one queued item; exposed for deterministic worker tests."""
         event = self._event(ident)
+        job_action, job_revision, job_source, job_versions, job_patches = None, 0, None, [], []
         with self._lock:
             self._active_processes += 1
             self._idle.clear()
@@ -603,6 +770,8 @@ class CampaignManager:
                 job = self._load(connection, ident)
             if job["status"] != "queued":
                 return
+            job_action, job_revision, job_source = job["_action"], job.get("revision", 0), job.get("revision_source")
+            job_versions, job_patches = list(job.get("versions") or []), list(job.get("applied_patches") or [])
             if job["_action"] == "render":
                 self._render(job)
             else:
@@ -620,7 +789,11 @@ class CampaignManager:
                 message = "The video could not be processed. Check that it plays, run vedit doctor, then retry. Your plan is saved."
             else:
                 message = "The edit could not finish. Your clip and plan are saved. Restart Studio and retry."
-            self._update(ident, status="failed", stage="failed", message=message, error=message)
+            failed = {"status": "failed", "stage": "failed", "message": message, "error": message}
+            if job_action == "render":
+                # A failed revision stays in the version history so the UI can show which attempt broke.
+                failed["versions"] = list(job_versions) + [{"revision": job_revision, "status": "failed", "error": message, "created_at": _now(), "source": job_source or "approved", "passed": None, "total": None, "checks": [], "applied_patches": job_patches}]
+            self._update(ident, **failed)
         finally:
             try:
                 with self._lock, self._connect() as connection:
@@ -707,7 +880,7 @@ class CampaignManager:
         cache = root / "model-plan.json"
         if request["provider"] == "meta":
             from vedit import meta
-            from vedit.story import analyze_signals, annotate_segments
+            from vedit.story import analyze_signals, annotate_segments, snap_to_sentences
 
             # Local measurement first (scene cuts, speech bands, optional local
             # transcript): it grounds the model prompt and gives the review
@@ -728,7 +901,12 @@ class CampaignManager:
                 proposed = meta.plan_story(proxy, goal=request["goal"], duration=info.duration, target_duration=min(info.duration, request["target_duration"]), work_dir=root / "meta", language=request["language"], budget_usd=request["budget_usd"], transcript=signals.get("transcript") or None)
                 _write_json(cache, proposed)
             proposed["provider"] = "meta"
-            proposed["segments"] = annotate_segments(list(proposed.get("segments") or []), signals.get("speech") or [])
+            segments = list(proposed.get("segments") or [])
+            if signals.get("sentences"):
+                # The model works from breath-sized speech bands; finish the
+                # sentence it chose instead of cutting mid-word. Local, free.
+                segments = snap_to_sentences(segments, signals["sentences"], duration=info.duration, target=min(info.duration, request["target_duration"]))
+            proposed["segments"] = annotate_segments(segments, signals.get("speech") or [])
             proposed["analysis"] = dict(signals, method="meta", notes=["Meta director selected the moments; scene cuts, speech bands and transcript come from local analysis."])
         else:
             from vedit.story import plan_local_story
@@ -746,6 +924,8 @@ class CampaignManager:
         # Settings are visible during review; final timing is checked against
         # the user's approved ranges when they ask to render.
         plan["effect"] = request.get("effect")
+        edits = edit_decisions(request["goal"], plan=plan, has_audio=info.has_audio)
+        plan["decisions"], plan["ignored_edits"] = edits["decisions"], edits["ignored"]
         _write_json(root / "plan.json", plan)
         self._check_cancel(ident)
         timings = dict(job.get("timings") or {}, plan_seconds=round(time.monotonic() - started, 3))
@@ -878,7 +1058,7 @@ class CampaignManager:
         if cancel_event.is_set():
             raise _Cancelled()
         result = meta.transcribe_audio(wav, duration=duration, work_dir=root / "meta", language=request["language"], budget_usd=request["budget_usd"])
-        cues = [Cue(float(cue["start"]), float(cue["end"]), str(cue["text"])) for cue in result.get("cues", [])]
+        cues = polish_cues([Cue(float(cue["start"]), float(cue["end"]), str(cue["text"])) for cue in result.get("cues", [])])
         if not cues:
             return None
         write_srt(cues, work / "captions.srt")
@@ -893,6 +1073,8 @@ class CampaignManager:
         self._update(ident, status="rendering", stage="preparing", progress=0.05, message="Preparing your approved edit.", recovery=None)
         source = self._source(request["paths"][0])
         info = probe(source)
+        if job.get("_pending_note"):
+            plan = self._apply_note(ident, job, info.duration)
         plan = validate_plan(plan, info.duration, original=plan)
         effect = _effect(request.get("effect"), duration=plan["duration"])
         plan["effect"] = effect
@@ -905,6 +1087,7 @@ class CampaignManager:
         self._update(ident, storage=storage)
         self._check_cancel(ident)
         work.mkdir(exist_ok=True)
+        subject_track: list[dict[str, Any]] | None = None
         if request["provider"] == "meta" and request["subject"] and not request.get("tracking_disabled"):
             from vedit import meta
 
@@ -929,6 +1112,7 @@ class CampaignManager:
                     "message": f"Meta could not find \u201c{request['subject']}\u201d. Render this version with a center crop instead, or create a new plan with a clearer subject.",
                 })
                 raise CampaignError("The chosen subject was not found. Create a new plan with a clearer subject description or leave tracking off.")
+            subject_track = list(tracking["points"])
             ops.extend([{"op": "select_ranges", "ranges": ranges}, {"op": "track_reframe", "aspect": request["aspect"], "points": tracking["points"]}])
             warnings.extend(tracking.get("warnings", []))
         else:
@@ -938,6 +1122,15 @@ class CampaignManager:
             ops.append({"op": "select_ranges", "ranges": ranges})
         if effect is not None:
             ops.append({"op": "spatial_effect", **effect})
+        # The brief's editing instructions act on the assembled cut. Pause
+        # trimming comes before captions so local transcription sees the
+        # trimmed clip; Meta cues are remapped once the trim has run.
+        target = get_preset(preset).canvas
+        edits = edit_decisions(request["goal"], plan=plan, has_audio=info.has_audio, canvas=(target.width, target.height))
+        ops.extend(edits["ops"])
+        plan["decisions"], plan["ignored_edits"] = edits["decisions"], edits["ignored"]
+        trims_pauses = any(item["op"] == "cut_silence" for item in edits["ops"])
+        provided_subtitle: Path | None = None
         caption_provider = request.get("caption_provider", "local") if request["captions"] and info.has_audio else None
         if caption_provider == "meta":
             from vedit import meta
@@ -948,6 +1141,7 @@ class CampaignManager:
             if subtitle is None:
                 warnings.append("Meta heard no speech in the selected audio. This video has no captions.")
             else:
+                provided_subtitle = subtitle
                 ops.append({"op": "captions", "file": str(subtitle), "burn": True, "style": "boxed"})
         elif caption_provider == "local":
             if local_transcriber_ready():
@@ -955,7 +1149,7 @@ class CampaignManager:
                 warnings = [warning for warning in warnings if not warning.startswith("Captions are unavailable")]
             elif not any(warning.startswith("Captions are unavailable") for warning in warnings):
                 warnings.append("Captions are unavailable: install a local Whisper model. This video has no captions.")
-        if info.has_audio:
+        if info.has_audio and edits["loudnorm"]:
             ops.append({"op": "loudnorm", "i": -16})
         ops.append({"op": "thumbnail", "at": min(0.5, duration / 3), "path": str(work / "cover.jpg")})
         ops.append({"op": "export", "preset": preset, "path": str(work / "video.mp4")})
@@ -977,16 +1171,27 @@ class CampaignManager:
             # the complete project.json which a person approved above.
             piece = Pipeline(name=compiler.pipeline.name, work_dir=work / "execution" / f"{index + 1:02d}", steps=[step])
             reports.extend(execute(piece, progress=False, cancel_event=self._event(ident)))
+            if step.name == "cut_silence" and provided_subtitle is not None:
+                # Meta cues were timed on the assembled clip; move them onto
+                # the trimmed clock before the export burns the file.
+                keeps = _read_keeps(work / "keep_ranges.json")
+                if keeps:
+                    cues = remap_cues(read_srt(work / "captions.srt"), keeps)
+                    write_srt(cues, work / "captions.srt")
+                    write_ass(cues, work / "captions.ass", canvas_width=target.width, canvas_height=target.height)
         self._check_cancel(ident)
         self._update(ident, stage="verifying", progress=0.82, message="Checking the actual exported video.")
         report_path = write_report(compiler.pipeline, reports, finals=compiler.finals)
         video = work / "video.mp4"
         output = probe(video)
-        target = get_preset(preset).canvas
         if not output.has_video or (output.width, output.height) != (target.width, target.height) or output.has_audio != info.has_audio:
             raise CampaignError("The export did not pass picture and sound verification. Retry the saved plan.")
-        if abs(output.duration - duration) > max(0.3, len(plan["segments"]) / 15):
+        keeps = _read_keeps(work / "keep_ranges.json") if trims_pauses else []
+        expected = sum(keep.duration for keep in keeps) if keeps else duration
+        if abs(output.duration - expected) > max(0.3, len(plan["segments"]) / 15):
             raise CampaignError("The exported duration did not match the approved story. Retry the saved plan.")
+        if keeps:
+            plan["trimmed_duration"] = round(expected, 3)
         stream = output.video
         proof = {"duration": output.duration, "width": output.width, "height": output.height, "fps": output.fps, "has_audio": output.has_audio, "has_video": output.has_video, "color_space": stream.color_space if stream else None, "color_range": stream.color_range if stream else None, "color_primaries": stream.color_primaries if stream else None, "color_transfer": stream.color_trc if stream else None, "size_bytes": output.size_bytes}
         if proof["color_space"] != "bt709" or proof["color_range"] != "tv":
@@ -1030,6 +1235,11 @@ class CampaignManager:
         tracked_subject = self._tracked_subject(request)
         report["tracked_subject"] = tracked_subject
         report["caption_provider"] = caption_provider
+        # Deterministic grading of the render, then the director's structured
+        # checks and patches. Both are display data until a revision applies them.
+        grade = self._grade(plan, request, info.duration, work, review, keeps=keeps, edits=edits, tracking=subject_track,
+                            cut_duration=output.duration, source_size=(getattr(info, "display_width", info.width) or info.width, getattr(info, "display_height", info.height) or info.height))
+        report.update(checks=grade["checks"], passed=grade["passed"], total=grade["total"], patches=grade["patches"])
         _write_json(report_path, report)
         copy = plan["caption"] + ("\n\n" + " ".join(tag if tag.startswith("#") else "#" + tag for tag in plan["hashtags"]) if plan["hashtags"] else "")
         (work / "post.txt").write_text(copy + "\n", encoding="utf-8")
@@ -1047,9 +1257,76 @@ class CampaignManager:
         artifacts = {"video": str(video.relative_to(root)), "cover": str(cover.relative_to(root)), "bundle": str(bundle.relative_to(root)), "brief": str((work / "brief.yaml").relative_to(root)), "report": str(report_path.relative_to(root))}
         result = {f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in artifacts}
         result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject, caption_provider=caption_provider, review=review)
+        result.update(checks=grade["checks"], passed=grade["passed"], total=grade["total"], patches=grade["patches"])
         self._check_cancel(ident)
         timings = dict(job.get("timings") or {}, render_seconds=round(time.monotonic() - started, 3), render_revision=job["revision"])
-        self._update(ident, status="complete", stage="complete", progress=1, message="Your campaign is ready. The video passed export verification.", result=result, verified_revision=job["revision"], error=None, _artifacts=artifacts, timings=timings)
+        notes = review if isinstance(review, dict) and "error" not in review else {}
+        version = {
+            "revision": job["revision"], "status": "verified", "created_at": _now(),
+            "source": job.get("revision_source") or "approved", "proof": proof,
+            "checks": grade["checks"], "passed": grade["passed"], "total": grade["total"],
+            "hook_score": notes.get("hook_score"), "verdict": notes.get("verdict"),
+            "applied_patches": job.get("applied_patches") or [], "note": job.get("note"),
+            "timings": {"render_seconds": timings["render_seconds"]},
+        }
+        version.update({f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in ("video", "report", "cover")})
+        versions = [entry for entry in (job.get("versions") or []) if isinstance(entry, dict) and entry.get("revision") != job["revision"]] + [version]
+        self._update(ident, status="complete", stage="complete", progress=1, message="Your campaign is ready. The video passed export verification.", result=result, verified_revision=job["revision"], error=None, _artifacts=artifacts, timings=timings, versions=versions)
+
+    @staticmethod
+    def _grade(plan: dict[str, Any], request: dict[str, Any], duration: float, work: Path, review: dict[str, Any] | None,
+               *, keeps: list[Range] | None = None, edits: dict[str, Any] | None = None, tracking: list[dict[str, Any]] | None = None,
+               cut_duration: float | None = None, source_size: tuple[float, float] | None = None) -> dict[str, Any]:
+        """Lint the approved plan against the source analysis and merge the director's checks.
+
+        Sentences and speech bands come from the plan's stored analysis when a
+        planner measured them; captions are read back from the SRT the render
+        actually burned. Missing inputs degrade to passing "not requested" checks.
+        """
+        analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
+        sentences = [item for item in (analysis.get("sentences") or []) if isinstance(item, dict)]
+        if not sentences and analysis.get("transcript"):
+            from vedit.story import sentences_from_transcript
+
+            sentences = sentences_from_transcript([item for item in analysis["transcript"] if isinstance(item, dict)], duration=duration)
+        speech = [item for item in (analysis.get("speech") or []) if isinstance(item, dict)] or None
+        captions = None
+        srt = work / "captions.srt"
+        if request.get("captions") and srt.is_file():
+            from vedit.captions import read_srt
+
+            try:
+                captions = [{"start": cue.start, "end": cue.end} for cue in read_srt(srt)]
+            except (OSError, ValueError):
+                captions = []
+            if keeps and captions:
+                # Burned cues sit on the trimmed clock; the lint compares them
+                # with speech bands on the assembled one.
+                captions = [{"start": _untrimmed_time(cue["start"], keeps), "end": _untrimmed_time(cue["end"], keeps)} for cue in captions]
+        graded = lint_plan(plan, target_duration=request["target_duration"], duration=duration, sentences=sentences or None, captions=captions, speech=speech if captions is not None else None)
+        checks = list(graded["checks"])
+        patches = list(graded["patches"])
+        applied = list((edits or {}).get("decisions") or [])
+        ignored = list((edits or {}).get("ignored") or [])
+        if applied or ignored:
+            note = ("Applied: " + "; ".join(applied) + "." if applied else "Nothing from the brief was applied.")
+            if ignored:
+                note += " Not applied: " + "; ".join(ignored) + "."
+        else:
+            note = "The brief asked for no specific edits."
+        checks.append({"name": "auto: requested edits applied", "passed": not ignored, "at": None, "note": note})
+        if tracking:
+            # SAM's boxes are evidence about the delivered cut; grade them like any other claim.
+            width, height = source_size or (16, 9)
+            checks.append(subject_in_frame_check(tracking, duration=cut_duration or sum(seg["end"] - seg["start"] for seg in plan["segments"]), aspect=request.get("aspect", "9:16"), source_width=width, source_height=height))
+        if isinstance(review, dict) and "error" not in review:
+            for check in review.get("checks") or []:
+                if isinstance(check, dict):
+                    checks.append({"name": "director: " + str(check.get("name", "")), "passed": bool(check.get("passed")), "at": check.get("at"), "note": str(check.get("note", ""))})
+            for patch in review.get("patches") or []:
+                if isinstance(patch, dict):
+                    patches.append(dict(patch, source="director"))
+        return {"checks": checks, "passed": sum(1 for check in checks if check["passed"]), "total": len(checks), "patches": patches}
 
     def close(self, *, wait: bool = True) -> None:
         with self._lock:

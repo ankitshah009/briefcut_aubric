@@ -110,7 +110,7 @@ def run_doctor() -> list[Check]:
             Check(
                 "whisper-cli",
                 False,
-                f"{whisper} found but no ggml model. Set VEDIT_WHISPER_MODEL, or drop ggml-base.en.bin in .vedit-models/ (checkout) or ~/.cache/whisper/",
+                f"{whisper} found but no ggml model. Set VEDIT_WHISPER_MODEL, or drop ggml-base.en.bin in ~/.vedit/models/ (or $VEDIT_MODELS_DIR), .vedit-models/ (checkout) or ~/.cache/whisper/",
             )
         )
     else:
@@ -151,9 +151,9 @@ def format_doctor(checks: list[Check]) -> str:
 def suggest_whisper_model() -> str:
     dest = shutil.which("whisper-cli")
     return (
-        "Download a real model (one-time, free) into the checkout; scripts/studio.sh finds it:\n"
-        "  mkdir -p .vedit-models\n"
-        "  curl -L -o .vedit-models/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin\n"
-        "  export VEDIT_WHISPER_MODEL=$PWD/.vedit-models/ggml-base.en.bin   # or run via uv: uv run vedit doctor\n"
+        "Download a real model (one-time, free) into the shared model directory; every checkout finds it:\n"
+        "  mkdir -p ~/.vedit/models\n"
+        "  curl -L -o ~/.vedit/models/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin\n"
+        "  # optional: VEDIT_MODELS_DIR=/other/dir or VEDIT_WHISPER_MODEL=/path/to/ggml-*.bin override the lookup\n"
         + (f"  whisper-cli is at: {dest}\n" if dest else "")
     )

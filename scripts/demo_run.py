@@ -71,6 +71,20 @@ def _download(url: str, dest: Path, timeout: float = 120) -> Path:
     return dest
 
 
+def _find_whisper_model(repo: Path) -> Path | None:
+    """Prefer the shared ~/.vedit/models/ (VEDIT_MODELS_DIR), then the checkout's .vedit-models/."""
+    homes = [Path(os.environ.get("VEDIT_MODELS_DIR") or Path.home() / ".vedit" / "models"), repo / ".vedit-models"]
+    for home in homes:
+        for name in ("ggml-base.en.bin", "ggml-base.bin"):
+            candidate = home / name
+            if candidate.is_file() and candidate.stat().st_size > 1_000_000:
+                return candidate
+        for candidate in sorted(home.glob("ggml-*.bin")) if home.is_dir() else []:
+            if candidate.stat().st_size > 1_000_000:
+                return candidate
+    return None
+
+
 def _command(argv: list[str]) -> str:
     try:
         return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=30).stdout.strip()
@@ -124,6 +138,13 @@ def run(args: argparse.Namespace) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.setdefault("PYTHONUNBUFFERED", "1")
+    if not env.get("VEDIT_WHISPER_MODEL"):
+        # Match scripts/studio.sh: the shared ~/.vedit/models/ first, then the checkout.
+        model = _find_whisper_model(REPO)
+        if model is not None:
+            env["VEDIT_WHISPER_MODEL"] = str(model)
+    if not env.get("VEDIT_FFMPEG") and Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg").is_file():
+        env["VEDIT_FFMPEG"] = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
     log_path = workspace / "studio.log"
     log = log_path.open("w", encoding="utf-8")
     server = subprocess.Popen([python, "-m", "vedit", "studio", "--port", str(port)], cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -231,8 +252,38 @@ def run(args: argparse.Namespace) -> dict:
             "revision": result.get("revision"),
             "review": result.get("review"),
         }
+        record["result"]["checks"] = result.get("checks")
+        record["result"]["passed"] = result.get("passed")
+        record["result"]["total"] = result.get("total")
+        record["result"]["patches"] = result.get("patches")
         record["budget"] = complete.get("budget")
         record["timings_server"] = complete.get("timings")
+
+        if args.revise:
+            # The self-correcting loop: apply the fixes the receipts or the director proposed and render the next version.
+            body = {"mode": args.revise}
+            if args.revise == "note":
+                body["note"] = args.note
+            print(f"Revising with mode={args.revise} ...", flush=True)
+            revise_started = time.monotonic()
+            try:
+                queued = _json(f"{base}/api/campaigns/{planned['id']}/revise", method="POST", body=json.dumps(body).encode(), timeout=120)["job"]
+            except DemoError as exc:
+                record["revise"] = {"mode": args.revise, "error": str(exc)}
+                print(f"  revise refused: {exc}", flush=True)
+            else:
+                note(queued)
+                revised = _wait_for(base, planned["id"], done={"complete"}, timeout=args.timeout, on_update=note)
+                record["timings_seconds"]["revise"] = round(time.monotonic() - revise_started, 3)
+                record["revise"] = {"mode": args.revise, "note": args.note if args.revise == "note" else None,
+                                    "applied_patches": revised.get("applied_patches"), "revision": revised.get("revision"),
+                                    "checks": (revised.get("result") or {}).get("checks"), "passed": (revised.get("result") or {}).get("passed"),
+                                    "total": (revised.get("result") or {}).get("total"), "proof": (revised.get("result") or {}).get("proof"),
+                                    "review": (revised.get("result") or {}).get("review")}
+                complete = revised
+                result = revised["result"]
+                record["budget"] = complete.get("budget")
+        record["versions"] = [{key: value for key, value in version.items() if key not in {"video_url", "report_url", "cover_url", "bundle_url", "brief_url"}} for version in complete.get("versions") or []]
 
         out_dir = workspace / "evidence-downloads"
         out_dir.mkdir(exist_ok=True)
@@ -274,7 +325,10 @@ def _probe_video_stream(probe: dict) -> dict:
 
 def write_markdown(record: dict, path: Path) -> None:
     source = record.get("source") or {}
-    proof = (record.get("result") or {}).get("proof") or {}
+    revise = record.get("revise") or {}
+    # The downloaded file is the newest verified version; compare it with that version's proof.
+    proof = (revise.get("proof") if not revise.get("error") else None) or (record.get("result") or {}).get("proof") or {}
+    final_version = revise.get("revision") if proof is revise.get("proof") else (record.get("result") or {}).get("revision")
     probe = (record.get("downloaded") or {}).get("probe") or {}
     timings = record.get("timings_seconds", {})
     plan = record.get("plan") or {}
@@ -328,7 +382,7 @@ def write_markdown(record: dict, path: Path) -> None:
         lines.append(f"\n> {warning}")
     lines += [
         "",
-        "## Verified output",
+        f"## Verified output (version {final_version})",
         "",
         "| Item | Server proof | Local probe of the downloaded file |", "| --- | --- | --- |",
         f"| Duration | {proof.get('duration')} | {probe.get('duration')} |",
@@ -344,6 +398,30 @@ def write_markdown(record: dict, path: Path) -> None:
         "Warnings from the render: " + ("; ".join((record.get("result") or {}).get("warnings") or []) or "none"),
         "",
     ]
+    checks = (record.get("result") or {}).get("checks") or []
+    if checks:
+        lines += ["## Receipts (checks on the first verified render)", "",
+                  f"{(record.get('result') or {}).get('passed')} of {(record.get('result') or {}).get('total')} checks passed.", "",
+                  "| Check | Result | At | Note |", "| --- | --- | --- | --- |"]
+        for check in checks:
+            where = "—" if check.get("at") is None else f"{float(check['at']):.1f} s"
+            lines.append(f"| {check.get('name')} | {'pass' if check.get('passed') else 'FAIL'} | {where} | {check.get('note', '')} |")
+        lines.append("")
+    if revise:
+        lines += ["## Self-correcting loop", ""]
+        if revise.get("error"):
+            lines.append(f"Revise (`{revise.get('mode')}`) was refused: {revise['error']}")
+        else:
+            lines.append(f"Mode `{revise.get('mode')}`" + (f" with note: \"{revise.get('note')}\"" if revise.get("note") else "") + f". Version {revise.get('revision')} rendered in {_fmt_seconds(timings.get('revise'))} and passed {revise.get('passed')} of {revise.get('total')} checks.")
+            lines += [""] + [f"- {patch.get('op')} moment {patch.get('segment')}: {patch.get('before')} → {patch.get('after')}" + (f" (skipped: {patch['skipped']})" if patch.get("skipped") else "") + (f" — {patch.get('reason')}" if patch.get("reason") else "") for patch in revise.get("applied_patches") or []]
+        lines.append("")
+    versions = record.get("versions") or []
+    if len(versions) > 1:
+        lines += ["## Versions", "", "| v | Source | Status | Checks | Duration |", "| --- | --- | --- | --- | --- |"]
+        for version in versions:
+            proof_v = version.get("proof") or {}
+            lines.append(f"| {version.get('revision')} | {version.get('source')} | {version.get('status')} | {version.get('passed')}/{version.get('total')} | {proof_v.get('duration', '—')} |")
+        lines.append("")
     review = (record.get("result") or {}).get("review")
     if review:
         lines += ["## Director's notes (Muse Spark)", ""]
@@ -369,9 +447,9 @@ def write_markdown(record: dict, path: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--clip", default=str(REPO / "examples" / "demo" / "workshop.mp4"))
-    parser.add_argument("--goal", default="Make a 20-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.")
+    parser.add_argument("--goal", default="Make a 25-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.")
     parser.add_argument("--provider", choices=["local", "meta"], default="local")
-    parser.add_argument("--target", type=float, default=20)
+    parser.add_argument("--target", type=float, default=25)
     parser.add_argument("--aspect", choices=["9:16", "16:9", "1:1"], default="9:16")
     parser.add_argument("--captions", type=lambda value: value.lower() not in {"0", "false", "no"}, default=True, help="request captions when a transcriber is available (default true)")
     parser.add_argument("--caption-provider", choices=["local", "meta"], default="local")
@@ -383,6 +461,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--effect", choices=["float", "tilt", "push"], default=None)
     parser.add_argument("--effect-intensity", type=float, default=0.55)
     parser.add_argument("--effect-duration", type=float, default=3)
+    parser.add_argument("--revise", choices=["auto", "director", "note"], default=None, help="after the first verified render, apply fixes and render the next version")
+    parser.add_argument("--note", default="Hold the finished bowl a beat longer before the first cut.", help="director's note for --revise note")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--workspace", default=None, help="server workspace (default: a fresh temp dir)")
     parser.add_argument("--python", default=None, help="interpreter (default: .venv/bin/python)")

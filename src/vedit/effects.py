@@ -14,11 +14,11 @@ class EffectError(ValueError):
     """An effect cannot safely be applied to the approved edit."""
 
 
-REQUIRED_EFFECT_FILTERS = ("perspective", "overlay", "pad", "lut", "boxblur", "drawbox", "fps", "format", "split", "crop")
+REQUIRED_EFFECT_FILTERS = ("perspective", "overlay", "pad", "lut", "boxblur", "eq", "fps", "format", "split", "crop")
 
 
 _CATALOGUE = (
-    ("tilt", "Perspective sway", "A gentle perspective turn on a slate backdrop."),
+    ("tilt", "Perspective sway", "A gentle perspective turn over a blurred copy of the footage."),
     ("float", "Floating frame", "Lift the footage into a floating frame with a soft shadow."),
     ("push", "Push-in reveal", "A framed reveal that smoothly moves back into the footage."),
 )

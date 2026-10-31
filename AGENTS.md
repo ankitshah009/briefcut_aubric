@@ -29,7 +29,8 @@ This package is the NLE. You do not write FFmpeg by hand.
 ```text
 VEDIT_FFMPEG          absolute ffmpeg (prefer ffmpeg-full)
 VEDIT_FFPROBE         optional
-VEDIT_WHISPER_MODEL   ggml .bin for whisper-cli
+VEDIT_WHISPER_MODEL   ggml .bin for whisper-cli (default search: ~/.vedit/models/, then .vedit-models/)
+VEDIT_MODELS_DIR      shared model directory (default ~/.vedit/models)
 VEDIT_FONT            .ttf / .otf
 VEDIT_FASTER_WHISPER_MODEL   if using faster-whisper (default base.en)
 ```

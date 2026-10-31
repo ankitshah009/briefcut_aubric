@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const activeStatuses = new Set(["queued", "analyzing", "rendering"]);
   const labels = { queued: "Queued", analyzing: "Shaping the story", planned: "Ready to edit", rendering: "Making the video", complete: "Verified", failed: "Needs attention", cancelled: "Cancelled" };
-  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1 };
+  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1, version: null, notes: {} };
   const uploadedClips = new WeakMap();
   const storageKey = "vedit.studio.current";
   const maxClipBytes = 200000000;
@@ -29,13 +29,14 @@
   function verifiedRevision(job) { return job && job.result ? finite(job.result.revision, finite(job.verified_revision, finite(job.revision, 1))) : 0; }
   function previousResult(job) { return hasVerifiedResult(job) && (job.result.stale === true || verifiedRevision(job) < finite(job.revision, verifiedRevision(job))); }
   function finalLabel(job) { return previousResult(job) ? "Previous verified video" : "Finished video"; }
-  function versionedArtifact(value) {
+  function versionedArtifact(value, revision) {
     const safe = safeArtifact(value);
     if (!safe) return "";
     const url = new URL(safe);
-    if (!url.searchParams.has("v")) url.searchParams.set("v", String(verifiedRevision(state.job)));
+    if (!url.searchParams.has("v")) url.searchParams.set("v", String(Number.isFinite(revision) ? revision : verifiedRevision(state.job)));
     return url.href;
   }
+  function previewLabel() { const ver = playableVersion(state.job); return finalLabel(state.job) + " · Version " + (ver ? ver.revision : verifiedRevision(state.job)); }
 
   async function request(url, options) {
     const config = options || {};
@@ -97,6 +98,12 @@
     $("cancel-job").disabled = state.busy || !!(state.job && state.job.cancel_requested);
     $("retry-job").disabled = state.busy;
     $("render-center-crop").disabled = state.busy || state.settingsDirty || !state.draft;
+    const reviseLocked = locked || !state.job || !hasVerifiedResult(state.job);
+    const localJob = !(state.job && state.job.request && state.job.request.provider === "meta");
+    $("revise-note").disabled = reviseLocked || localJob;
+    $("revise-submit").disabled = reviseLocked || localJob;
+    $("apply-director").disabled = reviseLocked;
+    $("apply-auto").disabled = reviseLocked;
     for (const control of $("story-content").querySelectorAll("input,textarea,button")) {
       if (control.id === "make") continue;
       control.disabled = locked || !state.draft;
@@ -279,6 +286,8 @@
     const previous = state.job;
     const idChanged = !previous || previous.id !== job.id;
     if (idChanged || fresh) stopPolling();
+    if (idChanged) { state.version = null; state.notes = {}; }
+    else if (previous && previous.result && job.result && finite(previous.result.revision, 0) !== finite(job.result.revision, 0)) state.version = null;
     state.job = job;
     storageSet(storageKey, job.id);
     state.paths = job.request && Array.isArray(job.request.paths) ? job.request.paths : state.paths;
@@ -389,7 +398,8 @@
     $("cancel-job").textContent = job.cancel_requested ? "Stopping…" : "Cancel";
     $("busy").textContent = labels[job.status] || "Working on your project";
     $("progress-detail").textContent = job.message || "Your project is saved as it progresses.";
-    $("progress-stage").textContent = String(job.stage || job.status).replace(/[_-]/g, " ");
+    const stage = String(job.stage || job.status).replace(/[_-]/g, " ");
+    $("progress-stage").textContent = active && job.plan && finite(job.revision, 0) > 0 ? "Version " + job.revision + " · " + stage : stage;
     $("progress-bar").value = Math.max(0, Math.min(1, finite(job.progress, 0)));
     $("clip-name").textContent = state.sourceName;
     $("source-badge").textContent = state.duration ? durationText(state.duration) : "Saved locally";
@@ -405,7 +415,7 @@
     $("preview-final").disabled = !verified;
     $("preview-final").textContent = finalLabel(job);
     if (state.preview === "final" && verified) {
-      $("preview-label").textContent = finalLabel(job) + " · Version " + verifiedRevision(job);
+      $("preview-label").textContent = previewLabel();
       updateMonitorMeta();
     }
     updateWorkflow(complete ? 2 : job.plan ? 1 : 0);
@@ -415,6 +425,7 @@
       $("say-shape").textContent = (job.request && job.request.aspect || "9:16") + " output";
       $("say-captions").textContent = job.request && job.request.captions ? (job.request.caption_provider === "meta" ? "Captions by Meta Voice Transcribe" : "Local captions requested") : "Original audio";
       $("say-clip").textContent = (job.request && job.request.provider) === "meta" ? "Story proposed by Meta" : analysisOf(job) ? "Local analysis · Review the selection" : "Local starting cut · Review the selection";
+      paintEdits(job.plan);
       paintAnalysis(job);
       paintEffectSummary();
       $("render-note").textContent = state.settingsDirty ? "Settings changed. Create a story to apply them before rendering." : complete ? "Changes make a new render of this project." : "Your story. Your final say.";
@@ -444,40 +455,240 @@
   }
 
   function paintDelivery(result) {
-    const proof = result.proof || {};
-    const previous = previousResult(state.job);
-    const revision = verifiedRevision(state.job);
-    $("delivery-panel").classList.toggle("is-previous", previous);
-    $("delivery-heading").textContent = previous ? "Your previous version is safe." : "Ready for the world.";
-    $("verified-version").textContent = "Version " + revision + " · Verified";
+    const job = state.job;
+    const versions = jobVersions(job);
+    const version = selectedVersion(job);
+    const proof = version && version.proof || result.proof || {};
+    const previous = previousResult(job);
+    const revision = version ? version.revision : verifiedRevision(job);
+    const newest = versions.length ? versions[versions.length - 1].revision : revision;
+    const older = !!version && version.revision < newest;
+    const failed = !!version && version.status === "failed";
+    const current = revision === verifiedRevision(job);
+    $("delivery-panel").classList.toggle("is-previous", previous || older || failed);
+    $("delivery-heading").textContent = failed ? "Version " + revision + " did not verify." : older ? "Version " + revision + " of this story." : previous ? "Your previous version is safe." : "Ready for the world.";
+    $("verified-version").textContent = "Version " + revision + " · " + (failed ? "Failed" : "Verified") + (version && version.source ? " · " + sourceLabel(version.source) : "");
     const descriptions = {
       queued: "The new version is queued. You can still preview and download this verified version.",
       rendering: "A new version is rendering. These downloads are from the previous verified version.",
       failed: "The latest render did not finish. This earlier version passed verification and is still available.",
       cancelled: "The latest render was cancelled. This earlier verified version is still available.",
     };
-    $("delivery-description").textContent = previous ? descriptions[state.job.status] || "These files belong to the previous verified version, before your latest changes." : "Your video is rendered and verified. Take the whole campaign with you.";
+    $("delivery-description").textContent = failed ? errorMessage(version.error || "This version was not rendered or did not pass verification.") : older ? "An earlier version. The video, receipts, and downloads below belong to v" + revision + "." : previous ? descriptions[job.status] || "These files belong to the previous verified version, before your latest changes." : "Your video is rendered and verified. Take the whole campaign with you.";
     const links = [["download-bundle", "bundle_url", "bundle"], ["download-video", "video_url", "video"], ["download-cover", "cover_url", "cover"], ["download-report", "report_url", "report"]];
-    links.forEach(([id, field, name]) => { const link = $(id); const url = versionedArtifact(result[field] || artifact(name)); link.hidden = !url; if (url) link.href = url; else link.removeAttribute("href"); });
-    const cover = versionedArtifact(result.cover_url || artifact("cover"));
+    links.forEach(([id, field, name]) => { const link = $(id); const base = version ? version[field] || artifact(name) : result[field] || artifact(name); const url = failed ? "" : versionedArtifact(base, revision); link.hidden = !url; if (url) link.href = url; else link.removeAttribute("href"); });
+    const cover = failed ? "" : versionedArtifact(version ? version.cover_url || artifact("cover") : result.cover_url || artifact("cover"), revision);
     $("cover-image").hidden = !cover;
     if (cover && $("cover-image").src !== cover) $("cover-image").src = cover;
-    const renderedEffect = result.effect && state.effectPresets.find((item) => item.id === result.effect.preset);
-    $("delivery-summary").textContent = durationText(proof.duration) + " video · " + (proof.width || "—") + " × " + (proof.height || "—") + " · " + (proof.has_audio ? "Audio included" : "Silent video") + (renderedEffect && result.effect.intensity > 0 ? " · " + renderedEffect.label : "");
-    $("proof-duration").textContent = finite(proof.duration, 0).toFixed(2) + " seconds";
+    const renderedEffect = current && result.effect && state.effectPresets.find((item) => item.id === result.effect.preset);
+    $("delivery-summary").textContent = failed ? "No verified file for this version." : durationText(proof.duration) + " video · " + (proof.width || "—") + " × " + (proof.height || "—") + " · " + (proof.has_audio ? "Audio included" : "Silent video") + (renderedEffect && result.effect.intensity > 0 ? " · " + renderedEffect.label : "");
+    $("proof-duration").textContent = proof.duration !== undefined ? finite(proof.duration, 0).toFixed(2) + " seconds" : "—";
     $("proof-width").textContent = proof.width || "—";
     $("proof-height").textContent = proof.height || "—";
-    $("proof-has_audio").textContent = proof.has_audio ? "Present" : "No audio track";
-    $("proof-has_video").textContent = proof.has_video ? "Present" : "No video track";
+    $("proof-has_audio").textContent = proof.has_audio === undefined ? "—" : proof.has_audio ? "Present" : "No audio track";
+    $("proof-has_video").textContent = proof.has_video === undefined ? "—" : proof.has_video ? "Present" : "No video track";
     $("proof-color").textContent = [proof.color_space || proof.color && proof.color.space, proof.color_range || proof.color && proof.color.range].filter(Boolean).join(" / ") || "Not tagged";
-    const trackingOff = state.job && state.job.request && state.job.request.tracking_disabled && state.job.request.subject;
-    $("proof-subject").textContent = result.tracked_subject ? result.tracked_subject : trackingOff ? "Off (center crop)" : "None requested";
-    paintWarnings("delivery-warnings", result.warnings || []);
-    paintRunFacts(state.job, result);
-    paintDirectorNotes(result.review, state.job && state.job.request && state.job.request.review);
+    const trackingOff = job && job.request && job.request.tracking_disabled && job.request.subject;
+    $("proof-subject").textContent = !current ? "—" : result.tracked_subject ? result.tracked_subject : trackingOff ? "Off (center crop)" : "None requested";
+    paintWarnings("delivery-warnings", current ? result.warnings || [] : []);
+    paintVersionTabs(job, versions, version);
+    paintRunFacts(job, result, version);
+    paintChecks(version, current ? resultPatches(result) : []);
+    paintVersionChanges(version);
+    paintDirectorNotes(reviewFor(version, result), job && job.request && job.request.review, current ? resultPatches(result) : []);
+    paintReviseBox(job);
   }
 
-  function paintDirectorNotes(review, requested) {
+  /* ---------- Director's cut: versions, checks, patches ---------- */
+  function normalizeChecks(list) {
+    return Array.isArray(list) ? list.filter((check) => check && typeof check === "object").map((check) => ({ name: String(check.name || "Check"), passed: check.passed === true, at: check.at !== null && check.at !== "" && Number.isFinite(Number(check.at)) ? Number(check.at) : null, note: typeof check.note === "string" ? check.note : "" })) : [];
+  }
+  function normalizePatches(list) {
+    return Array.isArray(list) ? list.filter((patch) => patch && typeof patch === "object").map((patch) => ({ op: String(patch.op || "adjust"), segment: patch.segment !== null && Number.isFinite(Number(patch.segment)) ? Number(patch.segment) : null, seconds: patch.seconds !== null && Number.isFinite(Number(patch.seconds)) ? Number(patch.seconds) : null, reason: typeof patch.reason === "string" ? patch.reason : "", source: patch.source === "director" ? "director" : "auto", before: patch.before && typeof patch.before === "object" ? patch.before : null, after: patch.after && typeof patch.after === "object" ? patch.after : null, skipped: typeof patch.skipped === "string" ? patch.skipped : patch.skipped === true ? "Skipped" : "" })).map((patch) => {
+      if (patch.seconds === null && patch.after) { const edge = /start|in\b/i.test(patch.op) ? patch.after.start : patch.after.end; if (Number.isFinite(Number(edge))) patch.seconds = Number(edge); }
+      return patch;
+    }) : [];
+  }
+  function resultChecks(result) { return result ? normalizeChecks(Array.isArray(result.checks) ? result.checks : result.review && result.review.checks) : []; }
+  function resultPatches(result) { return result ? normalizePatches(Array.isArray(result.patches) ? result.patches : result.review && result.review.patches) : []; }
+  function countChecks(checks, passed, total) {
+    const t = total !== null && Number.isFinite(Number(total)) ? Number(total) : checks.length;
+    const p = passed !== null && Number.isFinite(Number(passed)) ? Number(passed) : checks.filter((check) => check.passed).length;
+    return { passed: p, total: t };
+  }
+  function jobVersions(job) {
+    if (!job) return [];
+    const result = job.result || {};
+    const raw = Array.isArray(job.versions) ? job.versions.filter((item) => item && typeof item === "object" && Number.isFinite(Number(item.revision))) : [];
+    let list = [];
+    if (raw.length) {
+      list = raw.map((item) => {
+        const revision = Number(item.revision);
+        const current = hasVerifiedResult(job) && revision === verifiedRevision(job);
+        const checks = normalizeChecks(item.checks);
+        const merged = checks.length || !current ? checks : resultChecks(result);
+        const count = countChecks(merged, item.passed, item.total);
+        return { revision, status: item.status === "failed" ? "failed" : "verified", source: typeof item.source === "string" ? item.source : "approved", created_at: item.created_at || null, proof: item.proof && typeof item.proof === "object" ? item.proof : current ? result.proof || {} : {}, checks: merged, passed: count.passed, total: count.total, hook_score: item.hook_score, verdict: item.verdict, review: item.review && typeof item.review === "object" ? item.review : current ? result.review : null, applied_patches: normalizePatches(item.applied_patches), video_url: item.video_url || (current ? result.video_url : ""), report_url: item.report_url || (current ? result.report_url : ""), cover_url: item.cover_url || (current ? result.cover_url : ""), bundle_url: item.bundle_url || (current ? result.bundle_url : ""), timings: item.timings && typeof item.timings === "object" ? item.timings : null, error: item.error, note: typeof item.note === "string" ? item.note : "" };
+      });
+    } else if (hasVerifiedResult(job)) {
+      const checks = resultChecks(result);
+      const count = countChecks(checks, result.passed, result.total);
+      list = [{ revision: verifiedRevision(job), status: "verified", source: "approved", created_at: job.updated_at || null, proof: result.proof || {}, checks, passed: count.passed, total: count.total, hook_score: result.review && result.review.hook_score, verdict: result.review && result.review.verdict, review: result.review, applied_patches: normalizePatches(result.applied_patches), video_url: result.video_url, report_url: result.report_url, cover_url: result.cover_url, bundle_url: result.bundle_url, timings: job.timings && typeof job.timings === "object" ? job.timings : null, error: null, note: "" }];
+    }
+    list.sort((a, b) => a.revision - b.revision);
+    list.forEach((item) => { if (!item.note && state.notes[item.revision]) item.note = state.notes[item.revision]; });
+    return list;
+  }
+  function selectedVersion(job) {
+    const versions = jobVersions(job);
+    if (!versions.length) return null;
+    const chosen = state.version !== null ? versions.find((item) => item.revision === state.version) : null;
+    if (chosen) return chosen;
+    const verified = versions.filter((item) => item.status === "verified");
+    const pool = verified.length ? verified : versions;
+    return pool[pool.length - 1];
+  }
+  function playableVersion(job) {
+    const version = selectedVersion(job);
+    if (!version || version.status === "verified") return version;
+    const verified = jobVersions(job).filter((item) => item.status === "verified");
+    return verified.length ? verified[verified.length - 1] : version;
+  }
+  function selectVersion(revision) {
+    if (!state.job) return;
+    state.version = revision;
+    const version = selectedVersion(state.job);
+    paintJob();
+    if (version && version.status === "verified" && !$("preview-final").disabled) setPreview("final");
+    if (version) announce("Version " + version.revision + (version.total ? ", " + version.passed + " of " + version.total + " checks passed" : "") + (version.status === "failed" ? ", failed" : ""));
+  }
+  function sourceLabel(source) { return { approved: "approved", director: "director’s fixes", auto: "auto fixes", note: "note" }[source] || String(source || ""); }
+  function clockText(seconds) { const s = Math.max(0, finite(seconds, 0)); return Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0") + "." + String(Math.floor((s % 1) * 10)); }
+  function rangeText(range) { return range ? finite(range.start, 0).toFixed(1) + "–" + finite(range.end, 0).toFixed(1) + " s" : ""; }
+  function jumpToFinal(where) {
+    if (state.preview !== "final") setPreview("final");
+    const player = $("player");
+    const seek = () => { player.currentTime = Math.max(0, where); player.play().catch(() => {}); };
+    if (player.readyState >= 1) seek(); else player.addEventListener("loadedmetadata", seek, { once: true });
+  }
+  function describePatch(patch) {
+    const seg = patch.segment !== null ? "moment " + patch.segment : "the story"; // 1-based from the server
+    const secs = patch.seconds !== null ? patch.seconds.toFixed(1) + " s" : "";
+    const op = patch.op.toLowerCase();
+    if (/(trim|set|cut)[_ -]?end|^end$/.test(op)) return "Trim " + seg + " to end at " + (secs || "a new out point");
+    if (/(trim|set|cut)[_ -]?start|^start$/.test(op)) return "Trim " + seg + " to start at " + (secs || "a new in point");
+    if (/extend/.test(op)) return "Extend " + seg + (secs ? " to " + secs : "");
+    if (/drop|remove|delete/.test(op)) return "Remove " + seg;
+    if (/move|reorder/.test(op)) return "Move " + seg + (secs ? " to " + secs : "");
+    if (/shorten|tighten|trim/.test(op)) return "Tighten " + seg + (secs ? " to " + secs : "");
+    const plain = op.replace(/[_-]/g, " ");
+    return plain.charAt(0).toUpperCase() + plain.slice(1) + " " + seg + (secs ? " · " + secs : "");
+  }
+  function paintVersionTabs(job, versions, selected) {
+    const tabs = $("version-tabs"); tabs.replaceChildren();
+    tabs.hidden = !versions.length;
+    if (!versions.length) return;
+    versions.forEach((item) => {
+      const button = element("button", "version-tab"); button.type = "button";
+      const on = !!selected && item.revision === selected.revision;
+      button.setAttribute("aria-pressed", String(on));
+      const dotState = item.status === "failed" ? "is-fail" : item.total ? (item.passed >= item.total ? "is-pass" : "is-fail") : "";
+      const dot = element("i", dotState); dot.setAttribute("aria-hidden", "true");
+      button.append(dot, element("strong", "", "v" + item.revision));
+      if (item.total) button.append(element("span", "version-count", item.passed + "/" + item.total));
+      button.append(element("small", "", item.status === "failed" ? "failed" : sourceLabel(item.source)));
+      const summary = "Version " + item.revision + ", " + (item.status === "failed" ? "failed" : sourceLabel(item.source)) + (item.total ? ", " + item.passed + " of " + item.total + " checks passed" : ", no checks recorded") + (item.note ? ". Note: " + item.note : "");
+      button.setAttribute("aria-label", summary); button.title = summary;
+      button.addEventListener("click", () => selectVersion(item.revision));
+      tabs.append(button);
+    });
+    const pendingRevision = finite(job.revision, 0);
+    if (activeStatuses.has(job.status) && job.plan && pendingRevision > versions[versions.length - 1].revision) {
+      const pending = element("button", "version-tab is-pending"); pending.type = "button"; pending.disabled = true; pending.setAttribute("aria-pressed", "false");
+      const dot = element("i", "is-working"); dot.setAttribute("aria-hidden", "true");
+      pending.append(dot, element("strong", "", "v" + pendingRevision), element("small", "", (labels[job.status] || job.status).toLowerCase()));
+      pending.title = "Version " + pendingRevision + " is " + (labels[job.status] || job.status).toLowerCase();
+      tabs.append(pending);
+    }
+  }
+  function paintChecks(version, patches) {
+    const section = $("checks-section");
+    const checks = version ? version.checks : [];
+    section.hidden = !checks.length;
+    if (!checks.length) return;
+    $("checks-summary").textContent = version.passed + " of " + version.total + " passed · v" + version.revision;
+    const list = $("checks-list"); list.replaceChildren();
+    checks.forEach((check) => {
+      const item = element("li", "check " + (check.passed ? "is-pass" : "is-fail"));
+      const glyph = element("span", "check-glyph", check.passed ? "✓" : "✕"); glyph.setAttribute("aria-hidden", "true");
+      const name = element("span", "check-name"); name.append(element("span", "sr", check.passed ? "Passed: " : "Failed: "), document.createTextNode(check.name));
+      item.append(glyph, name);
+      if (check.at !== null) { const jump = element("button", "text-button check-jump", "Jump to " + clockText(check.at)); jump.type = "button"; jump.title = "Seek the finished video to this moment"; jump.addEventListener("click", () => jumpToFinal(check.at)); item.append(jump); }
+      if (check.note) item.append(element("p", "check-note", check.note));
+      list.append(item);
+    });
+    const auto = patches.filter((patch) => patch.source === "auto");
+    $("auto-fixes").hidden = !auto.length;
+    if (auto.length) {
+      $("auto-fixes-text").textContent = auto.length + (auto.length === 1 ? " automatic fix is" : " automatic fixes are") + " ready: " + auto.map(describePatch).join("; ") + ".";
+      $("apply-auto").textContent = "Apply automatic fixes (" + auto.length + ")";
+    }
+  }
+  function paintVersionChanges(version) {
+    const section = $("version-changes");
+    const patches = version ? version.applied_patches : [];
+    section.hidden = !patches.length && !(version && version.note);
+    if (section.hidden) return;
+    $("version-changes-heading").textContent = "What changed in v" + version.revision;
+    $("version-note").hidden = !version.note;
+    $("version-note").textContent = version.note ? "Note: “" + version.note + "”" : "";
+    const list = $("version-changes-list"); list.replaceChildren();
+    patches.forEach((patch) => {
+      const item = element("li", patch.skipped ? "is-skipped" : "");
+      item.append(document.createTextNode(describePatch(patch)));
+      if (patch.skipped) item.append(document.createTextNode(" — skipped: " + (patch.skipped !== "Skipped" ? patch.skipped : patch.reason || "not applied")));
+      else if (patch.before) item.append(document.createTextNode(" · "), element("span", "change-range", rangeText(patch.before) + " → " + (patch.after ? rangeText(patch.after) : "removed")));
+      if (patch.reason && !patch.skipped) item.append(document.createTextNode(" "), element("span", "change-reason", "— " + patch.reason));
+      list.append(item);
+    });
+  }
+  function reviewFor(version, result) {
+    if (!version) return result && result.review || null;
+    if (version.review && typeof version.review === "object") return version.review;
+    const scored = version.hook_score !== null && version.hook_score !== undefined && Number.isFinite(Number(version.hook_score));
+    if (typeof version.verdict === "string" && version.verdict.trim() || scored) return { verdict: version.verdict || "", hook_score: version.hook_score, strengths: [], fixes: [], partial: true };
+    return null;
+  }
+  function paintReviseBox(job) {
+    const local = !(job && job.request && job.request.provider === "meta");
+    const next = finite(job && job.revision, verifiedRevision(job)) + 1;
+    $("revise-hint").textContent = local ? "Director’s notes need Meta mode. Create the story with Meta director to revise by note." : "Muse Spark turns your note into trims, renders version " + next + ", and re-checks it. Your verified version stays available.";
+  }
+  async function revise(mode) {
+    if (isActive() || !state.job || !hasVerifiedResult(state.job)) return;
+    const note = mode === "note" ? $("revise-note").value.trim() : "";
+    if (mode === "note" && !(state.job.request && state.job.request.provider === "meta")) { showError("Director’s notes need Meta mode."); return; }
+    if (mode === "note" && !note) { showError("Write a note for the director first."); $("revise-note").focus(); return; }
+    clearError(); state.busy = true; setControls();
+    const id = state.job.id;
+    const next = finite(state.job.revision, verifiedRevision(state.job)) + 1;
+    try {
+      const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/revise", { method: "POST", body: mode === "note" ? { mode: "note", note } : { mode }, timeout: 25000 });
+      if (!data.job) throw new Error("The revision was not started. Your verified version is still available.");
+      const revision = finite(data.job.revision, next);
+      if (note) state.notes[revision] = note;
+      $("revise-note").value = "";
+      markTiming(id, "renderStart", null); markTiming(id, "renderEnd", null); markTiming(id, "renderStart", Date.now());
+      state.version = null; state.jobStarted = Date.now();
+      adoptJob(data.job, true);
+      toast("Version " + revision + " queued" + (mode === "director" ? " with the director’s fixes." : mode === "auto" ? " with automatic fixes." : " from your note."));
+      $("job-progress").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+    } catch (error) { showError(error); }
+    finally { state.busy = false; setControls(); }
+  }
+
+
+  function paintDirectorNotes(review, requested, patches) {
     const panel = $("director-notes");
     const show = !!(requested || review);
     panel.hidden = !show;
@@ -496,40 +707,49 @@
     }
     const strengths = $("director-strengths"); strengths.textContent = "";
     (ok && Array.isArray(review.strengths) ? review.strengths : []).forEach((text) => strengths.appendChild(element("li", "", String(text))));
-    if (ok && !strengths.children.length) strengths.appendChild(element("li", "muted", "No specific strengths listed."));
+    if (ok && !strengths.children.length) strengths.appendChild(element("li", "muted", review.partial ? "Full notes are kept with the newest version." : "No specific strengths listed."));
     const fixes = $("director-fixes"); fixes.textContent = "";
     (ok && Array.isArray(review.fixes) ? review.fixes : []).forEach((fix) => {
       const item = element("li", "", "");
       const where = fix && Number.isFinite(Number(fix.where_seconds)) && fix.where_seconds !== null ? Number(fix.where_seconds) : null;
       if (where !== null) {
-        const jump = element("button", "text-button fix-time", time(where) + "." + String(Math.round((where % 1) * 10)));
+        const jump = element("button", "text-button fix-time", clockText(where));
         jump.type = "button"; jump.title = "Jump to this moment in the finished video";
-        jump.addEventListener("click", () => { if (state.preview !== "final") setPreview("final"); const player = $("player"); const seek = () => { player.currentTime = Math.max(0, where); player.play().catch(() => {}); }; if (player.readyState >= 1) seek(); else player.addEventListener("loadedmetadata", seek, { once: true }); });
+        jump.addEventListener("click", () => jumpToFinal(where));
         item.appendChild(jump); item.appendChild(document.createTextNode(" "));
       }
       item.appendChild(document.createTextNode(String(fix && fix.what || "")));
       fixes.appendChild(item);
     });
-    if (ok && !fixes.children.length) fixes.appendChild(element("li", "muted", "Nothing flagged."));
+    if (ok && !fixes.children.length) fixes.appendChild(element("li", "muted", review.partial ? "See the receipts above for this version." : "Nothing flagged."));
     const caption = ok && typeof review.caption_suggestion === "string" ? review.caption_suggestion.trim() : "";
     $("director-caption-wrap").hidden = !caption;
     $("director-caption").textContent = caption;
+    const director = (patches || []).filter((patch) => patch.source === "director");
+    $("director-patches").hidden = !director.length;
+    if (director.length) {
+      const list = $("director-patch-list"); list.replaceChildren();
+      director.forEach((patch) => { const item = element("li", "", describePatch(patch)); if (patch.reason) item.append(document.createTextNode(" "), element("span", "patch-reason", "— " + patch.reason)); list.append(item); });
+      const next = finite(state.job && state.job.revision, verifiedRevision(state.job)) + 1;
+      $("apply-director").textContent = "Apply director’s fixes (" + director.length + ") → render v" + next;
+    }
   }
 
   function setPreview(version) {
     state.preview = version; state.rangeEnd = null;
     const result = state.job && state.job.result;
-    const url = version === "final" && result ? safeArtifact(result.video_url || artifact("video")) : state.sourceURL;
+    const ver = version === "final" && state.job ? playableVersion(state.job) : null;
+    const url = version === "final" && (ver || result) ? safeArtifact(ver && ver.video_url || result && result.video_url || artifact("video")) : state.sourceURL;
     $("preview-source").setAttribute("aria-pressed", String(version === "source"));
     $("preview-final").setAttribute("aria-pressed", String(version === "final"));
-    $("preview-label").textContent = version === "final" ? finalLabel(state.job) + " · Version " + verifiedRevision(state.job) : "Original footage";
+    $("preview-label").textContent = version === "final" ? previewLabel() : "Original footage";
     $("monitor-empty").hidden = !!url;
     $("player").hidden = !url;
     $("monitor-picture").classList.toggle("has-video", !!url);
     if (version !== "source") state.loop = false;
     $("scrubber").hidden = version !== "source" || !url || !state.draft;
     if (url) {
-      const keyed = version === "final" ? versionedArtifact(url) : url;
+      const keyed = version === "final" ? versionedArtifact(url, ver ? ver.revision : undefined) : url;
       if ($("player").getAttribute("src") !== keyed) { $("player").pause(); $("player").src = keyed; $("player").load(); }
     } else { $("player").pause(); $("player").removeAttribute("src"); $("player").load(); }
     updateMonitorMeta();
@@ -537,7 +757,8 @@
 
   function updateMonitorMeta() {
     const source = state.job && state.job.source || {};
-    const proof = state.job && state.job.result && state.job.result.proof || {};
+    const shown = state.job && state.preview === "final" ? playableVersion(state.job) : null;
+    const proof = shown && shown.proof || state.job && state.job.result && state.job.result.proof || {};
     const info = state.preview === "final" ? proof : source;
     const video = $("player");
     const w = finite(info.width, video.videoWidth || 0), h = finite(info.height, video.videoHeight || 0);
@@ -619,6 +840,20 @@
     $("story-duration").textContent = durationText(total) + " selected";
     $("say-pauses").textContent = state.draft.segments.length + (state.draft.segments.length === 1 ? " selected moment" : " selected moments");
     paintEffectSummary();
+  }
+
+  function paintEdits(plan) {
+    // Sentences the server derived from the brief; shown before any render.
+    const applied = Array.isArray(plan && plan.decisions) ? plan.decisions.filter((item) => typeof item === "string" && item) : [];
+    const ignored = Array.isArray(plan && plan.ignored_edits) ? plan.ignored_edits.filter((item) => typeof item === "string" && item) : [];
+    const node = $("say-edits");
+    node.textContent = applied.join(" \u00b7 ");
+    if (ignored.length) {
+      const note = document.createElement("span");
+      note.className = "not-applied";
+      note.textContent = (applied.length ? " \u00b7 " : "") + "Not applied: " + ignored.join("; ");
+      node.appendChild(note);
+    }
   }
 
   function paintEffectSummary() {
@@ -718,7 +953,8 @@
 
   function resetProject(clearForm) {
     stopPolling(); revokeSource();
-    state.file = null; state.paths = []; state.sourceURL = ""; state.duration = 0; state.job = null; state.draft = null; state.selected = -1; state.sourceName = ""; state.rangeEnd = null; state.settingsSnapshot = ""; state.settingsDirty = false; state.pendingCreate = null; state.effectTimingEdited = false;
+    state.file = null; state.paths = []; state.sourceURL = ""; state.duration = 0; state.job = null; state.draft = null; state.selected = -1; state.sourceName = ""; state.rangeEnd = null; state.settingsSnapshot = ""; state.settingsDirty = false; state.pendingCreate = null; state.effectTimingEdited = false; state.version = null; state.notes = {};
+    $("version-tabs").hidden = true; $("checks-section").hidden = true; $("version-changes").hidden = true; $("director-notes").hidden = true; $("revise-note").value = "";
     storageRemove(storageKey);
     if (clearForm) { $("desk-form").reset(); $("clip").value = ""; $("language-field").hidden = true; updateMode(); updateEffectControls(); }
     $("project-name").textContent = "Untitled project"; $("result").textContent = "A little raw footage. A story worth sharing."; $("project-status").textContent = "Ready to start"; $("project-status").className = "status-pill";
@@ -947,11 +1183,11 @@
     if (activeStatuses.has(job.status) && !was && job.revision > 0) markTiming(job.id, "renderStart", timestamp(job.updated_at) || Date.now());
   }
   function seconds(value) { return Number.isFinite(value) && value >= 0 ? (value < 10 ? value.toFixed(1) : Math.round(value)) + " s" : "—"; }
-  function paintRunFacts(job, result) {
+  function paintRunFacts(job, result, version) {
     const facts = $("run-facts");
     if (!job) { facts.hidden = true; return; }
     facts.hidden = false;
-    const server = job.timings && typeof job.timings === "object" ? job.timings : {};
+    const server = Object.assign({}, job.timings && typeof job.timings === "object" ? job.timings : {}, version && version.timings && Number.isFinite(Number(version.timings.render_seconds)) ? { render_seconds: version.timings.render_seconds } : {});
     const local = readTiming(job.id);
     const planSeconds = Number.isFinite(Number(server.plan_seconds)) ? Number(server.plan_seconds) : local.planStart && local.planEnd ? (local.planEnd - local.planStart) / 1000 : NaN;
     const renderSeconds = Number.isFinite(Number(server.render_seconds)) ? Number(server.render_seconds) : local.renderStart && local.renderEnd ? (local.renderEnd - local.renderStart) / 1000 : NaN;
@@ -965,6 +1201,9 @@
     $("fact-captions").textContent = job.request && job.request.captions ? (captionProviderUsed === "meta" ? "Meta Voice Transcribe" : "Local Whisper") : "None";
     const spend = job.budget && Number.isFinite(Number(job.budget.reserved_usd)) ? Number(job.budget.reserved_usd) : 0;
     $("fact-spend").textContent = job.request && job.request.provider === "meta" || captionProviderUsed === "meta" ? "$" + spend.toFixed(3) + " reserved" : "$0.00";
+    const checksNode = $("fact-checks");
+    checksNode.textContent = version && version.total ? version.passed + " / " + version.total + " passed" : "—";
+    if (version && version.total) checksNode.append(Object.assign(document.createElement("small"), { textContent: "v" + version.revision + (version.checks.some((check) => /^director:/i.test(check.name)) ? " · auto + director" : " · auto checks") }));
   }
 
   /* ---------- Shortcuts ---------- */
@@ -980,6 +1219,7 @@
     if (key === " " || key === "k") { if (!hasVideo) return; event.preventDefault(); if (player.paused) { const p = player.play(); if (p && p.catch) p.catch(() => {}); } else player.pause(); return; }
     if (key === "j" || key === "l") { if (!hasVideo) return; event.preventDefault(); state.rangeEnd = null; player.currentTime = Math.max(0, player.currentTime + (key === "j" ? -5 : 5)); paintPlayhead(); return; }
     if (key === "c") { if (!$("preview-final").disabled) { event.preventDefault(); setPreview(state.preview === "final" ? "source" : "final"); toast(state.preview === "final" ? "Finished video" : "Source footage"); } return; }
+    if (key === "v") { const versions = jobVersions(state.job); if (versions.length > 1) { event.preventDefault(); const current = selectedVersion(state.job); const index = versions.findIndex((item) => current && item.revision === current.revision); selectVersion(versions[(index + 1) % versions.length].revision); } return; }
     if (/^[1-8]$/.test(key)) { if (state.draft && state.draft.segments[Number(key) - 1]) { event.preventDefault(); seekSegment(Number(key) - 1, { keepLoop: true }); const block = $("scrub-moments").children[Number(key) - 1]; if (block) block.focus(); } return; }
     if (!state.draft || state.selected < 0 || !state.draft.segments[state.selected]) return;
     const step = event.shiftKey ? 1 : .1;
@@ -1035,6 +1275,9 @@
   $("hashtags").addEventListener("input", () => { if (!state.draft) return; state.draft.hashtags = $("hashtags").value.split(/[\s,]+/).map((tag) => tag.replace(/^#+/, "")).filter(Boolean); saveDraft(); });
   $("recent-projects").addEventListener("toggle", () => { if ($("recent-projects").open) refreshRecent(); });
   $("download-report").addEventListener("click", (event) => event.stopPropagation());
+  $("apply-director").addEventListener("click", () => revise("director"));
+  $("apply-auto").addEventListener("click", () => revise("auto"));
+  $("revise-form").addEventListener("submit", (event) => { event.preventDefault(); revise("note"); });
   $("cover-image").addEventListener("error", () => { $("cover-image").hidden = true; });
   $("player").addEventListener("loadedmetadata", () => {
     const video = $("player"); if (state.preview === "source" && Number.isFinite(video.duration)) { state.duration = video.duration; $("source-badge").textContent = durationText(state.duration); }
