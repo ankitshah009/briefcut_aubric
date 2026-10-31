@@ -4,20 +4,20 @@
 
 ## Run locally
 
-Use Python 3.13 or newer and an FFmpeg build with `drawtext` and `subtitles`. From the repository root, with its virtual environment installed:
+Use [uv](https://docs.astral.sh/uv/) (it provisions CPython 3.13) and an FFmpeg build with `drawtext` and `subtitles`. From the repository root:
 
 ```sh
 ./scripts/studio.sh --port 8765 --open
 ```
 
-The launcher checks dependencies, runs from the checkout, and uses `.vedit-models/ggml-base.bin` automatically when present. This workspace has a roughly 141 MiB multilingual base model installed locally; the model is not included in the repository or app bundle. A fresh checkout still needs its own model for captions.
+The launcher creates `.venv` with uv when it is missing (`uv sync`), checks dependencies, runs from the checkout, defaults `VEDIT_FFMPEG` to `ffmpeg-full` when installed, and uses the first `.vedit-models/ggml-*.bin` it finds (`ggml-base.en.bin` preferred). The model is not included in the repository or app bundle. A fresh checkout still needs its own model for captions.
 
 Stop if a required doctor check fails. A missing Whisper model disables captions but does not prevent a video render. To launch Python directly with a local model:
 
 ```sh
-export VEDIT_WHISPER_MODEL="$PWD/.vedit-models/ggml-base.bin"
-.venv/bin/python -m vedit doctor
-.venv/bin/python -m vedit studio --port 8765 --open
+export VEDIT_WHISPER_MODEL="$PWD/.vedit-models/ggml-base.en.bin"
+uv run vedit doctor
+uv run vedit studio --port 8765 --open
 ```
 
 The multilingual base model and a requested language are separate choices. Selecting a language does not translate speech or dub the video.
@@ -42,8 +42,10 @@ Floating frame, Perspective sway, and Push-in reveal use local perspective and f
 
 | Mode | What it does | What it does not establish |
 | --- | --- | --- |
-| Local | Starts with the requested number of seconds from the beginning of the source, then renders your edited ranges with local tools. | It does not understand scenes or identify the strongest story moment. |
+| Local | Measures scene cuts, speech ranges, and, when a local Whisper model is installed, a transcript; then selects non-overlapping moments that fit the target length, each with the measurement that chose it. Renders your edited ranges with local tools. | Signal analysis is not understanding. It cannot judge whether a moment is interesting, true, or on-message; it only knows where picture and speech change and which brief words were spoken. |
 | Meta | Requests a structured story plan from footage and can request subject geometry for reframing. | A model's explanation is not independent evidence. Review the ranges against the source. |
+
+The local planner (`src/vedit/story.py`, also `uv run vedit story CLIP --goal "..." --target 20`) is deterministic and offline. It detects scene cuts on a 320-pixel downscale, inverts `silencedetect` into speech ranges, and runs the local transcriber only when one is installed and the clip is short enough to keep planning fast. Candidates are speech ranges split at scene cuts and merged into 1.5–12 second pieces; each is scored on speech coverage, overlap between transcript words and your brief, a scene-change bonus, and a bonus for the first and last spoken moments. The plan carries an `analysis` object (scene times, speech ranges, transcript cues, notes) for review, and every segment states its `kind` and `score`. When the source already fits the target, the plan is the whole clip; with no speech or scenes, it says so in a warning and falls back to the opening. None of this is a model call, and the summary says so.
 
 There are no paid model calls in the default local workflow. Keep `VEDIT_META_ENABLED` unset while developing without an approved cloud budget. Configure a server-side `MODEL_API_KEY` and explicitly enable Meta only after confirming the account's credits or billing arrangement. Never put a key into the browser, a brief, or a committed file.
 
@@ -56,6 +58,8 @@ The adapter uses Standard mode with `muse-spark-1.3`, `sam-3.1`, and `muse-image
 export VEDIT_META_ENABLED=1
 ./scripts/studio.sh --port 8765 --open
 ```
+
+Captions can also come from Meta. With `captions: true` and `caption_provider: "meta"`, the render extracts only the approved speech as a mono 16-bit, 16 kHz WAV in playback order and sends it to `muse-voice-transcribe-1.0` (`POST /v1/asr/transcribe`, $0.18 per hour of audio, billed in whole seconds). The returned turn-level timestamps already sit on the finished edit's clock, so no remapping is needed; the cues are written to `captions.srt` and `captions.ass` and burned locally. The request is refused before upload when the selection exceeds 10 minutes or 32 MB, its cost is reserved against the same campaign ledger under the `transcribe` operation, and a failure stops the render with an actionable error rather than silently switching to local Whisper. Turns are sentence-level, not word-level, and selecting a language only biases recognition; it does not translate. Local Whisper remains the default and needs no credentials. Every stored upload also carries a one-hour server-side expiry as a safety net behind the adapter's own deletion.
 
 `budget_usd` is a **total campaign ceiling**. The campaign HTTP API accepts $0.01–$5. All operations and revisions share the same project ledger. Before an inference request, the adapter adds its worst-case cost to prior reservations and refuses a request that would exceed the cap. Failed or uncertain calls keep their reservations; successful calls do not automatically refund unused reserves. An identical cached result adds no inference charge. Separate campaigns have separate caps, so this is not an account-wide spending limit.
 
@@ -138,7 +142,7 @@ HTTP 202 means the operation was accepted; it does not mean the video is complet
 Open the exported `report.json` and confirm duration, dimensions, video and audio streams, and color metadata. Listen to the output and inspect the beginning, cut boundaries, and end. For a downloaded video, run:
 
 ```sh
-.venv/bin/python -m vedit probe /path/to/downloaded-video.mp4
+uv run vedit probe /path/to/downloaded-video.mp4
 ```
 
 Check the archive itself: `video.mp4` should play, the cover should open, and `post.txt` should match the approved text. The package also includes `story.json`, `brief.yaml`, and `report.json`. Keep the generated `project.json` and `render.sh` from the job's render folder when reproducing an edit. `timeline.otio.json` is interchange data; editing it does not change the executable program.

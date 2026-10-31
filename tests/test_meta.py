@@ -84,7 +84,11 @@ class HttpScript:
         input_tokens: int = 1000,
         image: str | None = None,
         status: str = "completed",
+        transcript: Any = None,
+        models: tuple[str, ...] = ("muse-spark-1.3", "sam-3.1", "muse-image-1.0", "muse-voice-transcribe-1.0"),
     ) -> None:
+        self.transcript = transcript
+        self.models = models
         self.story = copy.deepcopy(STORY if story is None else story)
         self.text = text
         self.input_tokens = input_tokens
@@ -110,6 +114,16 @@ class HttpScript:
                     ]}
                 ],
                 "usage": {"input_tokens": self.input_tokens, "output_tokens": 200, "video_frames_processed": 300},
+            }
+        if method == "GET" and path == "/models":
+            return {"object": "list", "data": [{"id": name, "object": "model"} for name in self.models]}
+        if method == "POST" and path == "/asr/transcribe":
+            return self.transcript if self.transcript is not None else {
+                "sessionId": "9f1c", "transcript": "Made by hand. The finished bowl.", "audioDurationMs": 2400,
+                "turns": [
+                    {"turnId": 1, "startMs": 100, "endMs": 1300, "transcript": "Made by hand."},
+                    {"turnId": 2, "startMs": 1400, "endMs": 2300, "transcript": "The finished bowl."},
+                ],
             }
         if method == "POST" and path == "/images/edits":
             return {
@@ -524,3 +538,108 @@ def test_concurrent_stories_cannot_both_reserve_the_same_budget(
     assert sum(isinstance(result, dict) for result in results) == 1
     assert sum(isinstance(result, meta.MetaError) for result in results) == 1
     assert sum(method == "POST" and path == "/responses" for method, path, _ in http.calls) == 1
+
+
+def wav_fixture(tmp_path: Path, *, seconds: float = 2.4, rate: int = 16_000, channels: int = 1, width: int = 2, name: str = "speech.wav") -> Path:
+    import wave
+
+    path = tmp_path / name
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(channels)
+        handle.setsampwidth(width)
+        handle.setframerate(rate)
+        handle.writeframes(b"\x00" * int(seconds * rate) * channels * width)
+    return path
+
+
+def test_upload_requests_server_side_expiry_as_a_cleanup_safety_net(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"x" * 10)
+    head = meta._Multipart(media).head.decode()
+    assert 'name="expires_after[anchor]"\r\n\r\ncreated_at' in head
+    assert 'name="expires_after[seconds]"\r\n\r\n3600' in head
+    assert head.index('name="file"') > head.index("expires_after[seconds]")
+    assert 'filename="source.mp4"' in head and "clip.mp4" not in head
+
+
+def test_transcribe_reserves_budget_sends_wav_and_returns_turn_cues(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    wav = wav_fixture(tmp_path)
+    result = meta.transcribe_audio(wav, duration=2.4, work_dir=tmp_path / "work", language="es", budget_usd=0.25)
+    assert result["cues"] == [
+        {"start": 0.1, "end": 1.3, "text": "Made by hand."},
+        {"start": 1.4, "end": 2.3, "text": "The finished bowl."},
+    ]
+    assert result["provider"] == "meta" and result["model"] == "muse-voice-transcribe-1.0"
+    assert result["usage"]["audio_seconds"] == 2 and result["usage"]["cost_usd"] == round(2 / 3600 * .18, 8)
+    (_, path, kwargs), = [call for call in http.calls if call[1] == "/asr/transcribe"]
+    assert kwargs["content_type"].startswith("multipart/form-data; boundary=vedit-")
+    body = b"".join(kwargs["body"])
+    assert len(body) == len(kwargs["body"])
+    assert b'name="request"' in body and b'"model": "muse-voice-transcribe-1.0"' in body
+    assert b'"audioEncoding": "WAV"' in body and b'"mode": "ENDPOINTING"' in body and b'"languageBias": ["Spanish"]' in body
+    assert body.index(b'name="request"') < body.index(b'name="audio"') and body.endswith(b"--\r\n")
+    assert not any(path == "/files" for _, path, _ in http.calls), "the WAV goes inline; no stored file to clean up"
+    ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
+    call = ledger["calls"][0]
+    assert call["operation"] == "transcribe" and call["status"] == "completed"
+    assert call["reserved_usd"] == round(3 / 3600 * .18, 8)
+    assert "test-secret" not in json.dumps(ledger)
+    # Identical audio and settings are served from the cache without a second request.
+    again = meta.transcribe_audio(wav, duration=2.4, work_dir=tmp_path / "work", language="es", budget_usd=0.25)
+    assert again["usage"]["cached"] is True and again["usage"]["charged_this_call_usd"] == 0
+    assert sum(1 for _, path, _ in http.calls if path == "/asr/transcribe") == 1
+
+
+def test_transcribe_auto_language_sends_no_bias_and_empty_turns_are_actionable(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript(transcript={"sessionId": "s", "transcript": "", "audioDurationMs": 2400, "turns": []})
+    monkeypatch.setattr(meta, "_request", http)
+    result = meta.transcribe_audio(wav_fixture(tmp_path), duration=2.4, work_dir=tmp_path / "work", language="auto")
+    assert result["cues"] == [] and "no speech" in result["warning"]
+    body = b"".join(next(kwargs["body"] for _, path, kwargs in http.calls if path == "/asr/transcribe"))
+    assert b"languageBias" not in body
+
+
+@pytest.mark.parametrize("kwargs", [{"rate": 44_100}, {"channels": 2}, {"width": 1}])
+def test_transcribe_rejects_wav_the_service_would_refuse_before_any_request(kwargs: dict[str, Any], enabled: None, tmp_path: Path) -> None:
+    with pytest.raises(meta.MetaError, match="mono 16-bit PCM WAV"):
+        meta.transcribe_audio(wav_fixture(tmp_path, **kwargs), duration=2.4, work_dir=tmp_path / "work")
+
+
+def test_transcribe_refuses_audio_beyond_the_campaign_budget(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript()
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="campaign budget"):
+        meta.transcribe_audio(wav_fixture(tmp_path, seconds=30), duration=30, work_dir=tmp_path / "work", budget_usd=0.001)
+    assert not http.calls
+    with pytest.raises(meta.MetaError, match="does not match"):
+        meta.transcribe_audio(wav_fixture(tmp_path), duration=9, work_dir=tmp_path / "work")
+
+
+@pytest.mark.parametrize("turns", [[{"turnId": 1, "startMs": -5, "endMs": 10, "transcript": "x"}], [{"turnId": 1, "startMs": "0", "endMs": 10, "transcript": "x"}], "not-a-list"])
+def test_invalid_transcript_timing_is_rejected_and_reserved(turns: Any, enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = HttpScript(transcript={"sessionId": "s", "transcript": "x", "audioDurationMs": 2400, "turns": turns})
+    monkeypatch.setattr(meta, "_request", http)
+    with pytest.raises(meta.MetaError, match="No captions were applied"):
+        meta.transcribe_audio(wav_fixture(tmp_path), duration=2.4, work_dir=tmp_path / "work")
+    ledger = json.loads((tmp_path / "work" / "meta-usage.json").read_text())
+    assert ledger["calls"][0]["status"] == "failed_or_incomplete"
+
+
+def test_capabilities_and_check_access_describe_transcription(enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    status = meta.capabilities()
+    assert status["features"]["transcribe"] is True
+    assert status["prices"]["transcribe_per_hour"] == .18
+    assert status["models"]["transcribe"] == "muse-voice-transcribe-1.0"
+    http = HttpScript(models=("muse-spark-1.3", "sam-3.1"))
+    monkeypatch.setattr(meta, "_request", http)
+    access = meta.check_access()
+    assert access["ok"] is True and access["models"] == ["muse-spark-1.3", "sam-3.1"]
+    assert access["missing"] == ["muse-image-1.0", "muse-voice-transcribe-1.0"]
+    assert http.calls == [("GET", "/models", {"retry_safe": True})]
+
+
+def test_check_access_is_free_and_safe_when_meta_is_off() -> None:
+    access = meta.check_access()
+    assert access == {"ok": False, "models": [], "reason": "Set MODEL_API_KEY in the server environment and restart Studio to connect Meta."}

@@ -52,7 +52,11 @@ def write_srt(cues: list[Cue], path: Path) -> None:
         blocks.append(
             f"{i}\n{format_ts(cue.start)} --> {format_ts(cue.end)}\n{cue.text.strip()}\n"
         )
-    path.write_text("\n".join(blocks) + ("\n" if blocks else ""), encoding="utf-8")
+    if not blocks:
+        # No speech was heard. FFmpeg's subtitles filter cannot probe an empty
+        # file, so write one invisible 1 ms cue; the burn then renders nothing.
+        blocks.append(f"1\n{format_ts(0)} --> {format_ts(0.001)}\n\u200b\n")
+    path.write_text("\n".join(blocks) + "\n", encoding="utf-8")
 
 
 def write_ass(cues: list[Cue], path: Path, *, canvas_width: int = 1920, canvas_height: int = 1080) -> None:
@@ -137,7 +141,11 @@ def find_whisper_model(*, allow_stub: bool = False) -> Path | None:
             return candidate
     real: Path | None = None
     stub: Path | None = None
-    for candidate in _WHISPER_MODELS:
+    # A checkout launched via scripts/studio.sh keeps its model under
+    # .vedit-models/; resolve the working directory at call time, not import.
+    local = Path.cwd() / ".vedit-models"
+    candidates = (local / "ggml-base.en.bin", local / "ggml-base.bin", *_WHISPER_MODELS)
+    for candidate in candidates:
         if not candidate.is_file():
             continue
         if _is_stub_model(candidate):

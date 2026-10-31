@@ -125,6 +125,7 @@ def measure_loudness(path: str | Path) -> dict[str, float]:
         [
             "-i",
             str(path),
+            "-vn",
             "-af",
             "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
             "-f",

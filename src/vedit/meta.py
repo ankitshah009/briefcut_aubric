@@ -40,6 +40,17 @@ _INPUT_PRICE = 1.25 / 1_000_000
 _OUTPUT_PRICE = 4.25 / 1_000_000
 _FRAME_PRICE = .20 / 1000
 _IMAGE_PRICE = .01
+_TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
+_TRANSCRIBE_PRICE_PER_HOUR = .18
+_TRANSCRIBE_MAX_BYTES = 32_000_000
+_TRANSCRIBE_MAX_SECONDS = 600
+_UPLOAD_EXPIRY_SECONDS = 3600
+_LANGUAGE_NAMES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German", "hi": "Hindi", "pt": "Portuguese",
+    "ja": "Japanese", "it": "Italian", "zh": "Mandarin Chinese", "ko": "Korean", "ar": "Arabic", "ru": "Russian",
+    "nl": "Dutch", "tr": "Turkish", "pl": "Polish", "sv": "Swedish", "id": "Indonesian", "vi": "Vietnamese",
+    "th": "Thai", "ta": "Tamil", "te": "Telugu", "bn": "Bengali", "mr": "Marathi", "uk": "Ukrainian", "he": "Hebrew",
+}
 _LEDGER_LOCK = threading.RLock()
 _FILE_ID = re.compile(r"file[-_][A-Za-z0-9_-]{1,200}\Z")
 _FRAME = re.compile(r"^<(\d+)f>", re.MULTILINE)
@@ -64,11 +75,33 @@ def capabilities() -> dict[str, Any]:
         reason = "Set VEDIT_META_ENABLED=1 in the server environment to allow Meta calls."
     return {
         "configured": configured, "enabled": enabled, "available": available,
-        "model": _MODEL, "features": {"story": available, "tracking": available, "cover": available},
+        "model": _MODEL,
+        "features": {"story": available, "tracking": available, "cover": available, "transcribe": available},
+        "models": {"story": _MODEL, "tracking": "sam-3.1", "cover": "muse-image-1.0", "transcribe": _TRANSCRIBE_MODEL},
         "reason": reason, "mode": "standard", "prices_as_of": "2026-10-29",
         "prices": {"input_per_million": 1.25, "output_per_million": 4.25,
-                   "sam_per_thousand_frames": .20, "cover_per_image": .01},
+                   "sam_per_thousand_frames": .20, "cover_per_image": .01,
+                   "transcribe_per_hour": _TRANSCRIBE_PRICE_PER_HOUR},
     }
+
+
+def check_access() -> dict[str, Any]:
+    """Confirm credentials with the free model listing; never buys inference."""
+    status = capabilities()
+    if not status["available"]:
+        return {"ok": False, "models": [], "reason": status["reason"]}
+    try:
+        listing = _request("GET", "/models", retry_safe=True)
+    except MetaError as exc:
+        return {"ok": False, "models": [], "reason": str(exc)}
+    data = listing.get("data")
+    models = sorted(item["id"] for item in data if isinstance(item, dict) and isinstance(item.get("id"), str)) if isinstance(data, list) else []
+    needed = sorted(set(status["models"].values()))
+    missing = [name for name in needed if models and name not in models]
+    reason = "Meta credentials work." if not missing else "Meta credentials work, but this account cannot see: " + ", ".join(missing) + "."
+    if not models:
+        reason = "Meta credentials work. The account's model listing was empty; model access is unconfirmed."
+    return {"ok": True, "models": models, "missing": missing, "reason": reason}
 
 
 def _require_enabled() -> None:
@@ -165,7 +198,10 @@ class _Multipart:
         mime = {".mp4": "video/mp4", ".mov": "video/quicktime", ".png": "image/png",
                 ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}[source.suffix.lower()]
         # Generic name avoids disclosing the original filename.
+        # Server-side expiry is a safety net: the adapter still deletes every upload itself.
         self.head = (f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nuser_data\r\n"
+                     f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"expires_after[anchor]\"\r\n\r\ncreated_at\r\n"
+                     f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"expires_after[seconds]\"\r\n\r\n{_UPLOAD_EXPIRY_SECONDS}\r\n"
                      f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"source{source.suffix.lower()}\"\r\n"
                      f"Content-Type: {mime}\r\n\r\n").encode()
         self.tail = f"\r\n--{self.boundary}--\r\n".encode()
@@ -654,3 +690,156 @@ def generate_cover(source: Path, *, prompt: str, work_dir: Path,
     except Exception:
         _ledger(work_dir, {"id": call_id, "status": "failed_or_incomplete"})
         raise
+
+
+class _TranscribeMultipart:
+    """Stream a WAV with its JSON request part; the audio part is last for upload latency."""
+
+    def __init__(self, wav: Path, request: dict[str, Any]):
+        self.wav = wav
+        self.boundary = "vedit-" + uuid.uuid4().hex
+        body = json.dumps(request, allow_nan=False)
+        self.head = (f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\n"
+                     f"Content-Type: application/json\r\n\r\n{body}\r\n"
+                     f"--{self.boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\n"
+                     "Content-Type: audio/wav\r\n\r\n").encode()
+        self.tail = f"\r\n--{self.boundary}--\r\n".encode()
+
+    def __len__(self) -> int:
+        return len(self.head) + self.wav.stat().st_size + len(self.tail)
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield self.head
+        with self.wav.open("rb") as handle:
+            while chunk := handle.read(256 * 1024):
+                yield chunk
+        yield self.tail
+
+
+def _wav_seconds(path: Path) -> float:
+    """Require mono 16-bit PCM at 16 or 24 kHz, which the transcription service accepts as-is."""
+    with path.open("rb") as handle:
+        header = handle.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            raise MetaError("Meta transcription needs a WAV file. Convert the audio first.")
+        channels = rate = bits = None
+        data_bytes = None
+        while True:
+            chunk = handle.read(8)
+            if len(chunk) < 8:
+                break
+            name, size = chunk[:4], struct.unpack("<I", chunk[4:8])[0]
+            if name == b"fmt ":
+                fmt = handle.read(size)
+                if len(fmt) < 16:
+                    raise MetaError("The WAV header is incomplete. Convert the audio again.")
+                audio_format, channels, rate, _, _, bits = struct.unpack("<HHIIHH", fmt[:16])
+                if audio_format != 1:
+                    raise MetaError("Meta transcription needs uncompressed PCM WAV audio.")
+            elif name == b"data":
+                data_bytes = size
+                break
+            else:
+                handle.seek(size + (size & 1), 1)
+    if channels != 1 or rate not in (16_000, 24_000) or bits != 16 or not data_bytes:
+        raise MetaError("Meta transcription needs mono 16-bit PCM WAV at 16 or 24 kHz. Convert the audio first.")
+    return data_bytes / (rate * 2)
+
+
+def _language_bias(language: str) -> list[str]:
+    code = language.strip().lower().split("-")[0]
+    if code in ("", "auto"):
+        return []
+    name = _LANGUAGE_NAMES.get(code)
+    return [name] if name else []
+
+
+def transcribe_audio(wav: Path, *, duration: float, work_dir: Path, language: str = "en",
+                     budget_usd: float = .25) -> dict[str, Any]:
+    """Turn-level speech-to-text for one WAV; returns cues on the WAV's own clock."""
+    _require_enabled()
+    wav = _source(Path(wav), {".wav"})
+    if wav.stat().st_size > _TRANSCRIBE_MAX_BYTES:
+        raise MetaError("Meta transcription accepts WAV files up to 32 MB. Shorten the selection.")
+    work_dir = Path(work_dir).resolve()
+    duration = _number(duration, "Audio duration", minimum=.01, maximum=_TRANSCRIBE_MAX_SECONDS)
+    actual = _wav_seconds(wav)
+    if actual > _TRANSCRIBE_MAX_SECONDS + .01:
+        raise MetaError("Meta transcription accepts up to 10 minutes of audio per request. Shorten the selection.")
+    if abs(actual - duration) > max(.5, duration * .02):
+        raise MetaError("The audio duration does not match the approved selection. Render the plan again.")
+    language = _text(language, "Language", 40)
+    budget = _budget(budget_usd)
+    bias = _language_bias(language)
+    request: dict[str, Any] = {"model": _TRANSCRIBE_MODEL, "audioEncoding": "WAV", "mode": "ENDPOINTING"}
+    if bias:
+        request["languageBias"] = bias
+    cache = _cache_path(wav, work_dir, "transcribe", {"request": request})
+    if cached := _cached(cache):
+        _validate_cues(cached.get("cues"), actual)
+        return cached
+    # Billing rounds down to whole seconds; reserve the worst case for this audio length.
+    maximum = math.ceil(actual) / 3600 * _TRANSCRIBE_PRICE_PER_HOUR
+    call_id = _reserve(work_dir, "transcribe", _TRANSCRIBE_MODEL, maximum, budget)
+    try:
+        multipart = _TranscribeMultipart(wav, request)
+        response = _request("POST", "/asr/transcribe", body=multipart,
+                            content_type=f"multipart/form-data; boundary={multipart.boundary}")
+        billed_ms = response.get("audioDurationMs")
+        seconds = math.floor(billed_ms / 1000) if isinstance(billed_ms, int) and not isinstance(billed_ms, bool) and billed_ms >= 0 else math.ceil(actual)
+        usage = {"estimated_max_usd": round(maximum, 8), "cached": False, "audio_seconds": seconds,
+                 "cost_usd": round(seconds / 3600 * _TRANSCRIBE_PRICE_PER_HOUR, 8)}
+        _ledger(work_dir, {"id": call_id, "status": "received", "usage": usage})
+        cues = _transcript_cues(response, actual)
+        result = {"cues": cues, "provider": "meta", "model": _TRANSCRIBE_MODEL, "usage": usage, "warnings": [],
+                  "language_bias": bias}
+        if not cues:
+            result["warning"] = "Meta heard no speech in the selected audio. The video has no captions."
+        _write_json(cache, result)
+        _ledger(work_dir, {"id": call_id, "status": "completed"})
+        return result
+    except Exception:
+        _ledger(work_dir, {"id": call_id, "status": "failed_or_incomplete"})
+        raise
+
+
+def _transcript_cues(response: dict[str, Any], duration: float) -> list[dict[str, Any]]:
+    turns = response.get("turns")
+    if turns is None:
+        turns = []
+    if not isinstance(turns, list) or len(turns) > 5000:
+        raise MetaError("Meta returned an invalid transcript. No captions were applied.")
+    cues: list[dict[str, Any]] = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            raise MetaError("Meta returned an invalid transcript turn. No captions were applied.")
+        start_ms, end_ms = turn.get("startMs"), turn.get("endMs")
+        for value in (start_ms, end_ms):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MetaError("Meta returned invalid transcript timing. No captions were applied.")
+        text = _text(turn.get("transcript", ""), "Transcript turn", 2000, empty=True)
+        if not text:
+            continue
+        start, end = min(start_ms / 1000, duration), min(end_ms / 1000, duration)
+        if end <= start:
+            continue
+        cues.append({"start": round(start, 3), "end": round(end, 3), "text": text})
+    cues.sort(key=lambda cue: cue["start"])
+    if not cues:
+        full = response.get("transcript")
+        if isinstance(full, str) and full.strip() and turns == []:
+            # PUSH_TO_TALK style answers carry only the full text; keep it as one cue.
+            cues.append({"start": 0.0, "end": round(duration, 3), "text": _text(full, "Transcript", 20_000)})
+    return cues
+
+
+def _validate_cues(value: Any, duration: float) -> None:
+    if not isinstance(value, list) or len(value) > 5000:
+        raise MetaError("The cached transcript is invalid. Start a new campaign.")
+    for cue in value:
+        if not isinstance(cue, dict) or not isinstance(cue.get("text"), str):
+            raise MetaError("The cached transcript is invalid. Start a new campaign.")
+        start = _number(cue.get("start"), "Cached cue start", maximum=duration + .01)
+        end = _number(cue.get("end"), "Cached cue end", maximum=duration + .01)
+        if end <= start:
+            raise MetaError("The cached transcript timing is invalid. Start a new campaign.")

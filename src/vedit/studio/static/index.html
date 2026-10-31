@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#eef1f5">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef1f5">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f141c">
   <title>Briefcut by Aubric.ai — Video Studio</title>
   <link rel="stylesheet" href="studio.css">
 </head>
@@ -20,6 +22,7 @@
         <div class="recent-popover"><h2>Recent projects</h2><ul id="recent-list"><li class="empty-recent">Your projects will appear here.</li></ul></div>
       </details>
       <button id="new-project" class="button button-quiet" type="button">New project</button>
+      <button id="shortcuts-button" class="button button-quiet" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
     </div>
   </header>
 
@@ -82,6 +85,7 @@
           </div>
           <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" disabled><span>Add captions</span></label><span id="caption-availability" class="fine-print">Checking local speech model</span></div>
           <div id="language-field" hidden><label for="language">Spoken language</label><select id="language"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="pt">Portuguese</option><option value="ja">Japanese</option></select></div>
+          <div id="caption-provider-field" class="caption-provider-field" hidden><label for="caption-provider">Captions by</label><select id="caption-provider"><option value="local">Local Whisper</option><option value="meta">Meta Voice Transcribe</option></select><p id="caption-provider-note" class="field-note">Local transcription runs on this Mac at no cost.</p></div>
         </section>
         <div class="plan-actions"><button id="plan" class="button button-primary" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 3 1.6 4.8L14 9.5l-4.4 1.7L8 16l-1.6-4.8L2 9.5l4.4-1.7L8 3Zm7 9 1 2.5 2.5 1-2.5 1L15 19l-1-2.5-2.5-1 2.5-1L15 12Z"/></svg>Create story</button><p id="privacy-note">Rendered on your Mac. Ready when you are.</p></div>
       </form>
@@ -97,6 +101,15 @@
           <div id="monitor-empty" class="monitor-empty"><div class="empty-frame" aria-hidden="true"><span></span><span></span><span></span><span></span><svg viewBox="0 0 48 48"><path d="m19 14 17 10-17 10V14Z"/></svg></div><h3>Start with something real.</h3><p>A product, a process, a moment.<br>Drop in your footage to begin.</p></div>
         </div>
         <div class="monitor-footer"><span id="preview-label">Original footage</span><span id="playback-time">00:00 / 00:00</span></div>
+        <div id="scrubber" class="scrubber" hidden>
+          <div id="scrub-track" class="scrub-track" aria-label="Source timeline. Click to seek. Drag a moment or its edges to change the cut." role="group">
+            <div id="scrub-speech" class="scrub-layer scrub-speech" aria-hidden="true"></div>
+            <div id="scrub-scenes" class="scrub-layer scrub-scenes" aria-hidden="true"></div>
+            <div id="scrub-moments" class="scrub-layer scrub-moments"></div>
+            <div id="scrub-playhead" class="scrub-playhead" aria-hidden="true"></div>
+          </div>
+          <div class="scrub-legend"><span class="key-moment"><i></i>Moment</span><span class="key-speech" id="key-speech" hidden><i></i>Speech</span><span class="key-scene" id="key-scene" hidden><i></i>Scene cut</span><span id="scrub-hint">Drag to move · Edges to trim · Arrows nudge</span></div>
+        </div>
       </section>
 
       <section id="job-progress" class="job-progress" aria-label="Current job" hidden>
@@ -106,14 +119,20 @@
       </section>
 
       <section id="story-panel" class="story-panel" aria-labelledby="story-heading">
-        <div class="story-heading"><div><h2 id="story-heading">The story</h2><p id="story-description">Review the moments before you make the video.</p></div><span id="story-duration" class="duration-badge" hidden></span></div>
+        <div class="story-heading"><div><h2 id="story-heading">The story</h2><p id="story-description">Review the moments before you make the video.</p></div><div class="story-heading-right"><span id="analysis-badge" class="analysis-badge" hidden></span><span id="story-duration" class="duration-badge" hidden></span></div></div>
         <div id="story-empty" class="story-empty"><span class="story-empty-line" aria-hidden="true"><i></i><i></i><i></i></span><p>Your selected moments will appear here.</p><span>Each cut stays linked to the original footage.</span></div>
         <div id="story-content" hidden>
           <div id="decisions" class="decision-summary" aria-label="Edit decisions"><p id="say-pauses"></p><p id="say-shape"></p><p id="say-captions"></p><p id="say-clip"></p><p id="say-effects"></p></div>
-          <div class="timeline" id="timeline" aria-label="Selected moments"></div>
+          <p id="analysis-notes" class="analysis-notes" hidden></p>
+          <div class="story-order-heading"><h3>Story order</h3><span>How the moments play in the finished video</span></div>
+          <div class="timeline" id="timeline" aria-label="Story order"></div>
           <div class="segments-heading"><h3>Selected moments</h3><span>Times refer to your source footage</span></div>
           <section id="program" aria-label="Editable story sequence"><ol id="program-list" class="segment-list"></ol></section>
           <button type="button" id="add-segment" class="text-button add-segment">+ Add a moment</button>
+          <details id="transcript-panel" class="transcript-panel" hidden><summary>Transcript <span id="transcript-count"></span></summary>
+            <div class="transcript-tools"><input id="transcript-search" type="search" placeholder="Find a word in the speech" aria-label="Search the transcript"><p>Click a time to jump. Add a line as a moment.</p></div>
+            <ol id="transcript-list" class="transcript-list"></ol>
+          </details>
           <details id="campaign-copy" class="campaign-copy" open><summary>Title &amp; post copy <span id="draft-status">Saved in this browser</span></summary><div class="copy-fields"><label for="story-title">Title</label><input type="text" id="story-title" maxlength="120"><label for="post-caption">Post copy</label><textarea id="post-caption" rows="3" maxlength="2200"></textarea><div class="hashtags-heading"><label for="hashtags">Hashtags</label><button type="button" id="copy-caption" class="text-button">Copy post</button></div><input type="text" id="hashtags" placeholder="#yourstory #yourcraft" maxlength="500"></div></details>
           <div id="story-warnings" class="warning-message" hidden></div>
           <div class="render-bar"><p id="render-note">Review your moments, then make the video.</p><button type="button" id="make" class="button button-primary" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg>Make the video</button></div>
@@ -124,12 +143,24 @@
         <div class="delivery-heading"><span class="success-icon" aria-hidden="true">✓</span><div><h2 id="delivery-heading">Ready for the world.</h2><p id="delivery-description">Your video is rendered and verified. Take the whole campaign with you.</p><span id="verified-version" class="verified-version"></span></div></div>
         <div class="delivery-assets"><a id="download-bundle" class="button button-primary" download>Download campaign <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3"/></svg></a><a id="download-video" class="button button-secondary" download>Video</a><a id="download-cover" class="button button-secondary" download>Cover image</a></div>
         <div class="delivery-details"><img id="cover-image" alt="Campaign cover" hidden><div><p id="delivery-summary"></p><p id="delivery-note" class="field-note">The campaign includes the video, cover, post copy, and edit record. Publish it when you’re ready.</p><div id="delivery-warnings" class="warning-message" hidden></div></div></div>
+        <dl id="run-facts" class="run-facts" aria-label="Run facts"><div><dt>Time to story</dt><dd id="fact-plan">—</dd></div><div><dt>Time to finished video</dt><dd id="fact-render">—</dd></div><div><dt>Source → output</dt><dd id="fact-shape">—</dd></div><div><dt>Story planned by</dt><dd id="fact-provider">—</dd></div><div><dt>Captions</dt><dd id="fact-captions">—</dd></div><div><dt>Meta spend</dt><dd id="fact-spend">—</dd></div></dl>
         <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr><tr><th scope="row">Tracked subject</th><td id="proof-subject">—</td></tr></tbody></table></details>
       </section>
       <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div>
       <footer class="workspace-footer"><span class="local-dot" aria-hidden="true"></span><span>Built around your footage. Finished on your machine.</span><span id="save-status"></span></footer>
     </div>
   </main>
+  <dialog id="shortcuts" class="shortcuts" closedby="any" aria-labelledby="shortcuts-heading"><div class="shortcuts-body"><h2 id="shortcuts-heading">Keyboard shortcuts</h2><p>Work the cut without leaving the keyboard.</p>
+    <table><tbody>
+      <tr><td><kbd>Space</kbd> or <kbd>K</kbd></td><td>Play or pause</td></tr>
+      <tr><td><kbd>J</kbd> / <kbd>L</kbd></td><td>Back or forward 5 seconds</td></tr>
+      <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Set the selected moment’s in or out point at the playhead</td></tr>
+      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge the selected moment 0.1 s; hold <kbd>Shift</kbd> for 1 s</td></tr>
+      <tr><td><kbd>1</kbd> – <kbd>8</kbd></td><td>Select and preview a moment</td></tr>
+      <tr><td><kbd>C</kbd></td><td>Switch between source and finished video</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
+    </tbody></table>
+    <div class="shortcuts-footer"><button type="button" id="shortcuts-close" class="button button-secondary">Done</button></div></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <p id="live" class="sr" aria-live="polite" aria-atomic="true"></p>
   <script src="studio.js"></script>

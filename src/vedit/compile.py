@@ -704,6 +704,22 @@ def _existing_media(c: Compiler, spec: Any | None = None) -> Path:
 
 
 def _captions(c: Compiler, op: dict[str, Any]) -> None:
+    if op.get("file"):
+        # A finished subtitle file (for example from a provider transcript) is
+        # burned as-is; no local transcription step is scheduled.
+        provided = Path(str(op["file"]))
+        if not provided.is_absolute():
+            provided = (c.work_dir / provided).resolve()
+        if provided.suffix.lower() not in {".srt", ".ass"}:
+            raise CompileError("captions file= must be an .srt or .ass subtitle file")
+        if not provided.is_file() or provided.stat().st_size == 0:
+            raise CompileError(f"captions file not found or empty: {provided}")
+        c.sidecar["srt" if provided.suffix.lower() == ".srt" else "ass"] = provided
+        if c.current is None:
+            raise CompileError("captions needs a current clip")
+        if op.get("burn", True):
+            c.add_vf(burn_filter(provided, style=str(op.get("style", "lower-third"))))
+        return
     if op.get("source"):
         src = c.resolve_source(op.get("source"))
     elif c.current is not None:
@@ -1029,7 +1045,10 @@ def _spatial_effect(c: Compiler, op: dict[str, Any]) -> None:
     graph_file = out.with_suffix(".filter.txt")
     graph_text = ";\n".join(graph)
     graph_file.write_text(graph_text + "\n", encoding="utf-8")
-    argv = c._ffmpeg() + ["-i", str(src), "-filter_complex", graph_text, "-map", "[v]"]
+    argv = c._ffmpeg() + ["-i", str(src)]
+    argv += (["-filter_complex", graph_text] if len(graph_text) < 24000
+             else ["-/filter_complex", str(graph_file)])
+    argv += ["-map", "[v]"]
     if c.has_audio:
         argv += ["-map", "0:a:0"]
         if audio:

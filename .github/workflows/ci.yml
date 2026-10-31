@@ -10,14 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.13"
+          enable-cache: true
+      - name: Install Python 3.13
+        run: uv python install 3.13
       - name: Install ffmpeg and fonts
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - name: Install package
-        run: pip install -e ".[dev]"
+        run: uv sync
       - name: Unit and render tests
-        run: pytest -q
+        run: uv run pytest -q
         env:
           PYTHONDONTWRITEBYTECODE: "1"

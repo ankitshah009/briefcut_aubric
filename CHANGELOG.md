@@ -5,6 +5,22 @@
 - Studio transfers each selected clip once and reuses it when the edit changes or a render starts. Uploads stream to disk with bounded memory, a timeout, and cleanup of incomplete transfers.
 - Automatically allocated session folders are unique even for concurrent requests with the same goal and timestamp. Explicit work directories keep their existing behavior.
 - Outdated plan responses are ignored as soon as the edit text changes; failed transfers can be retried without reloading the editor.
+- uv is the only supported Python workflow: `scripts/studio.sh` runs `uv sync` when `.venv` is missing, `.python-version` pins 3.13, CI uses `astral-sh/setup-uv` + `uv run pytest`, `uv.lock` is committed, and docs use `uv run vedit ...`.
+- Whisper models are discovered under the checkout's `.vedit-models/` (`ggml-base.en.bin` preferred) by the launcher, `vedit doctor`, and captions. The launcher defaults `VEDIT_FFMPEG` to ffmpeg-full when installed.
+- Local mode plans from measured signals instead of the first N seconds: `src/vedit/story.py` detects scene cuts (320px downscale), speech ranges, and an optional local transcript, then selects up to eight non-overlapping moments that fit the target, each citing its evidence (`kind`, `score`, reason). Plans carry a bounded `analysis` object (scenes, speech, transcript, notes) that the campaign validator preserves. The summary still states that local mode does not choose a story with AI.
+- `vedit story CLIP --goal "..." --target 30 [--json] [--no-transcribe]` prints the same deterministic plan from the command line.
+- Meta captions: `caption_provider: "meta"` transcribes the approved speech with `muse-voice-transcribe-1.0` ($0.18 per hour, reserved in the campaign ledger as `transcribe`), writes `captions.srt`/`.ass` on the assembled clock, and burns them locally. Provider failures stop the render; nothing falls back silently. `vedit.meta.check_access()` verifies credentials with the free model listing, Meta uploads request a one-hour server-side expiry, and the `captions` op accepts `file:` for a finished `.srt`/`.ass`.
+- Studio shows an analysis-aware source scrubber under the monitor: scene-cut ticks, speech bands, and the selected moments as draggable, resizable blocks (pointer or keyboard; arrows nudge 0.1 s, Shift 1 s). Clicking a moment previews it; clicking again loops it.
+- A transcript panel lists local speech lines with jump-to-time, search, and "Add as moment"; lines inside the story are highlighted and the current line follows playback.
+- Moments show their kind and strength ("Hook · strong") and the story carries a "Local analysis" or "Meta director" badge with the planner's notes. Local analysis is labeled as deterministic signal analysis, not AI understanding.
+- When Meta Voice Transcribe is available, a "Captions by" control chooses Local Whisper or Meta, sent as `caption_provider`.
+- The delivery panel adds Run facts: time to story, time to finished video, source → output, planner, caption provider, and Meta spend (server `timings` when present, else browser-measured).
+- Keyboard shortcuts (`?` for the list): Space/K play, J/L skip, I/O set in/out at the playhead, 1–8 select a moment, C switches source and finished video. Dark mode follows the system; reduced motion is respected; `#job=<id>` opens a saved project.
+- `vedit meta status` and `vedit meta check` report Meta configuration and verify credentials against the free model listing; neither purchases inference.
+- Campaign jobs record server-side `timings` (`plan_seconds`, `render_seconds`, `render_revision`), shown in Studio's Run facts and in `scripts/demo_run.py` evidence.
+- Hardening from a code review: every `/api/*` route now applies the Host/Origin check (not only campaigns); `/api/run` and `/api/plan` require `Content-Type: application/json` for JSON bodies and never echo render command lines; request bodies read under a socket timeout; `create()` refuses when the worker queue is full instead of persisting an orphaned job.
+- Correctness fixes: loudness measurement no longer decodes the video stream (`-vn`), `render.sh` shell-quotes step descriptions, failed or cancelled steps delete partial outputs so `--resume` cannot trust a truncated file, dense tracked `spatial_effect` graphs use the file-backed `-/filter_complex` form, and a transcript with no speech writes a probeable one-cue SRT instead of an empty file that broke the burn.
+- The Whisper model under `.vedit-models/` is resolved at call time rather than at import.
 
 ## 1.2.0
 

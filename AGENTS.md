@@ -4,7 +4,7 @@ This package is the NLE. You do not write FFmpeg by hand.
 
 ## Do the job
 
-1. `python -m vedit doctor` — if required checks fail, stop and say what to install.
+1. `uv run vedit doctor` — if required checks fail, stop and say what to install. The environment is uv-managed (`uv sync` creates `.venv`); never use bare `venv`/`pip`.
 2. Write a brief (`*.yaml`) or call `vedit do ...` / `Edit(...)`.
 3. `vedit plan <brief> --work-dir DIR` and read `project.json` / `render.sh` before a long render.
 4. `vedit execute DIR` or `vedit render DIR` to run that program. `--resume` skips finished steps.

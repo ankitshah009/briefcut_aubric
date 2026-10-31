@@ -25,6 +25,14 @@ stt = ["faster-whisper>=1.0"]
 [project.scripts]
 vedit = "vedit.cli:main"
 
+[dependency-groups]
+# uv installs this group by default (`uv sync`, `uv run`); the `dev` extra above stays for pip users.
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+# uv owns the environment: `uv sync`, then `uv run vedit doctor` / `uv run pytest`.
+package = true
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

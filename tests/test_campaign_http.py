@@ -271,3 +271,22 @@ def test_render_effect_override_validates_before_mutation_and_distinguishes_omis
     assert json.loads(raw)["effect"] == recipe
     request(server, "POST", f"/api/campaigns/{ident}/cancel", {})
 
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [("POST", "/api/run"), ("POST", "/api/plan"), ("POST", "/api/upload?name=a.mp4"), ("GET", "/api/session?root=x"), ("GET", "/api/media?root=x")],
+)
+def test_legacy_routes_reject_cross_origin_access(server: int, method: str, path: str) -> None:
+    """Every /api route applies the Host/Origin check, not only campaigns."""
+    body = {} if method == "POST" else None
+    status, _, raw = request(server, method, path, body, {"Origin": "https://evil.example"})
+    assert status == 403
+    assert json.loads(raw)["ok"] is False
+
+
+def test_run_requires_json_content_type(server: int) -> None:
+    """A CORS-simple text/plain body must never start a render."""
+    status, _, raw = request(server, "POST", "/api/run", b'{"goal":"keep","paths":[]}', {"Content-Type": "text/plain"})
+    assert status == 415
+    assert json.loads(raw)["ok"] is False

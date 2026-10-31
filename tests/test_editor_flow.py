@@ -25,6 +25,14 @@ KEEP = "Keep the pauses and make a YouTube video"
 SHORT = "Turn this into a vertical short"
 _EDITOR_IDS = (
     "goal",
+    "scrub-track",
+    "scrub-moments",
+    "transcript-panel",
+    "transcript-list",
+    "analysis-badge",
+    "caption-provider",
+    "run-facts",
+    "shortcuts",
     "clip",
     "drop",
     "decisions",

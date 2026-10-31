@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from vedit import __version__
 from vedit.agent.loop import _session_dir, load_session, run_session
 from vedit.media import trace
-from vedit.errors import BriefError, VeditError
+from vedit.errors import BriefError, VeditError, RenderError
 
 _MAX_JSON = 1_000_000
 _MAX_UPLOAD = 200_000_000
@@ -292,10 +292,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "product": "vedit", "version": __version__})
             return
         if path == "/api/session":
-            self._serve_session(split.query)
+            if self._campaign_origin_allowed(mutation=False):
+                self._serve_session(split.query)
             return
         if path == "/api/media":
-            self._serve_media(split.query, send_body=True)
+            if self._campaign_origin_allowed(mutation=False):
+                self._serve_media(split.query, send_body=True)
             return
         self._send_json(404, {"ok": False, "error": "not found"})
 
@@ -304,6 +306,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = unquote(split.path)
         if path == "/api/campaigns" or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=True)
+            return
+        # Loopback is not authentication: every mutating route checks Host/Origin.
+        if path in {"/api/upload", "/api/run", "/api/plan"} and not self._campaign_origin_allowed(mutation=True):
             return
         if path == "/api/upload":
             self._handle_upload(split.query)
@@ -323,7 +328,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._handle_campaign(path, split.query, mutation=False, send_body=False)
             return
         if path == "/api/media":
-            self._serve_media(split.query, send_body=False)
+            if self._campaign_origin_allowed(mutation=False):
+                self._serve_media(split.query, send_body=False)
             return
         self._send_json(404, {"ok": False, "error": "not found"})
 
@@ -631,6 +637,10 @@ class StudioHandler(BaseHTTPRequestHandler):
                 goal, paths, do_render, analyze, root = parsed
                 trace("multipart-stored")
             else:
+                if not content_type.lower().startswith("application/json"):
+                    # A CORS-simple content type must never trigger a render.
+                    self._send_json(415, {"ok": False, "error": "Send JSON with Content-Type: application/json."})
+                    return
                 ok, payload = self._read_json()
                 if not ok:
                     return
@@ -638,6 +648,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             trace("run-session-enter")
             session = run_session(goal, paths, root=root, render=do_render, analyze=analyze)
             trace("run-session-exit")
+        except RenderError:
+            # Render failures carry full command lines and paths; keep them in the session log.
+            self._send_json(400, {"ok": False, "error": "The render failed. Read the session's render log, run vedit doctor, then retry."})
+            return
         except (VeditError, FileNotFoundError) as exc:
             self._send_json(400, {"ok": False, "error": str(exc)})
             return
@@ -718,7 +732,16 @@ class StudioHandler(BaseHTTPRequestHandler):
         size = self._body_size(limit, label=label)
         if size is None:
             return None
-        raw = self.rfile.read(size)
+        old_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(_UPLOAD_TIMEOUT)
+            raw = self.rfile.read(size)
+        except (OSError, TimeoutError):
+            self.close_connection = True
+            self._send_json(400, {"ok": False, "error": f"{label} transfer timed out. Try again."})
+            return None
+        finally:
+            self.connection.settimeout(old_timeout)
         if len(raw) != size:
             self.close_connection = True
             self._send_json(400, {"ok": False, "error": f"{label} transfer was interrupted. Try again."})

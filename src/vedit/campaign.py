@@ -16,6 +16,7 @@ import re
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -27,18 +28,21 @@ from vedit.compile import compile_brief
 from vedit.effects import REQUIRED_EFFECT_FILTERS, EffectError, effect_catalogue, validate_effect
 from vedit.errors import RenderCancelled, VeditError
 from vedit.ir import Brief, Canvas, brief_dumps
-from vedit.media import has_filter, probe, resolve_ffmpeg, resolve_ffprobe
+from vedit.captions import Cue, write_ass, write_srt
+from vedit.media import has_filter, probe, resolve_ffmpeg, resolve_ffprobe, run_ffmpeg
 from vedit.pipeline import Pipeline, execute, write_codegen, write_report
 from vedit.presets import get_preset
 
 _ACTIVE = {"queued", "analyzing", "rendering"}
 _ASPECTS = {"9:16": "shorts_9x16", "16:9": "youtube_1080p", "1:1": "square_1x1"}
-_META_OPERATIONS = ("story", "tracking", "cover")
+_META_OPERATIONS = ("story", "tracking", "cover", "transcribe")
+_CAPTION_PROVIDERS = {"local", "meta"}
 _MAX_SOURCE_BYTES = 200_000_000
 _MAX_SOURCE_SECONDS = 1_200
 _MAX_JOBS = 12
 _ID = re.compile(r"^[a-f0-9]{32}$")
 _LANGUAGE = re.compile(r"^(?:auto|[a-z]{2,3}(?:-[A-Za-z]{2,8})?)$")
+_KIND = re.compile(r"^[a-z][a-z_-]{0,23}$")
 
 
 class CampaignError(Exception):
@@ -155,11 +159,19 @@ def validate_plan(value: Any, duration: float, *, original: dict[str, Any] | Non
         end = _number(segment.get("end"), f"Segment {index} end", 0, duration)
         if end - start < 0.1:
             raise CampaignError(f"Segment {index} must last at least 0.1 seconds and end after its start.")
-        clean.append({
+        item = {
             "start": round(start, 6), "end": round(end, 6),
             "label": _text(segment.get("label", f"Moment {index}"), f"Segment {index} label", 100),
             "reason": _text(segment.get("reason", "Selected by you."), f"Segment {index} reason", 600),
-        })
+        }
+        # Editorial metadata from the planner: optional, bounded, never executable.
+        score = segment.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(float(score)) and 0 <= float(score) <= 1:
+            item["score"] = round(float(score), 3)
+        kind = segment.get("kind")
+        if isinstance(kind, str) and _KIND.fullmatch(kind):
+            item["kind"] = kind
+        clean.append(item)
     total = sum(segment["end"] - segment["start"] for segment in clean)
     if total > 180.05:
         raise CampaignError("The finished story may be at most 180 seconds. Shorten or remove a segment.")
@@ -180,7 +192,40 @@ def validate_plan(value: Any, duration: float, *, original: dict[str, Any] | Non
         "source_duration": duration,
         "duration": round(total, 3),
         "warnings": trusted.get("warnings", []),
+        "analysis": _analysis(trusted.get("analysis"), duration),
     }
+
+
+def _analysis(value: Any, duration: float) -> dict[str, Any] | None:
+    """Bounded, display-only measurement data from a trusted planner result."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        method = value.get("method", "local-analysis")
+        if not isinstance(method, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", method):
+            method = "local-analysis"
+        scenes = sorted({round(_number(item, "Scene time", 0, duration), 3) for item in (value.get("scenes") or [])[:400]})
+        speech = []
+        for item in (value.get("speech") or [])[:400]:
+            if isinstance(item, dict):
+                start = _number(item.get("start"), "Speech start", 0, duration)
+                end = _number(item.get("end"), "Speech end", 0, duration)
+                if end > start:
+                    speech.append({"start": round(start, 3), "end": round(end, 3)})
+        transcript, size = [], 0
+        for item in (value.get("transcript") or [])[:600]:
+            if not isinstance(item, dict):
+                continue
+            start = _number(item.get("start"), "Cue start", 0, duration)
+            end = _number(item.get("end"), "Cue end", 0, duration)
+            text = _text(item.get("text", ""), "Cue text", 300)
+            size += len(text.encode("utf-8"))
+            if end > start and text and size <= 60_000:
+                transcript.append({"start": round(start, 3), "end": round(end, 3), "text": text})
+        notes = [_text(note, "Analysis note", 300) for note in (value.get("notes") or [])[:8] if isinstance(note, str)]
+        return {"method": method, "scenes": scenes, "speech": speech, "transcript": transcript, "duration": round(duration, 3), "notes": notes}
+    except CampaignError:
+        return None
 
 
 def _effect(value: Any, *, duration: float | None = None) -> dict[str, Any] | None:
@@ -348,6 +393,9 @@ class CampaignManager:
         language = value.get("language", "en")
         if not isinstance(language, str) or not _LANGUAGE.fullmatch(language):
             raise CampaignError("Choose a caption language code, such as en, es, or auto.")
+        caption_provider = value.get("caption_provider", "local")
+        if not isinstance(caption_provider, str) or caption_provider not in _CAPTION_PROVIDERS:
+            raise CampaignError("Choose local or meta as the caption provider.")
         request = {
             "paths": [str(source)],
             "goal": _text(value.get("goal", ""), "Goal", 2000, required=True),
@@ -355,6 +403,7 @@ class CampaignManager:
             "target_duration": _number(value.get("target_duration", 30), "Target duration", 0.5, 180),
             "aspect": aspect,
             "captions": _boolean(value, "captions", False),
+            "caption_provider": caption_provider,
             "language": language,
             "subject": _text(value.get("subject", ""), "Subject", 200),
             "budget_usd": _number(value.get("budget_usd", 0.25), "Campaign budget", 0.01, 5),
@@ -363,7 +412,7 @@ class CampaignManager:
         }
         if provider == "local" and request["generate_cover"]:
             raise CampaignError("Generated covers need Meta mode. A cover frame is always included locally.")
-        if provider == "meta":
+        if provider == "meta" or (request["captions"] and caption_provider == "meta"):
             cloud = capabilities()["meta"]
             if not cloud.get("configured") or not cloud.get("enabled"):
                 raise CampaignError("Meta is not enabled. Configure MODEL_API_KEY and VEDIT_META_ENABLED=1 on the server, or choose Local edit.", 409)
@@ -379,7 +428,7 @@ class CampaignManager:
             existing = connection.execute("SELECT data FROM jobs WHERE fingerprint=? AND status NOT IN ('failed','cancelled') ORDER BY updated_at DESC LIMIT 1", (fingerprint,)).fetchone()
             if existing:
                 return self._public(json.loads(existing[0]))
-            if connection.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','analyzing','rendering')").fetchone()[0] >= _MAX_JOBS:
+            if connection.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','analyzing','rendering')").fetchone()[0] >= _MAX_JOBS or self._queue.full():
                 raise CampaignError("The edit queue is full. Wait for a job to finish, then try again.", 429)
             ident, now = uuid.uuid4().hex, _now()
             job = {
@@ -632,6 +681,7 @@ class CampaignManager:
     def _plan(self, job: dict[str, Any]) -> None:
         ident, request = job["id"], job["request"]
         root = self.root / ident
+        started = time.monotonic()
         self._update(ident, status="analyzing", stage="reading", progress=0.12, message="Checking the source video.")
         source = self._source(request["paths"][0])
         info = probe(source)
@@ -641,7 +691,7 @@ class CampaignManager:
         self._update(ident, source=details)
         self._check_cancel(ident)
         warnings = []
-        if request["captions"] and not local_transcriber_ready():
+        if request["captions"] and request.get("caption_provider", "local") == "local" and not local_transcriber_ready():
             warnings.append("Captions are unavailable: install a local Whisper model and retry, or render without captions. This render will omit captions.")
         if not info.has_audio and request["captions"]:
             warnings.append("This source has no audio. Captions cannot be generated.")
@@ -661,12 +711,13 @@ class CampaignManager:
                 _write_json(cache, proposed)
             proposed["provider"] = "meta"
         else:
-            length = min(info.duration, request["target_duration"])
-            proposed = {
-                "title": "Your campaign", "summary": "A local starting cut. Preview the footage and adjust its range before rendering; local mode does not choose a story with AI.",
-                "segments": [{"start": 0.0, "end": length, "label": "Opening cut", "reason": "The first requested seconds of your source, ready for you to adjust."}],
-                "caption": request["goal"], "hashtags": [], "cover_prompt": "", "provider": "local", "usage": {"estimated_cost_usd": 0},
-            }
+            from vedit.story import plan_local_story
+
+            # Deterministic signal analysis: scene cuts, speech energy, optional
+            # local transcript keywords. Labeled as such; it is not AI understanding.
+            self._update(ident, stage="planning", progress=0.5, message="Measuring scene cuts and speech in your footage.")
+            proposed = plan_local_story(source, goal=request["goal"], target_duration=request["target_duration"], work_dir=root / "analysis" / "local-story", language=request["language"] if request["language"] != "auto" else "en", transcribe=request["captions"] or local_transcriber_ready())
+            proposed["provider"] = "local"
             if request["subject"]:
                 warnings.append("Subject tracking needs Meta mode. This local cut will use a center crop.")
         warnings.extend(proposed.get("warnings", []))
@@ -677,7 +728,8 @@ class CampaignManager:
         plan["effect"] = request.get("effect")
         _write_json(root / "plan.json", plan)
         self._check_cancel(ident)
-        self._update(ident, status="planned", stage="review", progress=1, message="Review the story and approve the render.", plan=plan, error=None)
+        timings = dict(job.get("timings") or {}, plan_seconds=round(time.monotonic() - started, 3))
+        self._update(ident, status="planned", stage="review", progress=1, message="Review the story and approve the render.", plan=plan, error=None, timings=timings)
 
     def _disk_preflight(self, phase: str, duration: float, info: Any, *, effect: bool = False) -> dict[str, int | str]:
         """Estimate new working files, leaving a configurable free-space cushion.
@@ -750,10 +802,43 @@ class CampaignManager:
             raise CampaignError("The analysis copy did not match the source. Try another video or use Local edit.")
         return proxy
 
+    def _meta_captions(self, root: Path, work: Path, source: Path, ranges: list[dict[str, float]], duration: float,
+                       request: dict[str, Any], *, preset_canvas: Any, cancel_event: threading.Event) -> Path | None:
+        """Transcribe only the approved speech with Meta; cues land on the assembled clock.
+
+        The WAV holds the selected ranges in playback order, so turn timestamps
+        already match the finished edit without remapping. Returns the ASS file,
+        or None when no speech was heard. Provider failures raise their own
+        actionable error; captions never silently switch providers.
+        """
+        from vedit import meta
+
+        if duration > 600:
+            raise CampaignError("Meta transcription covers up to 10 minutes of selected audio. Shorten the story or use local captions.")
+        if cancel_event.is_set():
+            raise _Cancelled()
+        wav = work / "speech-16k.wav"
+        parts = []
+        for index, part in enumerate(ranges):
+            parts.append(f"[0:a]atrim=start={part['start']:.6f}:end={part['end']:.6f},asetpts=PTS-STARTPTS[a{index}]")
+        chain = "".join(f"[a{index}]" for index in range(len(ranges)))
+        graph = ";".join(parts) + f";{chain}concat=n={len(ranges)}:v=0:a=1,aformat=sample_fmts=s16:channel_layouts=mono,aresample=16000[out]"
+        run_ffmpeg(["-i", str(source), "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", str(wav)])
+        if cancel_event.is_set():
+            raise _Cancelled()
+        result = meta.transcribe_audio(wav, duration=duration, work_dir=root / "meta", language=request["language"], budget_usd=request["budget_usd"])
+        cues = [Cue(float(cue["start"]), float(cue["end"]), str(cue["text"])) for cue in result.get("cues", [])]
+        if not cues:
+            return None
+        write_srt(cues, work / "captions.srt")
+        write_ass(cues, work / "captions.ass", canvas_width=preset_canvas.width, canvas_height=preset_canvas.height)
+        return work / "captions.ass"
+
     def _render(self, job: dict[str, Any]) -> None:
         ident, request, plan = job["id"], job["request"], job["plan"]
         root = self.root / ident
         work = root / f"render-{job['revision']}"
+        started = time.monotonic()
         self._update(ident, status="rendering", stage="preparing", progress=0.05, message="Preparing your approved edit.")
         source = self._source(request["paths"][0])
         info = probe(source)
@@ -761,6 +846,7 @@ class CampaignManager:
         effect = _effect(request.get("effect"), duration=plan["duration"])
         plan["effect"] = effect
         warnings = list(plan.get("warnings", []))
+        preset = _ASPECTS[request["aspect"]]
         ops: list[dict[str, Any]] = []
         ranges = [{"start": segment["start"], "end": segment["end"]} for segment in plan["segments"]]
         duration = sum(segment["end"] - segment["start"] for segment in plan["segments"])
@@ -793,7 +879,18 @@ class CampaignManager:
             ops.append({"op": "select_ranges", "ranges": ranges})
         if effect is not None:
             ops.append({"op": "spatial_effect", **effect})
-        if request["captions"] and info.has_audio:
+        caption_provider = request.get("caption_provider", "local") if request["captions"] and info.has_audio else None
+        if caption_provider == "meta":
+            from vedit import meta
+
+            self._update(ident, stage="transcribing", progress=0.16, message="Asking Meta to transcribe the approved speech.")
+            subtitle = self._meta_captions(root, work, source, ranges, duration, request, preset_canvas=get_preset(preset).canvas, cancel_event=self._event(ident))
+            warnings = [warning for warning in warnings if not warning.startswith("Captions are unavailable")]
+            if subtitle is None:
+                warnings.append("Meta heard no speech in the selected audio. This video has no captions.")
+            else:
+                ops.append({"op": "captions", "file": str(subtitle), "burn": True, "style": "boxed"})
+        elif caption_provider == "local":
             if local_transcriber_ready():
                 ops.append({"op": "captions", "language": request["language"], "burn": True, "style": "boxed", "format": "ass"})
                 warnings = [warning for warning in warnings if not warning.startswith("Captions are unavailable")]
@@ -802,7 +899,6 @@ class CampaignManager:
         if info.has_audio:
             ops.append({"op": "loudnorm", "i": -16})
         ops.append({"op": "thumbnail", "at": min(0.5, duration / 3), "path": str(work / "cover.jpg")})
-        preset = _ASPECTS[request["aspect"]]
         ops.append({"op": "export", "preset": preset, "path": str(work / "video.mp4")})
         brief = Brief(name="campaign", sources={"footage": str(source)}, ops=ops, canvas=get_preset(preset).canvas, work_dir=str(work))
         (work / "brief.yaml").write_text(brief_dumps(brief), encoding="utf-8")
@@ -869,6 +965,7 @@ class CampaignManager:
         report["budget"] = self._usage_summary(root, request["budget_usd"])
         tracked_subject = self._tracked_subject(request)
         report["tracked_subject"] = tracked_subject
+        report["caption_provider"] = caption_provider
         _write_json(report_path, report)
         copy = plan["caption"] + ("\n\n" + " ".join(tag if tag.startswith("#") else "#" + tag for tag in plan["hashtags"]) if plan["hashtags"] else "")
         (work / "post.txt").write_text(copy + "\n", encoding="utf-8")
@@ -885,9 +982,10 @@ class CampaignManager:
         pending_bundle.replace(bundle)
         artifacts = {"video": str(video.relative_to(root)), "cover": str(cover.relative_to(root)), "bundle": str(bundle.relative_to(root)), "brief": str((work / "brief.yaml").relative_to(root)), "report": str(report_path.relative_to(root))}
         result = {f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in artifacts}
-        result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject)
+        result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject, caption_provider=caption_provider)
         self._check_cancel(ident)
-        self._update(ident, status="complete", stage="complete", progress=1, message="Your campaign is ready. The video passed export verification.", result=result, verified_revision=job["revision"], error=None, _artifacts=artifacts)
+        timings = dict(job.get("timings") or {}, render_seconds=round(time.monotonic() - started, 3), render_revision=job["revision"])
+        self._update(ident, status="complete", stage="complete", progress=1, message="Your campaign is ready. The video passed export verification.", result=result, verified_revision=job["revision"], error=None, _artifacts=artifacts, timings=timings)
 
     def close(self, *, wait: bool = True) -> None:
         with self._lock:

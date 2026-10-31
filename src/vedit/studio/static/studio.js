@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const activeStatuses = new Set(["queued", "analyzing", "rendering"]);
   const labels = { queued: "Queued", analyzing: "Shaping the story", planned: "Ready to edit", rendering: "Making the video", complete: "Verified", failed: "Needs attention", cancelled: "Cancelled" };
-  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false };
+  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1 };
   const uploadedClips = new WeakMap();
   const storageKey = "vedit.studio.current";
   const maxClipBytes = 200000000;
@@ -61,7 +61,16 @@
   function provider() { return $("provider-meta").checked ? "meta" : "local"; }
   function readSettings() {
     const chosenProvider = provider();
-    return { goal: $("goal").value.trim(), provider: chosenProvider, target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: chosenProvider === "meta" ? $("subject").value.trim() : "", budget_usd: Number($("budget").value), generate_cover: chosenProvider === "meta" && $("cover-mode").value === "meta" };
+    return { goal: $("goal").value.trim(), provider: chosenProvider, target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: chosenProvider === "meta" ? $("subject").value.trim() : "", budget_usd: Number($("budget").value), generate_cover: chosenProvider === "meta" && $("cover-mode").value === "meta", caption_provider: captionProvider() };
+  }
+  function metaTranscribeAvailable() { const caps = state.capabilities; const meta = caps && caps.meta || {}; return !!(meta.enabled && meta.configured && meta.features && meta.features.transcribe); }
+  function captionProvider() { return $("captions").checked && metaTranscribeAvailable() && $("caption-provider").value === "meta" ? "meta" : "local"; }
+  function updateCaptionProvider() {
+    const show = $("captions").checked && metaTranscribeAvailable();
+    $("caption-provider-field").hidden = !show;
+    const meta = state.capabilities && state.capabilities.meta || {};
+    const price = meta.prices && Number.isFinite(Number(meta.prices.transcribe_per_hour)) ? "$" + Number(meta.prices.transcribe_per_hour).toFixed(2) + " per hour of audio" : "billed per hour of audio";
+    $("caption-provider-note").textContent = $("caption-provider").value === "meta" ? "Muse Voice Transcribe hears the audio on Meta\u2019s servers, " + price + ". The transcript still renders locally." : "Local transcription runs on this Mac at no cost.";
   }
   function readEffect() {
     if (!state.effectPresets.length || $("effect-preset").value === "none") return null;
@@ -78,7 +87,7 @@
     for (const control of $("desk-form").querySelectorAll("input,textarea,select,button")) control.disabled = locked;
     const caps = state.capabilities;
     $("provider-meta").disabled = locked || !(caps && caps.meta && caps.meta.enabled && caps.meta.configured);
-    $("captions").disabled = locked || !(caps && caps.local && caps.local.captions);
+    $("captions").disabled = locked || !(caps && caps.local && caps.local.captions || metaTranscribeAvailable());
     $("effect-preset").disabled = locked || !state.effectPresets.length;
     ["effect-intensity", "effect-start", "effect-duration"].forEach((id) => { $(id).disabled = locked || !state.effectPresets.length || $("effect-preset").value === "none"; });
     $("plan").disabled = locked || !!(caps && caps.local && caps.local.ready === false);
@@ -149,7 +158,9 @@
       $("meta-setup").hidden = enabled;
       $("meta-reason").textContent = meta.reason || "Meta access has not been enabled on this editor. Local editing is ready to use.";
       $("caption-availability").textContent = local.captions ? "Local speech model ready" : "Local speech model not installed";
-      if (!local.captions) $("captions").checked = false;
+      if (!local.captions && !(enabled && meta.features && meta.features.transcribe)) $("captions").checked = false;
+      if (!local.captions && enabled && meta.features && meta.features.transcribe) $("caption-availability").textContent = "Meta Voice Transcribe available";
+      updateCaptionProvider();
       if (!enabled && $("provider-meta").checked) $("provider-local").checked = true;
       if (local.ready === false) showError(local.reason || "The local editor needs its required media tools before it can render.");
       updateMode(); setControls();
@@ -232,8 +243,10 @@
       state.paths = payload.paths;
       $("busy").textContent = "Creating your story";
       $("progress-detail").textContent = chosenProvider === "meta" ? "The footage will be read using your configured Meta access." : "Building an editable starting cut.";
+      const planStarted = Date.now();
       const data = await request("/api/campaigns", { method: "POST", body: payload, timeout: 25000 });
       if (!data.job || !data.job.id) throw new Error("The editor did not create a project. Try again.");
+      markTiming(data.job.id, "planStart", planStarted);
       state.settingsSnapshot = settingsSnapshot; state.settingsDirty = false; state.pendingCreate = null;
       state.draft = null;
       adoptJob(data.job, true);
@@ -282,7 +295,9 @@
     }
     if (!state.file && source.has_video && !(previous && previous.source && previous.source.has_video) && state.preview === "source") setPreview("source");
     const changedStatus = !previous || previous.status !== job.status;
+    noteTiming(job, previous);
     paintJob();
+    renderScrubber();
     if (changedStatus) announce(job.message || labels[job.status] || job.status);
     if (activeStatuses.has(job.status)) schedulePoll();
     else { clearTimeout(state.pollTimer); state.pollTimer = null; }
@@ -323,6 +338,8 @@
     $("captions").checked = !!req.captions;
     $("language").value = req.language || "en";
     $("language-field").hidden = !req.captions;
+    $("caption-provider").value = req.caption_provider === "meta" ? "meta" : "local";
+    updateCaptionProvider();
     $("subject").value = req.subject || "";
     if ([0.25, 0.5, 1, 2].includes(Number(req.budget_usd))) $("budget").value = String(req.budget_usd);
     $("cover-mode").value = req.generate_cover ? "meta" : "frame";
@@ -392,8 +409,9 @@
       $("story-description").textContent = job.plan.summary || "Review and refine the moments before rendering.";
       $("say-pauses").textContent = state.draft.segments.length + (state.draft.segments.length === 1 ? " selected moment" : " selected moments");
       $("say-shape").textContent = (job.request && job.request.aspect || "9:16") + " output";
-      $("say-captions").textContent = job.request && job.request.captions ? "Local captions requested" : "Original audio";
-      $("say-clip").textContent = (job.request && job.request.provider) === "meta" ? "Story proposed by Meta" : "Local starting cut · Review the selection";
+      $("say-captions").textContent = job.request && job.request.captions ? (job.request.caption_provider === "meta" ? "Captions by Meta Voice Transcribe" : "Local captions requested") : "Original audio";
+      $("say-clip").textContent = (job.request && job.request.provider) === "meta" ? "Story proposed by Meta" : analysisOf(job) ? "Local analysis · Review the selection" : "Local starting cut · Review the selection";
+      paintAnalysis(job);
       paintEffectSummary();
       $("render-note").textContent = state.settingsDirty ? "Settings changed. Create a story to apply them before rendering." : complete ? "Changes make a new render of this project." : "Your story. Your final say.";
       paintWarnings("story-warnings", [].concat(job.warnings || [], job.plan.warnings || []));
@@ -450,6 +468,7 @@
     $("proof-color").textContent = [proof.color_space || proof.color && proof.color.space, proof.color_range || proof.color && proof.color.range].filter(Boolean).join(" / ") || "Not tagged";
     $("proof-subject").textContent = result.tracked_subject ? result.tracked_subject : "None requested";
     paintWarnings("delivery-warnings", result.warnings || []);
+    paintRunFacts(state.job, result);
   }
 
   function setPreview(version) {
@@ -462,6 +481,8 @@
     $("monitor-empty").hidden = !!url;
     $("player").hidden = !url;
     $("monitor-picture").classList.toggle("has-video", !!url);
+    if (version !== "source") state.loop = false;
+    $("scrubber").hidden = version !== "source" || !url || !state.draft;
     if (url) {
       const keyed = version === "final" ? versionedArtifact(url) : url;
       if ($("player").getAttribute("src") !== keyed) { $("player").pause(); $("player").src = keyed; $("player").load(); }
@@ -478,17 +499,20 @@
     $("monitor-meta").textContent = w && h ? w + " × " + h + (state.preview === "final" ? " · " + (previousResult(state.job) ? "Previous version" : "Finished") : " · Source") : state.sourceURL ? "Source preview" : "Your canvas awaits";
   }
 
-  function seekSegment(index) {
+  function seekSegment(index, options) {
     if (!state.draft || !state.draft.segments[index]) return;
     const segment = state.draft.segments[index];
     if (state.preview !== "source") setPreview("source");
+    const again = state.selected === index;
+    state.loop = options && options.keepLoop ? state.loop && again : again ? !state.loop : false;
     state.selected = index;
     const player = $("player");
     const seek = () => { player.currentTime = finite(segment.start, 0); state.rangeEnd = finite(segment.end, null); const playing = player.play(); if (playing && playing.catch) playing.catch(() => { toast("Press play to preview this moment."); }); };
     if (player.readyState >= 1) seek(); else player.addEventListener("loadedmetadata", seek, { once: true });
     $("program-list").querySelectorAll(".segment").forEach((row, i) => row.classList.toggle("is-selected", index === i));
     $("timeline").querySelectorAll("button").forEach((button, i) => { button.classList.toggle("is-selected", index === i); button.setAttribute("aria-pressed", String(index === i)); });
-    $("preview-label").textContent = "Moment " + (index + 1) + " · " + (segment.label || "Selected footage");
+    $("preview-label").textContent = "Moment " + (index + 1) + " · " + (segment.label || "Selected footage") + (state.loop ? " · Looping" : "");
+    paintScrubSelection();
     announce("Previewing " + (segment.label || "moment " + (index + 1)) + " from " + time(segment.start) + " to " + time(segment.end));
   }
 
@@ -510,8 +534,9 @@
       const top = element("div", "segment-top");
       top.append(element("span", "segment-number", String(index + 1).padStart(2, "0")));
       const label = element("input", "segment-label"); label.type = "text"; label.value = segment.label || "Moment " + (index + 1); label.maxLength = 100; label.setAttribute("aria-label", "Title of moment " + (index + 1));
-      label.addEventListener("input", () => { segment.label = label.value; saveDraft(); renderTimeline(); });
+      label.addEventListener("input", () => { segment.label = label.value; saveDraft(); renderTimeline(); const block = $("scrub-moments").children[index]; if (block) block.firstChild.textContent = (index + 1) + " " + (segment.label || "Moment"); });
       top.append(label);
+      const kind = kindLabel(segment); if (kind) top.append(element("span", "segment-kind is-" + (segment.kind || "scene"), kind));
       const actions = element("div", "segment-actions");
       actions.append(iconButton("Move moment " + (index + 1) + " earlier", "↑", "move-up", () => moveSegment(index, -1)));
       actions.append(iconButton("Move moment " + (index + 1) + " later", "↓", "move-down", () => moveSegment(index, 1)));
@@ -523,7 +548,7 @@
         const inputId = "segment-" + index + "-" + key;
         const timeLabel = element("label", "", key === "start" ? "In" : "Out"); timeLabel.htmlFor = inputId;
         const input = element("input", ""); input.id = inputId; input.type = "number"; input.min = "0"; input.step = "0.1"; input.value = String(Math.round(finite(segment[key], 0) * 100) / 100); if (state.duration) input.max = String(state.duration); input.setAttribute("aria-label", "Moment " + (index + 1) + " " + key + " in seconds");
-        input.addEventListener("input", () => { segment[key] = input.value === "" ? null : Number(input.value); input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby"); saveDraft(); renderTimeline(); });
+        input.addEventListener("input", () => { segment[key] = input.value === "" ? null : Number(input.value); input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby"); saveDraft(); renderTimeline(); const block = $("scrub-moments").children[index]; if (block && segment.start !== null && segment.end !== null) { block.style.left = pct(segment.start) + "%"; block.style.width = Math.max(.6, pct(segment.end) - pct(segment.start)) + "%"; } highlightTranscript(); });
         timing.append(timeLabel, input);
       }
       bottom.append(timing);
@@ -531,7 +556,7 @@
       const preview = element("button", "segment-preview", "Preview"); preview.type = "button"; preview.setAttribute("aria-label", "Preview moment " + (index + 1)); preview.addEventListener("click", () => seekSegment(index)); bottom.append(preview);
       row.append(bottom); $("program-list").append(row);
     });
-    renderTimeline(); updateStoryDuration(); setControls();
+    renderTimeline(); updateStoryDuration(); renderScrubber(); renderTranscript(); setControls();
   }
 
   function renderTimeline() {
@@ -566,12 +591,15 @@
     const focus = $("program-list").children[dest].querySelector(".segment-label"); if (focus) focus.focus();
   }
 
-  function addSegment() {
-    if (isActive() || !state.draft || state.draft.segments.length >= 8) return;
+  function addSegment(range) {
+    if (isActive() || !state.draft || state.draft.segments.length >= 8) { if (state.draft && state.draft.segments.length >= 8) toast("A story holds up to eight moments."); return; }
     const segments = state.draft.segments; const end = segments.length ? finite(segments[segments.length - 1].end, 0) : 0;
-    const start = end < state.duration - .1 ? end : 0;
-    segments.push({ start, end: Math.min(state.duration || start + 5, start + 5), label: "New moment", reason: "Added by you." });
-    saveDraft(); renderStory(); const last = $("program-list").lastElementChild; if (last) last.querySelector(".segment-label").focus();
+    const start = range ? range.start : end < state.duration - .1 ? end : 0;
+    const stop = range ? range.end : Math.min(state.duration || start + 5, start + 5);
+    segments.push({ start: Math.round(start * 100) / 100, end: Math.round(stop * 100) / 100, label: range && range.label || "New moment", reason: range && range.reason || "Added by you.", kind: range && range.kind || undefined });
+    state.selected = segments.length - 1;
+    saveDraft(); renderStory(); const last = $("program-list").lastElementChild; if (last && !(range && range.quiet)) last.querySelector(".segment-label").focus();
+    if (range) announce("Added moment " + segments.length + " from " + time(start) + " to " + time(stop));
   }
 
   function validateDraft() {
@@ -606,6 +634,7 @@
       const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/render", { method: "POST", body: { plan, effect: readEffect() } });
       if (!data.job) throw new Error("The render was not started. Your story is still saved.");
       storageRemove(draftKey(id));
+      markTiming(id, "renderStart", null); markTiming(id, "renderEnd", null); markTiming(id, "renderStart", Date.now());
       if (data.job.plan) { state.draft = clone(data.job.plan); renderStory(); }
       state.jobStarted = Date.now(); adoptJob(data.job, true);
       $("job-progress").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
@@ -647,6 +676,7 @@
     $("project-name").textContent = "Untitled project"; $("result").textContent = "A little raw footage. A story worth sharing."; $("project-status").textContent = "Ready to start"; $("project-status").className = "status-pill";
     $("clip-name").textContent = "The original stays untouched."; $("drop-title").textContent = "Choose your footage"; $("source-badge").textContent = "No clip selected";
     $("job-progress").hidden = true; $("delivery-panel").hidden = true; $("delivery-panel").classList.remove("is-previous"); $("recovery-panel").hidden = true; $("preview-final").disabled = true; $("preview-final").textContent = "Finished video"; $("budget-status").hidden = true; $("save-status").textContent = ""; $("story-description").textContent = "Review the moments before you make the video.";
+    state.loop = false; $("scrubber").hidden = true; $("transcript-panel").hidden = true; $("analysis-badge").hidden = true; $("analysis-notes").hidden = true; $("run-facts").hidden = true;
     clearError(); renderStory(); setPreview("source"); updateWorkflow(0); setControls();
   }
 
@@ -655,6 +685,267 @@
     const text = [state.draft.caption, (state.draft.hashtags || []).map((tag) => String(tag).startsWith("#") ? tag : "#" + tag).join(" ")].filter(Boolean).join("\n\n");
     try { await navigator.clipboard.writeText(text); toast("Post copy copied."); }
     catch (_) { $("post-caption").focus(); $("post-caption").select(); toast("Select and copy the post text from the field."); }
+  }
+
+
+  /* ---------- Analysis, scrubber, transcript ---------- */
+  function analysisOf(job) {
+    const plan = job && job.plan;
+    const analysis = plan && plan.analysis;
+    return analysis && typeof analysis === "object" ? analysis : null;
+  }
+  function kindLabel(segment) {
+    const names = { hook: "Hook", speech: "Speech", scene: "Scene", opening: "Opening", closing: "Closing" };
+    const kind = segment && typeof segment.kind === "string" ? names[segment.kind] : "";
+    const score = segment && Number.isFinite(Number(segment.score)) ? Number(segment.score) : null;
+    const strength = score === null ? "" : score >= .75 ? "strong" : score >= .45 ? "solid" : "soft";
+    if (!kind && !strength) return "";
+    return [kind, strength].filter(Boolean).join(" · ");
+  }
+  function paintAnalysis(job) {
+    const analysis = analysisOf(job);
+    const meta = (job.request && job.request.provider) === "meta" || (analysis && analysis.method === "meta");
+    const badge = $("analysis-badge");
+    badge.hidden = !(analysis || meta);
+    badge.textContent = meta ? "Meta director" : "Local analysis";
+    badge.classList.toggle("is-meta", !!meta);
+    badge.title = meta ? "Moments proposed by Muse Spark from the footage. Review every range." : "Moments chosen from scene cuts, speech, and your brief’s words. Deterministic, not AI understanding.";
+    const notes = analysis && Array.isArray(analysis.notes) ? analysis.notes.filter((note) => typeof note === "string" && note) : [];
+    $("analysis-notes").hidden = !notes.length;
+    $("analysis-notes").textContent = notes.join(" ");
+  }
+  function sourceLength() { return state.duration || (state.job && state.job.source && finite(state.job.source.duration, 0)) || 0; }
+  function pct(seconds) { const total = sourceLength(); return total ? Math.max(0, Math.min(100, seconds / total * 100)) : 0; }
+
+  function renderScrubber() {
+    const total = sourceLength();
+    const show = !!state.draft && total > 0 && state.preview === "source" && !!state.sourceURL;
+    $("scrubber").hidden = !show;
+    if (!show) return;
+    const analysis = analysisOf(state.job) || {};
+    const speech = $("scrub-speech"); speech.replaceChildren();
+    const speechRanges = Array.isArray(analysis.speech) ? analysis.speech.slice(0, 400) : [];
+    speechRanges.forEach((range) => { if (!range || !Number.isFinite(Number(range.start)) || !Number.isFinite(Number(range.end))) return; const band = element("span"); band.style.left = pct(range.start) + "%"; band.style.width = Math.max(.15, pct(range.end) - pct(range.start)) + "%"; speech.append(band); });
+    $("key-speech").hidden = !speech.childElementCount;
+    const scenes = $("scrub-scenes"); scenes.replaceChildren();
+    (Array.isArray(analysis.scenes) ? analysis.scenes.slice(0, 400) : []).forEach((at) => { if (!Number.isFinite(Number(at))) return; const tick = element("span"); tick.style.left = pct(at) + "%"; scenes.append(tick); });
+    $("key-scene").hidden = !scenes.childElementCount;
+    const moments = $("scrub-moments"); moments.replaceChildren();
+    state.draft.segments.forEach((segment, index) => {
+      const start = finite(segment.start, 0), end = finite(segment.end, start);
+      const block = element("div", "scrub-moment" + (state.selected === index ? " is-selected" : ""), (index + 1) + " " + (segment.label || "Moment"));
+      block.style.left = pct(start) + "%"; block.style.width = Math.max(.6, pct(end) - pct(start)) + "%";
+      block.tabIndex = 0; block.dataset.index = String(index);
+      block.setAttribute("role", "button"); block.setAttribute("aria-label", "Moment " + (index + 1) + ", " + (segment.label || "Moment") + ", " + time(start) + " to " + time(end) + ". Press Enter to preview, arrows to nudge.");
+      block.title = (segment.label || "Moment") + " · " + start.toFixed(1) + "s – " + end.toFixed(1) + "s";
+      for (const edge of ["start", "end"]) {
+        const handle = element("button", "scrub-handle is-" + edge); handle.type = "button"; handle.dataset.edge = edge; handle.dataset.index = String(index);
+        handle.setAttribute("aria-label", (edge === "start" ? "In point" : "Out point") + " of moment " + (index + 1) + ", " + (edge === "start" ? start : end).toFixed(1) + " seconds. Arrows adjust.");
+        handle.addEventListener("keydown", (event) => handleEdgeKey(event, index, edge));
+        handle.addEventListener("click", (event) => event.stopPropagation());
+        block.append(handle);
+      }
+      block.addEventListener("keydown", (event) => handleBlockKey(event, index));
+      moments.append(block);
+    });
+    paintPlayhead();
+  }
+  function paintScrubSelection() { $("scrub-moments").querySelectorAll(".scrub-moment").forEach((block, i) => block.classList.toggle("is-selected", i === state.selected)); }
+  function paintPlayhead() {
+    if ($("scrubber").hidden) return;
+    const video = $("player");
+    $("scrub-playhead").style.left = pct(finite(video.currentTime, 0)) + "%";
+  }
+  function trackSeconds(clientX) {
+    const rect = $("scrub-track").getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(sourceLength(), (clientX - rect.left) / rect.width * sourceLength()));
+  }
+  function seekTo(seconds, play) {
+    const player = $("player");
+    if (state.preview !== "source") setPreview("source");
+    state.rangeEnd = null; state.loop = false;
+    player.currentTime = Math.max(0, Math.min(sourceLength() || seconds, seconds));
+    if (play) { const p = player.play(); if (p && p.catch) p.catch(() => {}); }
+    paintPlayhead();
+  }
+  function scrubPointerDown(event) {
+    if (event.button !== 0) return;
+    const handle = event.target.closest(".scrub-handle");
+    const block = event.target.closest(".scrub-moment");
+    if (!state.draft) return;
+    if (!block) { seekTo(trackSeconds(event.clientX), false); return; }
+    const index = Number(block.dataset.index);
+    const segment = state.draft.segments[index];
+    if (!segment) return;
+    if (isActive()) { seekSegment(index, { keepLoop: true }); return; }
+    event.preventDefault();
+    const origin = { x: event.clientX, start: finite(segment.start, 0), end: finite(segment.end, 0), mode: handle ? handle.dataset.edge : "move", index, moved: false, target: handle || block };
+    state.drag = origin;
+    origin.target.setPointerCapture(event.pointerId);
+    block.classList.add("is-dragging");
+    const onMove = (move) => {
+      const total = sourceLength(); const rect = $("scrub-track").getBoundingClientRect();
+      if (!rect.width || !total) return;
+      const delta = (move.clientX - origin.x) / rect.width * total;
+      if (Math.abs(move.clientX - origin.x) > 2) origin.moved = true;
+      if (!origin.moved) return;
+      let start = origin.start, end = origin.end;
+      if (origin.mode === "move") { const length = end - start; start = Math.max(0, Math.min(total - length, start + delta)); end = start + length; }
+      else if (origin.mode === "start") start = Math.max(0, Math.min(end - .1, start + delta));
+      else end = Math.min(total, Math.max(start + .1, end + delta));
+      applySegmentChange(index, start, end, false);
+      const player = $("player"); player.currentTime = origin.mode === "end" ? end : start; paintPlayhead();
+    };
+    const onUp = () => {
+      origin.target.removeEventListener("pointermove", onMove); origin.target.removeEventListener("pointerup", onUp); origin.target.removeEventListener("pointercancel", onUp);
+      block.classList.remove("is-dragging"); state.drag = null;
+      if (origin.moved) { applySegmentChange(index, state.draft.segments[index].start, state.draft.segments[index].end, true); announce("Moment " + (index + 1) + " now runs " + time(state.draft.segments[index].start) + " to " + time(state.draft.segments[index].end)); }
+      else if (!handle) seekSegment(index);
+    };
+    origin.target.addEventListener("pointermove", onMove); origin.target.addEventListener("pointerup", onUp); origin.target.addEventListener("pointercancel", onUp);
+  }
+  function applySegmentChange(index, start, end, commit) {
+    const segment = state.draft && state.draft.segments[index];
+    if (!segment) return;
+    segment.start = Math.round(start * 100) / 100; segment.end = Math.round(end * 100) / 100;
+    const row = $("program-list").children[index];
+    if (row) { const s = row.querySelector("#segment-" + index + "-start"), e = row.querySelector("#segment-" + index + "-end"); if (s) s.value = String(segment.start); if (e) e.value = String(segment.end); }
+    const block = $("scrub-moments").children[index];
+    if (block) { block.style.left = pct(segment.start) + "%"; block.style.width = Math.max(.6, pct(segment.end) - pct(segment.start)) + "%"; block.title = (segment.label || "Moment") + " · " + segment.start.toFixed(1) + "s – " + segment.end.toFixed(1) + "s"; }
+    renderTimeline(); updateStoryDuration();
+    if (commit) { saveDraft(); highlightTranscript(); }
+  }
+  function nudgeSegment(index, deltaStart, deltaEnd) {
+    const segment = state.draft && state.draft.segments[index];
+    if (!segment || isActive()) return;
+    const total = sourceLength() || Infinity;
+    let start = finite(segment.start, 0) + deltaStart, end = finite(segment.end, 0) + deltaEnd;
+    start = Math.max(0, start); end = Math.min(total, end);
+    if (end - start < .1) { if (deltaStart) start = end - .1; else end = start + .1; }
+    applySegmentChange(index, start, end, true);
+    seekTo(deltaEnd && !deltaStart ? end : start, false);
+  }
+  function handleBlockKey(event, index) {
+    const step = event.shiftKey ? 1 : .1;
+    if (event.key === "ArrowLeft") { event.preventDefault(); event.stopPropagation(); nudgeSegment(index, -step, -step); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); event.stopPropagation(); nudgeSegment(index, step, step); }
+    else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); seekSegment(index); }
+  }
+  function handleEdgeKey(event, index, edge) {
+    const step = event.shiftKey ? 1 : .1;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault(); event.stopPropagation();
+    const delta = event.key === "ArrowLeft" ? -step : step;
+    nudgeSegment(index, edge === "start" ? delta : 0, edge === "end" ? delta : 0);
+    const block = $("scrub-moments").children[index]; const handle = block && block.querySelector(".scrub-handle.is-" + edge); if (handle) handle.focus();
+  }
+
+  function transcriptCues() {
+    const analysis = analysisOf(state.job);
+    const cues = analysis && Array.isArray(analysis.transcript) ? analysis.transcript : [];
+    return cues.filter((cue) => cue && typeof cue.text === "string" && cue.text.trim() && Number.isFinite(Number(cue.start)) && Number.isFinite(Number(cue.end))).slice(0, 600);
+  }
+  function renderTranscript() {
+    const cues = transcriptCues();
+    const panel = $("transcript-panel");
+    panel.hidden = !cues.length || !state.draft;
+    if (panel.hidden) return;
+    $("transcript-count").textContent = cues.length + (cues.length === 1 ? " line" : " lines") + " · local speech recognition";
+    const list = $("transcript-list"); list.replaceChildren();
+    cues.forEach((cue, index) => {
+      const item = element("li", "transcript-cue"); item.dataset.start = String(cue.start); item.dataset.end = String(cue.end); item.dataset.text = cue.text.toLowerCase();
+      const at = element("button", "cue-time", time(cue.start)); at.type = "button"; at.setAttribute("aria-label", "Jump to " + time(cue.start)); at.addEventListener("click", () => seekTo(Number(cue.start), true));
+      const text = element("span", "cue-text"); text.textContent = cue.text.trim();
+      const add = element("button", "cue-add", "Add as moment"); add.type = "button"; add.setAttribute("aria-label", "Add line " + (index + 1) + " as a moment");
+      add.addEventListener("click", () => addSegment({ start: Number(cue.start), end: Math.max(Number(cue.start) + .5, Number(cue.end)), label: cue.text.trim().split(/\s+/).slice(0, 5).join(" "), reason: "Spoken at " + time(cue.start) + ": “" + cue.text.trim() + "”", kind: "speech", quiet: true }));
+      item.append(at, text, add); list.append(item);
+    });
+    highlightTranscript(); filterTranscript();
+  }
+  function highlightTranscript() {
+    if ($("transcript-panel").hidden || !state.draft) return;
+    const segments = state.draft.segments;
+    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => {
+      const start = Number(item.dataset.start), end = Number(item.dataset.end);
+      item.classList.toggle("is-inside", segments.some((segment) => Number(segment.start) <= start + .05 && Number(segment.end) >= end - .05));
+    });
+  }
+  function filterTranscript() {
+    const query = state.transcriptQuery;
+    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => {
+      const text = item.querySelector(".cue-text"); const raw = text.textContent;
+      const hit = !query || item.dataset.text.includes(query);
+      item.hidden = !hit;
+      if (query && hit) { const at = item.dataset.text.indexOf(query); text.replaceChildren(raw.slice(0, at), Object.assign(document.createElement("mark"), { textContent: raw.slice(at, at + query.length) }), raw.slice(at + query.length)); }
+      else text.textContent = raw;
+    });
+  }
+  function paintCurrentCue() {
+    if ($("transcript-panel").hidden || state.preview !== "source") return;
+    const now = $("player").currentTime;
+    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => item.classList.toggle("is-current", Number(item.dataset.start) <= now && Number(item.dataset.end) > now));
+  }
+
+  /* ---------- Run facts ---------- */
+  function timingKey(id) { return "vedit.studio.timing." + id; }
+  function readTiming(id) { try { return JSON.parse(storageGet(timingKey(id)) || "{}") || {}; } catch (_) { return {}; } }
+  function markTiming(id, field, value) { const data = readTiming(id); if (value === null) delete data[field]; else if (!data[field]) data[field] = value; else return; storageSet(timingKey(id), JSON.stringify(data)); }
+  function noteTiming(job, previous) {
+    if (!job || !job.id) return;
+    const was = previous && previous.id === job.id ? previous.status : "";
+    if (job.status === "planned" && was !== "planned") markTiming(job.id, "planEnd", Date.now());
+    if (job.status === "complete" && was !== "complete") markTiming(job.id, "renderEnd", Date.now());
+    if (activeStatuses.has(job.status) && !was && job.revision > 0) markTiming(job.id, "renderStart", timestamp(job.updated_at) || Date.now());
+  }
+  function seconds(value) { return Number.isFinite(value) && value >= 0 ? (value < 10 ? value.toFixed(1) : Math.round(value)) + " s" : "—"; }
+  function paintRunFacts(job, result) {
+    const facts = $("run-facts");
+    if (!job) { facts.hidden = true; return; }
+    facts.hidden = false;
+    const server = job.timings && typeof job.timings === "object" ? job.timings : {};
+    const local = readTiming(job.id);
+    const planSeconds = Number.isFinite(Number(server.plan_seconds)) ? Number(server.plan_seconds) : local.planStart && local.planEnd ? (local.planEnd - local.planStart) / 1000 : NaN;
+    const renderSeconds = Number.isFinite(Number(server.render_seconds)) ? Number(server.render_seconds) : local.renderStart && local.renderEnd ? (local.renderEnd - local.renderStart) / 1000 : NaN;
+    const measured = (value, where) => { const node = $(where); node.textContent = seconds(value); if (Number.isFinite(value)) node.append(Object.assign(document.createElement("small"), { textContent: server.plan_seconds !== undefined || server.render_seconds !== undefined ? "measured by the editor" : "measured in this browser" })); };
+    measured(planSeconds, "fact-plan"); measured(renderSeconds, "fact-render");
+    const source = job.source || {}; const proof = result && result.proof || {};
+    $("fact-shape").textContent = (source.duration ? durationText(source.duration) : "—") + (source.width && source.height ? " · " + source.width + "×" + source.height : "") + " → " + (proof.duration ? durationText(proof.duration) : "—") + (proof.width && proof.height ? " · " + proof.width + "×" + proof.height : "");
+    const provider = job.request && job.request.provider === "meta" ? "Meta director (Muse Spark)" : analysisOf(job) ? "Local analysis" : "Local starting cut";
+    $("fact-provider").textContent = provider;
+    const captionProviderUsed = result && result.caption_provider || job.request && job.request.caption_provider;
+    $("fact-captions").textContent = job.request && job.request.captions ? (captionProviderUsed === "meta" ? "Meta Voice Transcribe" : "Local Whisper") : "None";
+    const spend = job.budget && Number.isFinite(Number(job.budget.reserved_usd)) ? Number(job.budget.reserved_usd) : 0;
+    $("fact-spend").textContent = job.request && job.request.provider === "meta" || captionProviderUsed === "meta" ? "$" + spend.toFixed(3) + " reserved" : "$0.00";
+  }
+
+  /* ---------- Shortcuts ---------- */
+  function openShortcuts() { const dialog = $("shortcuts"); if (typeof dialog.showModal === "function") { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute("open", ""); }
+  function editingTarget(target) { return !!target && (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "SUMMARY", "A"].includes(target.tagName) && !target.classList.contains("scrub-moment") || target.isContentEditable); }
+  function handleShortcut(event) {
+    if (event.key === "Escape") { if ($("recent-projects").open) { $("recent-projects").open = false; $("recent-projects").querySelector("summary").focus(); } return; }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "?" && !editingTarget(event.target)) { event.preventDefault(); openShortcuts(); return; }
+    if ($("shortcuts").open || editingTarget(event.target) || event.target.classList.contains("scrub-handle")) return;
+    const player = $("player"); const hasVideo = !player.hidden && player.getAttribute("src");
+    const key = event.key.toLowerCase();
+    if (key === " " || key === "k") { if (!hasVideo) return; event.preventDefault(); if (player.paused) { const p = player.play(); if (p && p.catch) p.catch(() => {}); } else player.pause(); return; }
+    if (key === "j" || key === "l") { if (!hasVideo) return; event.preventDefault(); state.rangeEnd = null; player.currentTime = Math.max(0, player.currentTime + (key === "j" ? -5 : 5)); paintPlayhead(); return; }
+    if (key === "c") { if (!$("preview-final").disabled) { event.preventDefault(); setPreview(state.preview === "final" ? "source" : "final"); toast(state.preview === "final" ? "Finished video" : "Source footage"); } return; }
+    if (/^[1-8]$/.test(key)) { if (state.draft && state.draft.segments[Number(key) - 1]) { event.preventDefault(); seekSegment(Number(key) - 1, { keepLoop: true }); const block = $("scrub-moments").children[Number(key) - 1]; if (block) block.focus(); } return; }
+    if (!state.draft || state.selected < 0 || !state.draft.segments[state.selected]) return;
+    const step = event.shiftKey ? 1 : .1;
+    if (key === "i" || key === "o") {
+      if (!hasVideo || state.preview !== "source") return;
+      event.preventDefault();
+      const segment = state.draft.segments[state.selected]; const at = player.currentTime;
+      if (key === "i") applySegmentChange(state.selected, Math.min(at, finite(segment.end, at) - .1), finite(segment.end, at), true);
+      else applySegmentChange(state.selected, finite(segment.start, 0), Math.max(at, finite(segment.start, 0) + .1), true);
+      toast((key === "i" ? "In" : "Out") + " point set at " + time(at));
+      return;
+    }
+    if (event.key === "ArrowLeft" && !event.target.classList.contains("scrub-moment")) { event.preventDefault(); nudgeSegment(state.selected, -step, -step); }
+    else if (event.key === "ArrowRight" && !event.target.classList.contains("scrub-moment")) { event.preventDefault(); nudgeSegment(state.selected, step, step); }
   }
 
   $("desk-form").addEventListener("submit", createStory);
@@ -667,7 +958,8 @@
   $("desk-form").addEventListener("input", (event) => { if (event.target.id !== "clip" && event.target.id !== "cloud-consent") markSettingsChanged(); });
   $("desk-form").addEventListener("change", (event) => { if (event.target.id !== "clip" && event.target.id !== "cloud-consent") markSettingsChanged(); });
   $("provider-local").addEventListener("change", updateMode); $("provider-meta").addEventListener("change", updateMode);
-  $("captions").addEventListener("change", () => { $("language-field").hidden = !$("captions").checked; });
+  $("captions").addEventListener("change", () => { $("language-field").hidden = !$("captions").checked; updateCaptionProvider(); });
+  $("caption-provider").addEventListener("change", updateCaptionProvider);
   $("effect-preset").addEventListener("change", () => { updateEffectControls(); saveDraft(); paintEffectSummary(); });
   $("effect-intensity").addEventListener("input", () => { updateEffectControls(); saveDraft(); paintEffectSummary(); });
   ["effect-start", "effect-duration"].forEach((id) => { $(id).addEventListener("input", () => { state.effectTimingEdited = true; saveDraft(); paintEffectSummary(); }); });
@@ -690,21 +982,32 @@
   $("player").addEventListener("loadedmetadata", () => {
     const video = $("player"); if (state.preview === "source" && Number.isFinite(video.duration)) { state.duration = video.duration; $("source-badge").textContent = durationText(state.duration); }
     boundDefaultEffectDuration();
+    renderScrubber();
     updateMonitorMeta(); $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
   });
   $("player").addEventListener("timeupdate", () => {
     const video = $("player"); $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
-    if (state.rangeEnd !== null && video.currentTime >= state.rangeEnd) { video.pause(); state.rangeEnd = null; }
+    if (state.rangeEnd !== null && video.currentTime >= state.rangeEnd) {
+      const segment = state.loop && state.draft && state.draft.segments[state.selected];
+      if (segment) { video.currentTime = finite(segment.start, 0); } else { video.pause(); state.rangeEnd = null; }
+    }
+    paintPlayhead(); paintCurrentCue();
   });
   $("player").addEventListener("error", () => { if (!$("player").getAttribute("src")) return; if (state.job && activeStatuses.has(state.job.status)) return; showError("This video cannot be previewed in the browser. You can still edit supported footage and download the finished MP4."); });
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && $("recent-projects").open) { $("recent-projects").open = false; $("recent-projects").querySelector("summary").focus(); } });
+  document.addEventListener("keydown", handleShortcut);
+  $("shortcuts-button").addEventListener("click", () => openShortcuts());
+  $("shortcuts-close").addEventListener("click", () => $("shortcuts").close());
+  $("transcript-search").addEventListener("input", () => { state.transcriptQuery = $("transcript-search").value.trim().toLowerCase(); filterTranscript(); });
+  $("scrub-track").addEventListener("pointerdown", scrubPointerDown);
+  window.addEventListener("resize", () => { if (!$("scrubber").hidden) renderScrubber(); });
   window.addEventListener("beforeunload", () => { saveDraft(); });
   setInterval(() => { if (state.busy || state.job && activeStatuses.has(state.job.status)) $("elapsed").textContent = time((Date.now() - state.jobStarted) / 1000); }, 1000);
 
   async function init() {
     setControls();
     await loadCapabilities();
-    const last = storageGet(storageKey);
+    const linked = (() => { try { return new URLSearchParams(location.hash.replace(/^#/, "")).get("job") || ""; } catch (_) { return ""; } })();
+    const last = /^[a-f0-9]{32}$/.test(linked) ? linked : storageGet(storageKey);
     if (last) await openJob(last);
     refreshRecent();
   }

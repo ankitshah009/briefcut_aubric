@@ -113,7 +113,7 @@ def write_codegen(pipeline: Pipeline) -> dict[str, Path]:
         body = "#!/usr/bin/env bash\nset -euo pipefail\n" + _shell_step(step.argv) + "\n"
         script.write_text(body, encoding="utf-8")
         script.chmod(0o755)
-        sh_lines.append(f"echo '==> {i:02d} {step.name}: {step.description}'")
+        sh_lines.append("echo " + shlex.quote(f"==> {i:02d} {step.name}: {step.description}"))
         sh_lines.append(_shell_step(step.argv))
         sh_lines.append("")
     render_sh = pipeline.work_dir / "render.sh"
@@ -136,6 +136,16 @@ def output_ready(path: str | Path) -> bool:
         return dest.is_file() and dest.stat().st_size > 0
     except OSError:
         return False
+
+
+def _discard_partial_outputs(step: Step) -> None:
+    for raw in step.outputs:
+        path = Path(raw)
+        try:
+            if path.is_file():
+                path.unlink()
+        except OSError:
+            pass
 
 
 def outputs_complete(step: Step) -> bool:
@@ -179,14 +189,21 @@ def execute(
                 print("    skipped (outputs exist)", file=sys.stderr, flush=True)
             continue
         started = time.perf_counter()
-        result: CommandResult = run_command(
-            step.argv,
-            stream_stderr=progress and sys.stderr.isatty(),
-            cancel_event=cancel_event,
-        )
+        try:
+            result: CommandResult = run_command(
+                step.argv,
+                stream_stderr=progress and sys.stderr.isatty(),
+                cancel_event=cancel_event,
+            )
+        except BaseException:
+            _discard_partial_outputs(step)
+            raise
         elapsed = int((time.perf_counter() - started) * 1000)
         missing = [p for p in step.outputs if not Path(p).exists()]
         ok = result.ok and not missing
+        if not ok:
+            # ffmpeg writes progressively; a truncated file must never satisfy --resume.
+            _discard_partial_outputs(step)
         report = StepReport(
             name=step.name,
             ok=ok,

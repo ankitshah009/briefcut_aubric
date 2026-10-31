@@ -19,8 +19,8 @@ does not interrupt them. Review and change the selected moments before rendering
 bash scripts/studio.sh --open
 ```
 
-The launcher uses the checkout's virtual environment and finds the optional local
-Whisper model at `.vedit-models/ggml-base.bin`. Local mode works without an account
+The launcher creates the checkout's uv-managed virtual environment when needed and
+finds an optional local Whisper model under `.vedit-models/` (`ggml-base.en.bin` preferred). Local mode works without an account
 or model API. It starts with an explicitly labeled, editable opening cut.
 
 Optional Meta mode adds Muse Spark story planning, SAM subject tracking, and Muse
@@ -130,27 +130,28 @@ Not a Premiere GUI. That is a different product.
 
 ## Install
 
-Needs Python 3.13+ and FFmpeg. On this machine the right binary is `ffmpeg-full` (has `drawtext` + `subtitles`).
+Needs FFmpeg and [uv](https://docs.astral.sh/uv/). uv provisions CPython 3.13 and owns the environment; do not use `python -m venv` or bare `pip`. On this machine the right FFmpeg binary is `ffmpeg-full` (has `drawtext` + `subtitles`).
 
 ```bash
-cd video_editor
-python3.13 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+cd briefcut
+uv sync                        # creates .venv on CPython 3.13 and installs vedit + pytest
 export VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
-vedit doctor
-python scripts/make_demo.py   # tiny talk.mp4 / bed.wav / logo.png under examples/demo/
+uv run vedit doctor
+uv run python scripts/make_demo.py   # tiny talk.mp4 / bed.wav / logo.png under examples/demo/
 ```
 
-Optional captions:
+`uv sync` reads `uv.lock` and `.python-version`; `uv run <cmd>` keeps the environment in sync. `scripts/studio.sh` runs `uv sync` automatically when `.venv` is missing.
+
+Optional captions (free, local):
 
 ```bash
 brew install whisper-cpp
-mkdir -p ~/.cache/whisper
-curl -L -o ~/.cache/whisper/ggml-base.en.bin \
+mkdir -p .vedit-models
+curl -L -o .vedit-models/ggml-base.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-export VEDIT_WHISPER_MODEL=$HOME/.cache/whisper/ggml-base.en.bin
 ```
+
+`scripts/studio.sh` and `vedit doctor` find any `.vedit-models/ggml-*.bin` in the checkout (`.vedit-models/` is gitignored). Set `VEDIT_WHISPER_MODEL` to use a model stored elsewhere.
 
 ## Tell it what to do
 
@@ -222,5 +223,5 @@ Not a Premiere/Resolve clone. A GUI timeline you click through is the wrong prod
 ## Tests
 
 ```bash
-pytest
+VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run pytest
 ```

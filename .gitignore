@@ -19,3 +19,4 @@ build/
 
 vedit-sessions/
 **/.DS_Store
+.vedit-models/

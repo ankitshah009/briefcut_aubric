@@ -152,7 +152,7 @@ def test_cost_receipts_reserve_uncertain_calls_and_deduplicate_ids(tmp_path: Pat
     ]}))
     summary = CampaignManager._usage_summary(tmp_path, 0.25)
     assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.12, "remaining_usd": 0.13}
-    assert set(summary["operations"]) == {"story", "tracking", "cover", "other"}
+    assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "other"}
     (root / "meta-usage.json").write_text('{"calls": "corrupt"}')
     with pytest.raises(CampaignError, match="unreadable"):
         CampaignManager._usage_summary(tmp_path, 0.25)
@@ -253,3 +253,63 @@ def test_portrait_mov_proxy_preserves_time_and_remaps_letterboxed_subject(manage
     with pytest.raises(CampaignError, match="outside the picture"):
         remap_proxy_points([{"time": 0, "x": 0, "y": 0, "width": 0.1, "height": 0.2}], source_width=1080, source_height=1920, proxy_width=960, proxy_height=540, duration=1)
 
+
+
+def test_caption_provider_is_validated_and_meta_captions_need_access(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("VEDIT_META_ENABLED", raising=False)
+    with pytest.raises(CampaignError):
+        manager.create(request(clip, captions=True, caption_provider="whisper-cloud"))
+    with pytest.raises(CampaignError) as error:
+        manager.create(request(clip, captions=True, caption_provider="meta"))
+    assert error.value.status == 409
+    # Meta captions without the captions switch are inert, so local planning still works offline.
+    job = manager.create(request(clip, captions=False, caption_provider="meta"))
+    assert job["request"]["caption_provider"] == "meta"
+    assert manager.create(request(clip))["request"]["caption_provider"] == "local"
+
+
+def test_meta_captions_transcribe_only_the_approved_speech_and_burn_it(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.setattr("vedit.campaign.local_transcriber_ready", lambda: False)
+    seen: dict[str, object] = {}
+
+    def fake_transcribe(wav: Path, *, duration: float, work_dir: Path, language: str, budget_usd: float):
+        info = probe(wav)
+        seen.update(duration=duration, wav_duration=info.duration, channels=info.audio.channels, rate=info.audio.sample_rate, language=language, work_dir=work_dir)
+        return {"cues": [{"start": 0.1, "end": 0.7, "text": "Made by hand."}], "provider": "meta", "usage": {"cost_usd": 0.0001}}
+
+    monkeypatch.setattr(meta, "transcribe_audio", fake_transcribe)
+    job = manager.create(request(clip, captions=True, caption_provider="meta", language="es"))
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "planned"
+    assert not any("Captions are unavailable" in warning for warning in manager.get(job["id"])["plan"]["warnings"])
+    manager.render(job["id"], {"plan": story(segments=[{"start": 0.7, "end": 1.2}, {"start": 0.1, "end": 0.4}])})
+    manager.process(job["id"])
+    complete = manager.get(job["id"])
+    assert complete["status"] == "complete", complete["error"]
+    assert abs(seen["duration"] - 0.8) < 0.01 and abs(seen["wav_duration"] - 0.8) < 0.05
+    assert (seen["channels"], seen["rate"], seen["language"]) == (1, 16000, "es")
+    assert Path(seen["work_dir"]).name == "meta"
+    assert complete["result"]["caption_provider"] == "meta"
+    report = json.loads(manager.artifact(job["id"], "report").read_text())
+    assert report["caption_provider"] == "meta"
+    assert "captions_transcribe" not in report["steps"]
+    with zipfile.ZipFile(manager.artifact(job["id"], "bundle")) as archive:
+        assert {"captions.srt", "captions.ass"} <= set(archive.namelist())
+        assert b"Made by hand." in archive.read("captions.srt")
+
+
+def test_captions_op_burns_a_provided_subtitle_file_without_transcribing(tmp_path: Path, clip: Path) -> None:
+    subtitle = tmp_path / "given.srt"
+    subtitle.write_text("1\n00:00:00,100 --> 00:00:00,900\nHello\n", encoding="utf-8")
+    brief = Brief(name="given", sources={"main": str(clip)}, ops=[{"op": "captions", "file": str(subtitle), "burn": True}, {"op": "export", "preset": "web_preview", "path": str(tmp_path / "out.mp4")}], hw=False, work_dir=str(tmp_path / "work"))
+    compiler = compile_brief(brief, work_dir=tmp_path / "work")
+    names = [step.name for step in compiler.pipeline.steps]
+    assert "captions_transcribe" not in names
+    assert any("given.srt" in " ".join(step.argv) for step in compiler.pipeline.steps)
+    with pytest.raises(Exception):
+        compile_brief(Brief(name="bad", sources={"main": str(clip)}, ops=[{"op": "captions", "file": str(tmp_path / "missing.ass")}, {"op": "export", "preset": "web_preview"}], hw=False, work_dir=str(tmp_path / "w2")), work_dir=tmp_path / "w2")

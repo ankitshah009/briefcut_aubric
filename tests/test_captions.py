@@ -36,3 +36,15 @@ def test_remap_after_silence_cut():
     remapped = remap_cues(cues, keeps)
     assert remapped[0].start == 0.2
     assert remapped[1].start == pytest.approx(1.1)
+
+
+def test_write_srt_without_cues_is_still_probeable(tmp_path):
+    """A silent clip must not produce an empty .srt that the subtitles filter rejects."""
+    from vedit.captions import read_srt, write_srt
+
+    path = tmp_path / "captions.srt"
+    write_srt([], path)
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("1\n00:00:00,000 --> 00:00:00,001\n")
+    assert len(read_srt(path)) == 1
+    assert read_srt(path)[0].text.strip("​ ") == ""

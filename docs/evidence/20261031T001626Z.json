@@ -1,0 +1,281 @@
+{
+  "schema": "briefcut-evidence/1",
+  "recorded_at": "2026-10-31T00:16:26+00:00",
+  "machine": {
+    "hostname_redacted": true,
+    "os": "Darwin 27.0.1",
+    "machine": "arm64",
+    "cpu": "Apple M5 Max",
+    "memory_bytes": 137438953472,
+    "python": "Python 3.13.16",
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "vedit": "1.2.0"
+  },
+  "workspace": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-gsqht42q",
+  "request": {
+    "paths": [
+      "/private/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-gsqht42q/vedit-sessions/source-20261030171626-9jh8bfad/inbox/workshop.mp4"
+    ],
+    "goal": "Make a 20-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.",
+    "provider": "local",
+    "target_duration": 20,
+    "aspect": "9:16",
+    "captions": true,
+    "language": "en",
+    "subject": "",
+    "budget_usd": 0.25,
+    "generate_cover": false,
+    "effect": {
+      "preset": "float",
+      "intensity": 0.55,
+      "start": 0,
+      "duration": 3
+    }
+  },
+  "timings_seconds": {
+    "upload": 0.009,
+    "plan": 1.524,
+    "render": 18.227,
+    "total": 19.76
+  },
+  "stages": [
+    {
+      "at": 0.013,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.014,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.516,
+      "status": "analyzing",
+      "stage": "planning",
+      "message": "Measuring scene cuts and speech in your footage."
+    },
+    {
+      "at": 1.533,
+      "status": "planned",
+      "stage": "review",
+      "message": "Review the story and approve the render."
+    },
+    {
+      "at": 1.539,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Your approved story is queued for rendering."
+    },
+    {
+      "at": 2.042,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 1 of 6: assemble 6 selected moments"
+    },
+    {
+      "at": 19.76,
+      "status": "complete",
+      "stage": "complete",
+      "message": "Your campaign is ready. The video passed export verification."
+    }
+  ],
+  "notes": [
+    "Timings are wall-clock measurements of this single run, including HTTP polling at 0.5 s intervals.",
+    "A local plan is deterministic signal analysis, not model understanding. Meta mode requires live credentials."
+  ],
+  "capabilities": {
+    "local_ready": true,
+    "local_captions": true,
+    "meta_available": false,
+    "effects_supported": true
+  },
+  "job_id": "a60e935d26f143799c36d6e2d43c394b",
+  "source": {
+    "name": "workshop.mp4",
+    "duration": 40.021354,
+    "width": 1280,
+    "height": 720,
+    "has_audio": true,
+    "has_video": true
+  },
+  "plan": {
+    "provider": "local",
+    "title": "Make a 20-second vertical story about the oak bowl: open…",
+    "summary": "Local analysis found 4 scene cuts and 10 speech ranges and 18 transcript cues. Selected 6 moments totalling 19.92s of 40.0s. This is deterministic signal analysis; local mode does not choose a story with AI. Review every moment before rendering.",
+    "segments": [
+      {
+        "start": 0.383,
+        "end": 3.873,
+        "label": "Opening hook: bowl, finished",
+        "reason": "Speech 0.5–3.7s (100% of the moment); mentions \"bowl\", \"finished\", \"oak\" from your brief; first spoken moment.",
+        "score": 0.8,
+        "kind": "hook"
+      },
+      {
+        "start": 8.406,
+        "end": 11.534,
+        "label": "Spoken moment: oak",
+        "reason": "Speech 8.6–11.4s (100% of the moment); mentions \"oak\" from your brief; follows a scene change at 8.0s.",
+        "score": 0.567,
+        "kind": "speech"
+      },
+      {
+        "start": 16.378,
+        "end": 19.467,
+        "label": "Spoken moment",
+        "reason": "Speech 16.5–19.3s (100% of the moment); follows a scene change at 16.0s.",
+        "score": 0.45,
+        "kind": "speech"
+      },
+      {
+        "start": 24.383,
+        "end": 28.363,
+        "label": "Spoken moment",
+        "reason": "Speech 24.5–28.2s (100% of the moment); follows a scene change at 24.0s.",
+        "score": 0.45,
+        "kind": "speech"
+      },
+      {
+        "start": 32.377,
+        "end": 35.252,
+        "label": "Spoken moment",
+        "reason": "Speech 32.5–35.1s (100% of the moment); follows a scene change at 32.0s.",
+        "score": 0.45,
+        "kind": "speech"
+      },
+      {
+        "start": 35.978,
+        "end": 39.336,
+        "label": "Closing moment: bowl",
+        "reason": "Speech 36.1–39.2s (100% of the moment); mentions \"bowl\" from your brief; last spoken moment.",
+        "score": 0.517,
+        "kind": "closing"
+      }
+    ],
+    "duration": 19.92,
+    "analysis_method": "local-analysis",
+    "analysis_notes": [
+      "Local analysis: scene cuts + speech energy + transcript keywords. Not AI understanding."
+    ],
+    "warnings": [],
+    "usage": {
+      "estimated_cost_usd": 0
+    }
+  },
+  "result": {
+    "proof": {
+      "duration": 20.0,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 1265387
+    },
+    "warnings": [],
+    "cover_kind": "frame",
+    "provider": "local",
+    "caption_provider": "local",
+    "effect": {
+      "preset": "float",
+      "intensity": 0.55,
+      "start": 0.0,
+      "duration": 3.0
+    },
+    "tracked_subject": null,
+    "revision": 1
+  },
+  "budget": {
+    "cap_usd": 0.25,
+    "reserved_usd": 0,
+    "remaining_usd": 0.25,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "tracking": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      }
+    }
+  },
+  "timings_server": {
+    "plan_seconds": 1.023,
+    "render_seconds": 18.061,
+    "render_revision": 1
+  },
+  "downloaded": {
+    "video": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-gsqht42q/evidence-downloads/video.mp4",
+    "video_bytes": 1265387,
+    "report": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-gsqht42q/evidence-downloads/report.json",
+    "bundle_bytes": 1314589,
+    "probe": {
+      "path": "/private/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-gsqht42q/evidence-downloads/video.mp4",
+      "duration": 20.0,
+      "format": "mov,mp4,m4a,3gp,3g2,mj2",
+      "size_bytes": 1265387,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_video": true,
+      "has_audio": true,
+      "streams": [
+        {
+          "index": 0,
+          "type": "video",
+          "codec": "h264",
+          "width": 1080,
+          "height": 1920,
+          "fps": 30.0,
+          "sample_rate": null,
+          "channels": null
+        },
+        {
+          "index": 1,
+          "type": "audio",
+          "codec": "aac",
+          "width": null,
+          "height": null,
+          "fps": null,
+          "sample_rate": 48000,
+          "channels": 2
+        }
+      ]
+    }
+  },
+  "report_proof": {
+    "duration": 20.0,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30.0,
+    "has_audio": true,
+    "has_video": true,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 1265387
+  },
+  "report_steps": 6,
+  "json_path": "docs/evidence/20261031T001626Z.json"
+}

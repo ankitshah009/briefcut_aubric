@@ -118,6 +118,23 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("tools", help="stdio tool protocol")
     p.set_defaults(func=cmd_tools)
 
+    p = sub.add_parser("story", help="deterministic local story plan from scene cuts, speech, and transcript keywords")
+    p.add_argument("clip", help="source video")
+    p.add_argument("--goal", required=True, help="what the finished video should do")
+    p.add_argument("--target", type=float, default=30.0, help="target duration in seconds (default 30)")
+    p.add_argument("--language", default="en", help="spoken language code for the optional local transcript")
+    p.add_argument("--no-transcribe", action="store_true", help="skip the local Whisper transcript")
+    p.add_argument("--work-dir", default=None, help="where analysis files are written (default: a temp dir)")
+    p.add_argument("--json", action="store_true", help="print the plan as JSON")
+    p.set_defaults(func=cmd_story)
+
+    p = sub.add_parser("meta", help="Meta Model API status (no inference is purchased)")
+    msub = p.add_subparsers(dest="meta_cmd", required=True)
+    m = msub.add_parser("status", help="show whether Meta is configured and enabled")
+    m.set_defaults(func=cmd_meta_status)
+    m = msub.add_parser("check", help="verify credentials with the free model listing")
+    m.set_defaults(func=cmd_meta_check)
+
     p = sub.add_parser("studio", help="local review server")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
@@ -398,6 +415,50 @@ def cmd_tools(_args: argparse.Namespace) -> int:
     from vedit.agent.tools import serve_stdio
 
     return serve_stdio()
+
+
+def cmd_story(args: argparse.Namespace) -> int:
+    import tempfile
+
+    from vedit.story import format_plan, plan_local_story
+
+    if not 0.5 <= args.target <= 180:
+        print("vedit: --target must be between 0.5 and 180 seconds", file=sys.stderr)
+        return 2
+    work_dir = Path(args.work_dir) if args.work_dir else Path(tempfile.mkdtemp(prefix="vedit-story-"))
+    plan = plan_local_story(Path(args.clip), goal=args.goal, target_duration=args.target, work_dir=work_dir, language=args.language, transcribe=not args.no_transcribe)
+    if args.json:
+        json.dump(plan, sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(format_plan(plan))
+        sys.stdout.write(f"analysis: {work_dir / 'story-analysis.json'}\n")
+    return 0
+
+
+def cmd_meta_status(_args: argparse.Namespace) -> int:
+    from vedit import meta
+
+    status = meta.capabilities()
+    print(f"configured  {'yes' if status['configured'] else 'no (set MODEL_API_KEY)'}")
+    print(f"enabled     {'yes' if status['enabled'] else 'no (set VEDIT_META_ENABLED=1)'}")
+    print(f"mode        {status['mode']}  prices as of {status['prices_as_of']}")
+    for feature, model in sorted(status.get("models", {}).items()):
+        print(f"  {feature:<10} {model}")
+    print(status["reason"])
+    return 0 if status["available"] else 1
+
+
+def cmd_meta_check(_args: argparse.Namespace) -> int:
+    from vedit import meta
+
+    result = meta.check_access()
+    print(result["reason"])
+    if result.get("models"):
+        print("models visible: " + ", ".join(result["models"]))
+    if result.get("missing"):
+        print("missing: " + ", ".join(result["missing"]))
+    return 0 if result["ok"] and not result.get("missing") else 1
 
 
 def cmd_studio(args: argparse.Namespace) -> int:
