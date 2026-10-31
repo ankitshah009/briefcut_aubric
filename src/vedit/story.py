@@ -247,6 +247,20 @@ def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook
     return padded
 
 
+def require_target_duration(target_duration: object) -> float:
+    """Return a target length in the same 0.5–180s contract the CLI and campaigns use.
+
+    ``bool`` is rejected on purpose: it is an ``int`` subclass, and ``True`` would
+    otherwise become a one-second target.
+    """
+    if isinstance(target_duration, bool) or not isinstance(target_duration, (int, float)):
+        raise StoryError("The target duration must be a number of seconds between 0.5 and 180.")
+    target = float(target_duration)
+    if not math.isfinite(target) or target < 0.5 or target > 180:
+        raise StoryError("The target duration must be a number of seconds between 0.5 and 180.")
+    return target
+
+
 def build_plan(
     *,
     goal: str,
@@ -261,6 +275,7 @@ def build_plan(
     """Plan from measured signals. Pure and deterministic; safe to unit test."""
     if not math.isfinite(duration) or duration <= 0:
         raise StoryError("The source has no measurable duration.")
+    target_duration = require_target_duration(target_duration)
     warnings = list(warnings or [])
     scenes = sorted({round(float(s), 3) for s in scenes if 0 < float(s) < duration})[:MAX_SCENES]
     speech = speech_ranges(duration, silences) if has_audio else []
@@ -473,6 +488,7 @@ def plan_local_story(
     """Measure the source and return an editable, evidence-cited local plan."""
     source = Path(source)
     work_dir = Path(work_dir)
+    require_target_duration(target_duration)
     measured = analyze_source(source, work_dir, language=language, transcribe=transcribe, time_budget_s=time_budget_s)
     plan = build_plan(
         goal=goal, duration=measured["duration"], target_duration=target_duration,
@@ -491,6 +507,13 @@ def format_plan(plan: dict[str, Any]) -> str:
     analysis = plan.get("analysis", {})
     lines.append("")
     lines.append(f"scenes: {len(analysis.get('scenes', []))}  speech ranges: {len(analysis.get('speech', []))}  transcript cues: {len(analysis.get('transcript', []))}")
+    segments = plan.get("segments") or []
+    total = sum(float(segment["end"]) - float(segment["start"]) for segment in segments)
+    duration = analysis.get("duration")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(float(duration)):
+        lines.append(f"selected: {total:.1f}s across {len(segments)} moments")
+    else:
+        lines.append(f"selected: {total:.1f}s of {float(duration):.1f}s across {len(segments)} moments")
     for warning in plan.get("warnings", []):
         lines.append(f"warning: {warning}")
     return "\n".join(lines) + "\n"

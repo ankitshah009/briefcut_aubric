@@ -13,7 +13,9 @@ from vedit.story import (
     KINDS,
     MAX_SEGMENTS,
     Moment,
+    StoryError,
     build_plan,
+    format_plan,
     keywords,
     merge_pieces,
     plan_local_story,
@@ -81,6 +83,28 @@ def test_selection_is_non_overlapping_fits_target_and_is_chronological() -> None
     only_long = select_moments([Moment(2, 30, 0.8, "speech")], 6)
     assert [(m.start, m.end) for m in only_long] == [(2, 8)]
     assert len(select_moments([Moment(i * 2, i * 2 + 1, 0.5, "speech") for i in range(20)], 100)) == MAX_SEGMENTS
+
+
+def test_build_plan_rejects_target_outside_contract_and_format_states_selection() -> None:
+    """Bad targets raise from the shipped planner; a valid plan prints its real total."""
+    duration = 40.0
+    speech = [(0.5, 3.7), (8.6, 11.4), (16.5, 19.3)]
+    kwargs = dict(
+        goal=GOAL,
+        duration=duration,
+        scenes=[8.0, 16.0],
+        silences=_silences(duration, speech),
+        transcript=[],
+        has_audio=True,
+    )
+    for bad in (0, 0.49, 180.01, float("nan"), float("inf"), -3, True, "20"):
+        with pytest.raises(StoryError, match="between 0.5 and 180"):
+            build_plan(target_duration=bad, **kwargs)
+    plan = build_plan(target_duration=12, **kwargs)
+    total = sum(segment["end"] - segment["start"] for segment in plan["segments"])
+    assert 0 < total <= 12.05
+    text = format_plan(plan)
+    assert f"selected: {total:.1f}s of {duration:.1f}s across {len(plan['segments'])} moments" in text
 
 
 def test_build_plan_shape_contract_and_bounds() -> None:
