@@ -732,3 +732,5 @@ Suite at `0f883c8` on 2026-11-04: 2,662 passed, 1 skipped (the real macOS Keycha
 ## What this is not
 
 Not a Premiere or Resolve clone, and not a black-box AI editor. The models propose; you approve; the compiler renders; the receipts show what came out. Briefcut sends no analytics and has no account of its own. At runtime, the only service it calls is the Meta Model API. See [Privacy](docs/PRIVACY.md).
+
+Briefcut does not render HTML or React compositions. [docs/OPEN_SOURCE_IDEAS.md](docs/OPEN_SOURCE_IDEAS.md) audits HyperFrames and Remotion feature by feature, with a verdict for each: taken, taken in part, or not taken, and why.
