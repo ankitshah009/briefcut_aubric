@@ -1,0 +1,5 @@
+{"ok": false, "s": 195.8, "calls": ["completed"], "patches": [["set_speed", 1, null], ["trim_start", 4, 25.0], ["trim_end", 4, 28.5]]}
+{"ok": true, "s": 92.6, "calls": ["completed"], "patches": [["trim_end", 1, 5.0], ["trim_start", 4, 25.0], ["trim_end", 4, 28.0]]}
+{"ok": true, "s": 105.7, "calls": ["completed"], "patches": [["trim_end", 1, 5.0], ["trim_start", 4, 24.5], ["trim_end", 4, 28.5]]}
+
+[exited with code 0]

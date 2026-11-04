@@ -1,61 +1,104 @@
-/* The Meta calls panel: a live log of the open project's Meta Model API calls.
-   It floats under the top bar so it stays in view in Story, Edit and Deliver. */
+/* The Meta calls panel: a live log of the open project's Meta model calls, on the Meta Model API or on this computer.
+   It floats under the top bar so it stays in view in Story, Edit and Deliver.
+   Every colour, radius and shadow comes from the shared tokens in studio.css. */
 
-.mc-toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+/* The toggle is an icon button like Settings, so the top bar keeps its room; the count is a corner badge. */
+.mc-toggle { position: relative; min-width: 36px; padding-inline: 9px; display: inline-flex; align-items: center; justify-content: center; }
+.mc-toggle svg { width: 18px; height: 18px; flex: 0 0 18px; stroke-width: 1.7; }
 .mc-toggle[aria-expanded="true"] { background: var(--blue-wash); color: var(--blue); }
-.mc-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: var(--tint-2); color: var(--ink); font-size: 11px; font-weight: 650; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
-.mc-toggle[aria-expanded="true"] .mc-count { background: var(--paper); color: var(--blue); }
-.mc-dot { display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
-.mc-toggle.is-live .mc-dot { display: block; animation: mc-pulse 1.2s ease-in-out infinite; }
+.mc-count { position: absolute; top: -5px; right: -6px; min-width: 18px; padding: 0 5px; border-radius: var(--radius-pill); border: 2px solid var(--paper); background: var(--ink-soft); color: var(--paper); font-size: 10px; font-weight: 700; line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+.mc-toggle[aria-expanded="true"] .mc-count, .mc-toggle.is-live .mc-count { background: var(--live); color: var(--on-blue); }
+.mc-toggle.is-live svg { color: var(--live); animation: mc-pulse 1.2s ease-in-out infinite; }
 
-.mc { position: fixed; z-index: 40; top: 84px; right: 16px; width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 100px); display: flex; flex-direction: column; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 16px 44px var(--shadow); overflow: hidden; }
+/* ---------- Panel ---------- */
+.mc { position: fixed; z-index: 40; top: 84px; right: 16px; width: min(488px, calc(100vw - 32px)); max-height: calc(100dvh - 100px); display: flex; flex-direction: column; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
 .has-story .mc { top: calc(var(--bar-h) + 8px); max-height: calc(100dvh - var(--bar-h) - 24px); }
-.mc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
-.mc-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -.1px; }
-.mc-sub { margin-top: 2px; font-size: 12px; color: var(--muted); }
-.mc-sub.is-live::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--green); vertical-align: 1px; }
-.mc-close { flex: none; width: 30px; height: 30px; display: grid; place-items: center; margin: -4px -6px 0 0; color: var(--muted); }
+.mc-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) 14px var(--space-5); border-bottom: 1px solid var(--line); }
+.mc-head h2 { font-size: var(--text-lg); font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; }
+.mc-sub { display: flex; align-items: center; gap: 7px; margin-top: 3px; font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Live: a steady dot with a soft ring that breathes out from it. */
+.mc-sub.is-live::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); --ring: color-mix(in srgb, var(--green) 45%, transparent); animation: mc-ring 2.4s ease-out infinite; }
+.mc-close { flex: none; width: 32px; height: 32px; display: grid; place-items: center; margin-right: -4px; border-radius: var(--radius-sm); color: var(--muted); transition: background .15s, color .15s; }
 .mc-close:hover { background: var(--tint); color: var(--ink); }
 .mc-close svg { width: 16px; height: 16px; }
 
-.mc-empty { padding: 22px 16px; font-size: 13px; color: var(--ink-soft); }
+.mc-empty { padding: var(--space-5); font-size: var(--text-sm); color: var(--ink-soft); }
 .mc-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; flex: 1 1 auto; min-height: 0; }
-.mc-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 3px; align-items: baseline; padding: 11px 16px 12px; border-left: 3px solid transparent; }
+
+/* ---------- One call ----------
+   Time | purpose ......... status
+        | model chip ........ cost
+        | duration · tokens
+        | Private / response id */
+.mc-row { position: relative; display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; transition: background-color var(--dur) var(--ease); column-gap: var(--space-3); row-gap: 5px; align-items: center; padding: 14px var(--space-4) 14px var(--space-5); }
 .mc-row + .mc-row { border-top: 1px solid var(--line-soft); }
-.mc-row[data-status="running"] { background: var(--blue-wash); border-left-color: var(--blue); }
-.mc-row[data-status="failed"] { border-left-color: var(--red-line); }
-.mc-row[data-status="stopped"] { border-left-color: var(--amber-line); }
-.mc-time { grid-column: 1; grid-row: 1; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.mc-purpose { grid-column: 2; grid-row: 1; min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; color: var(--ink); overflow-wrap: anywhere; }
-.mc-status { grid-column: 3; grid-row: 1; justify-self: end; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); font-size: 11px; font-weight: 650; white-space: nowrap; color: var(--muted); background: var(--paper-2); }
-.mc-row[data-status="running"] .mc-status { color: var(--blue); border-color: var(--blue-line); background: var(--paper); }
-.mc-row[data-status="running"] .mc-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); animation: mc-pulse 1.2s ease-in-out infinite; }
+/* The accent bar sits inside the row so no state shifts the text. */
+.mc-row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; }
+.mc-row[data-status="failed"]::before { background: var(--red-line); }
+.mc-row[data-status="stopped"]::before { background: var(--amber-line); }
+
+.mc-time { grid-column: 1; grid-row: 1 / 3; align-self: start; padding-top: 2px; font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: -.2px; line-height: 1.4; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mc-day { display: block; font-size: var(--text-2xs); color: var(--muted); }
+.mc-purpose { grid-column: 2; grid-row: 1; align-self: start; min-width: 0; font-size: var(--text-md); font-weight: 600; line-height: 1.35; letter-spacing: -.1px; color: var(--ink); overflow-wrap: anywhere; }
+
+/* Status: a pill with a dot, so the state never rests on colour alone. */
+.mc-status { grid-column: 3; grid-row: 1; align-self: start; justify-self: end; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 8px; border-radius: var(--radius-pill); border: 1px solid var(--line); font-size: var(--text-2xs); font-weight: 650; line-height: 1; white-space: nowrap; color: var(--muted); background: var(--paper-2); }
+.mc-status::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .mc-row[data-status="done"] .mc-status { color: var(--green); border-color: var(--green-line); background: var(--green-wash); }
 .mc-row[data-status="failed"] .mc-status { color: var(--red); border-color: var(--red-line); background: var(--red-wash); }
 .mc-row[data-status="stopped"] .mc-status { color: var(--amber); border-color: var(--amber-line); background: var(--amber-wash); }
-.mc-model { grid-column: 2; grid-row: 2; min-width: 0; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mc-cost { grid-column: 3; grid-row: 2; justify-self: end; font-size: 12.5px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.mc-cost.is-reserved { font-weight: 550; color: var(--muted); }
-.mc-facts { grid-column: 2 / 4; grid-row: 3; display: flex; flex-wrap: wrap; gap: 2px 0; margin: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.mc-facts > span { white-space: nowrap; }
-.mc-facts > span + span::before { content: "·"; margin: 0 7px; color: var(--steel-2); }
-.mc-facts > .mc-request { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; }
 
-.mc-foot { flex: none; padding: 11px 16px 13px; border-top: 1px solid var(--line); background: var(--paper-2); }
-.mc-total { font-size: 12.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-.mc-where { margin-top: 3px; font-size: 12px; color: var(--muted); }
+/* The model id: a quiet monospaced chip, shrunk to its text. */
+.mc-model { grid-column: 2; grid-row: 2; justify-self: start; max-width: 100%; min-width: 0; padding: 0 7px; border-radius: var(--radius-xs); border: 1px solid var(--chip-line); background: var(--chip-bg); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; line-height: 20px; letter-spacing: -.1px; color: var(--chip-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-cost { grid-column: 3; grid-row: 2; justify-self: end; font-family: var(--font-mono); letter-spacing: -.3px; font-size: var(--text-sm); font-weight: 650; line-height: 20px; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+.mc-cost.is-reserved { font-weight: 550; color: var(--muted); }
+.mc-facts { grid-column: 2 / 4; grid-row: 3; display: flex; flex-wrap: wrap; gap: 2px 0; margin: 1px 0 0; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: -.2px; line-height: 1.45; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mc-facts > span { white-space: nowrap; }
+.mc-facts > span + span::before { content: "\00b7"; margin: 0 7px; color: var(--steel-2); }
+.mc-request { grid-column: 2 / 4; grid-row: 4; display: flex; align-items: baseline; gap: 7px; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; font-size: var(--text-2xs); line-height: 1.45; color: var(--muted); }
+.mc-request .mc-label { flex: none; margin-right: 0; }
+.mc-request code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: -.1px; color: var(--muted); }
+/* Why a call failed or stopped, and whether it cost anything. */
+.mc-reason { grid-column: 2 / 4; grid-row: 5; min-width: 0; margin: 2px 0 0; font-size: var(--text-xs); line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+/* ---------- Running: a tinted row and a breathing dot ---------- */
+.mc-row[data-status="running"] { background: var(--blue-wash); }
+.mc-row[data-status="running"]::before { background: var(--live); }
+.mc-row[data-status="running"] .mc-status { color: var(--live); border-color: var(--blue-line); background: var(--paper); }
+.mc-row[data-status="running"] .mc-status::before { --ring: color-mix(in srgb, var(--live) 50%, transparent); animation: mc-ring 1.6s ease-out infinite; }
+
+/* ---------- Private: Muse Glimmer on this computer, no request leaves it ---------- */
+.mc-row:not([data-status="running"], [data-runs="local"]):hover { background: var(--tint); }
+.mc-row[data-runs="local"]:not([data-status="running"]) { background: color-mix(in srgb, var(--private-wash) 45%, var(--surface-raised)); }
+.mc-row[data-runs="local"]:not([data-status="running"]):hover { background: var(--private-wash); }
+.mc-row[data-runs="local"]:not([data-status="failed"], [data-status="stopped"], [data-status="running"])::before { background: var(--private); opacity: .7; }
+.mc-cost.is-local { color: var(--private); }
+.mc-local { grid-column: 2 / 4; grid-row: 4; min-width: 0; margin: 1px 0 0; display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--ink-soft); }
+.mc-local-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 7px; border-radius: var(--radius-pill); border: 1px solid var(--private-line); background: var(--private-wash); color: var(--private); font-size: var(--text-2xs); font-weight: 650; line-height: 1; }
+/* A small padlock, drawn as a mask so it takes the tag's colour. */
+.mc-local-tag::before { content: ""; flex: none; width: 9px; height: 10px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 10'%3E%3Cpath d='M2.25 4.5V3a2.25 2.25 0 0 1 4.5 0v1.5' fill='none' stroke='black' stroke-width='1.3'/%3E%3Crect x='.5' y='4.25' width='8' height='5.5' rx='1.4' fill='black'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 10'%3E%3Cpath d='M2.25 4.5V3a2.25 2.25 0 0 1 4.5 0v1.5' fill='none' stroke='black' stroke-width='1.3'/%3E%3Crect x='.5' y='4.25' width='8' height='5.5' rx='1.4' fill='black'/%3E%3C/svg%3E") center / contain no-repeat; }
+.mc-local-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Footer: what it cost and where it ran ---------- */
+.mc-foot { flex: none; padding: 14px var(--space-4) var(--space-4) var(--space-5); border-top: 1px solid var(--line); background: var(--paper-2); }
+.mc-total { font-size: var(--text-sm); font-weight: 600; line-height: 1.45; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
+.mc-where { margin-top: var(--space-1); font-size: var(--text-xs); line-height: 1.45; color: var(--muted); }
 
 @keyframes mc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .mc-toggle.is-live .mc-dot, .mc-row[data-status="running"] .mc-status::before { animation: none; } }
+@keyframes mc-ring { 0% { box-shadow: 0 0 0 0 var(--ring); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .mc-toggle.is-live svg, .mc-row[data-status="running"] .mc-status::before, .mc-sub.is-live::before { animation: none; } }
 @media (max-width: 920px) { .mc { top: 73px; max-height: calc(100dvh - 89px); } }
 @media (max-width: 700px) {
-  .mc-toggle { font-size: 10px; padding: 7px 9px; }
   .mc { right: 8px; left: 8px; width: auto; }
+  .mc-head, .mc-row, .mc-foot { padding-left: var(--space-4); }
   .mc-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .mc-time { grid-column: 1 / -1; grid-row: 1; }
+  .mc-time { grid-column: 1 / -1; grid-row: 1; padding-top: 0; }
   .mc-purpose { grid-column: 1; grid-row: 2; }
   .mc-status { grid-column: 2; grid-row: 2; }
   .mc-model { grid-column: 1; grid-row: 3; }
   .mc-cost { grid-column: 2; grid-row: 3; }
   .mc-facts { grid-column: 1 / -1; grid-row: 4; }
+  .mc-request { grid-column: 1 / -1; grid-row: 5; }
+  .mc-local { grid-column: 1 / -1; grid-row: 5; }
+  .mc-reason { grid-column: 1 / -1; grid-row: 6; }
 }

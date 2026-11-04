@@ -21,29 +21,31 @@ def plan(*ranges: tuple[float, float], **extra):
     return {"title": "Bowl", "segments": segments, "duration": round(sum(e - s for s, e in ranges), 3), **extra}
 
 
+LENGTH = "auto: length fits the target"
+
+
 def named(result: dict, name: str) -> dict:
-    return next(check for check in result["checks"] if check["name"] == name)
+    # The length check names its ceiling ("auto: length fits the target (≤ 8 s)"), so it is matched by its stem.
+    return next(check for check in result["checks"] if check["name"] == name or (name == LENGTH and check["name"].startswith(LENGTH + " (")))
 
 
 def test_checks_come_in_contract_order_and_pass_a_clean_plan() -> None:
     result = lint_plan(plan((0.0, 4.0), (8.5, 12.0)), target_duration=8, duration=20, sentences=SENTENCES)
+    # Captions were not requested, so nothing measured them and there is no caption check.
     assert [check["name"] for check in result["checks"]] == [
         "auto: cuts land on sentence boundaries",
-        "auto: duration matches the target",
+        "auto: length fits the target (\u2264 8 s)",
         "auto: moments inside the source and in order",
-        "auto: captions cover the speech",
     ]
     assert all(check["passed"] for check in result["checks"])
-    assert named(result, "auto: captions cover the speech")["note"] == "not requested"
     assert result["patches"] == []
     for check in result["checks"]:
         assert set(check) == {"name", "passed", "at", "note", "basis", "by"}
 
 
-def test_no_transcript_passes_the_sentence_check_with_a_note() -> None:
+def test_no_transcript_leaves_out_the_sentence_check() -> None:
     result = lint_plan(plan((0.0, 2.0)), target_duration=2, duration=10)
-    check = named(result, "auto: cuts land on sentence boundaries")
-    assert check["passed"] is True and check["note"] == "no transcript"
+    assert "auto: cuts land on sentence boundaries" not in [check["name"] for check in result["checks"]]
 
 
 def test_mid_sentence_cut_fails_with_output_time_and_snaps_to_the_nearest_boundary() -> None:
@@ -75,21 +77,28 @@ def test_boundary_within_tolerance_or_too_far_to_snap_is_handled() -> None:
 
 
 def test_duration_window_and_trim_patches_for_an_overlong_cut() -> None:
-    within = lint_plan(plan((0.0, 11.0)), target_duration=10, duration=20)
-    assert named(within, "auto: duration matches the target")["passed"]
+    within = lint_plan(plan((0.0, 10.5)), target_duration=10, duration=20)
+    assert named(within, LENGTH)["passed"], "0.5 s over a 10 s target is inside the allowance"
+    assert named(lint_plan(plan((0.0, 11.0)), target_duration=10, duration=20), LENGTH)["passed"] is False
     over = lint_plan(plan((0.0, 4.0), (6.0, 16.0)), target_duration=10, duration=20)
-    check = named(over, "auto: duration matches the target")
-    assert check["passed"] is False and "14.0 s cut vs 10.0 s target" in check["note"] and check["at"] == 10.0
+    check = named(over, LENGTH)
+    assert check["passed"] is False and "14.0 s cut, 4.0 s over the 10.0 s target" in check["note"] and check["at"] == 10.0
     assert over["patches"] == [{"op": "trim_end", "segment": 2, "seconds": 12.0, "reason": over["patches"][0]["reason"], "source": "auto"}]
     fixed, _ = apply_patches(plan((0.0, 4.0), (6.0, 16.0)), over["patches"], duration=20)
     assert fixed["duration"] == 10.0
-    # When the last moment cannot absorb the excess it is removed and the previous one trimmed.
+    # A moment too short to absorb the excess is kept; a longer one is shortened instead.
     over = lint_plan(plan((0.0, 10.0), (12.0, 13.0)), target_duration=6, duration=20)
-    assert [(p["op"], p["segment"], p["seconds"]) for p in over["patches"]] == [("remove", 2, None), ("trim_end", 1, 6.0)]
+    assert [(p["op"], p["segment"], p["seconds"]) for p in over["patches"]] == [("trim_end", 1, 5.0)]
     fixed, applied = apply_patches(plan((0.0, 10.0), (12.0, 13.0)), over["patches"], duration=20)
-    assert fixed["duration"] == 6.0 and len(fixed["segments"]) == 1 and [a["skipped"] for a in applied] == [None, None]
+    assert fixed["duration"] == 6.0 and len(fixed["segments"]) == 2 and [a["skipped"] for a in applied] == [None]
+    # When no single moment can absorb it, the lowest-ranked is dropped and the search repeats.
+    over = lint_plan(plan((0.0, 3.0), (5.0, 8.0), (10.0, 13.0)), target_duration=4, duration=20)
+    assert [(p["op"], p["segment"]) for p in over["patches"]] == [("remove", 3), ("trim_end", 2)]
+    # The target is a ceiling: a short cut passes, with a separate note that is not a failure.
     under = lint_plan(plan((0.0, 2.0)), target_duration=10, duration=20)
-    assert named(under, "auto: duration matches the target")["passed"] is False
+    assert named(under, LENGTH)["passed"] is True
+    note = named(under, "auto: note: the cut is well under the target")
+    assert note["passed"] is True and note["advisory"] is True and "2.0 s, 20% of the 10.0 s target" in note["note"]
     assert under["patches"] == []
 
 
@@ -119,7 +128,7 @@ def test_caption_coverage_is_measured_on_the_output_clock() -> None:
     check = named(half, "auto: captions cover the speech")
     assert check["passed"] is False and check["at"] == 5.0 and check["note"].startswith("50%")
     silent = lint_plan(story, target_duration=8, duration=20, captions=[], speech=[])
-    assert named(silent, "auto: captions cover the speech")["note"] == "no speech selected"
+    assert named(silent, "auto: captions cover the speech")["note"].startswith("Captions were requested. The transcript holds no speech in this cut")
 
 
 def test_output_time_sums_previous_segments() -> None:
@@ -241,11 +250,11 @@ def test_output_time_reads_the_clock_when_time_moves() -> None:
 def test_duration_check_counts_the_finished_length() -> None:
     fast = plan((0.0, 20.0))
     fast["segments"][0]["speed"] = 2.0
-    assert "10.0 s cut" in named(lint_plan(fast, target_duration=10, duration=30), "auto: duration matches the target")["note"]
+    assert "10.0 s cut" in named(lint_plan(fast, target_duration=10, duration=30), LENGTH)["note"]
     trimmed = edited((0.0, 20.0), removed=[[5.0, 15.0]])
-    assert named(lint_plan(trimmed, target_duration=10, duration=30), "auto: duration matches the target")["passed"]
+    assert named(lint_plan(trimmed, target_duration=10, duration=30), LENGTH)["passed"]
     overlapped = edited((0.0, 6.0), (10.0, 16.0), (20.0, 26.0), transition={"type": "fade", "seconds": 1.0})
-    assert "16.0 s cut" in named(lint_plan(overlapped, target_duration=16, duration=30), "auto: duration matches the target")["note"]
+    assert "16.0 s cut" in named(lint_plan(overlapped, target_duration=16, duration=30), LENGTH)["note"]
 
 
 def test_a_long_cut_is_shortened_through_speed_and_keep() -> None:

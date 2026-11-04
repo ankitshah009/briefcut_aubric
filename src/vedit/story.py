@@ -11,12 +11,14 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
 from vedit.analyze import Range, audible, detect_silence, keep_ranges
-from vedit.captions import cue_words, word_records
+from vedit.captions import _TERMINAL_END as TERMINAL_END
+from vedit.captions import SENTENCE_ENDS, cue_words, edge_stripped, is_tight, join_words, split_words, text_width, word_records
 from vedit.errors import VeditError
 from vedit.timeline import subtract
 from vedit.media import probe, run_ffmpeg
@@ -47,7 +49,6 @@ SNAP_OVERSHOOT = 0.15
 CUT_TOLERANCE = 0.25
 LABEL_CHARS = 40
 
-_WORD = re.compile(r"[a-z0-9][a-z0-9'\-]{1,}")
 _HOOK_HINT = re.compile(r"\b(open with|opening|start with|hook|begin with|first show)\b", re.I)
 _PROCESS_HINT = re.compile(
     r"\b(how (it|they|we|this|these|those|things?)('s| is| are| was| were|'re)? (made|built|done|crafted|created|produced|works?)"
@@ -59,7 +60,7 @@ COVERAGE_STRONG = 1.0
 SCENE_THRESHOLD = 0.3
 SCENE_FALLBACK = 0.1
 _SCENE_SCORE = re.compile(r"pts_time:([0-9.]+)\s*\n\s*lavfi\.scene_score=([0-9.]+)")
-_TERMINAL = re.compile(r"[.!?…]+[\"'”’)\]]*$")
+_TERMINAL = TERMINAL_END  # one list of sentence ends for every script
 _SNAP_EPS = 0.05
 # Words that describe the request (format, length, editing verbs) rather than
 # what the footage is about. Dropped from titles and hashtags.
@@ -79,6 +80,26 @@ _STOPWORDS = frozenset(
     "these they this those to too up us very was we were what when where which while who will with would you your "
     "video clip story show shows showing keep tell about also like get got into onto want wants please made".split()
 )
+
+
+# Words only English uses for its grammar. The hints above are English patterns, and in another
+# language they misfire: Spanish "a la playa" would read as an article and a subject.
+_ENGLISH_MARKERS = frozenset("the and of with about for this that these those is are was were it its my our your their from into how what make "
+                             "show tell keep starting opening".split())
+
+
+def reads_english(goal: str) -> bool:
+    """True when a brief is written in English, so the English hints may be applied to it.
+
+    English function words decide it; a very short brief in plain ASCII with none
+    ("Short cut please") is taken as English too.
+    """
+    words = [word.casefold() for word in _words(goal)]
+    if not words:
+        return False
+    if sum(word in _ENGLISH_MARKERS for word in words) >= max(1, len(words) // 10):
+        return True
+    return len(words) <= 4 and goal.isascii()
 
 
 class StoryError(VeditError):
@@ -105,8 +126,31 @@ class Moment:
 # ---------------------------------------------------------------------------
 
 
+def _words(text: str) -> list[str]:
+    """The words of any script: runs of letters, marks and digits, keeping an inner ' or -.
+
+    ``\\w`` would cut Hindi or Thai at every vowel sign. Text with no spaces is cut
+    into the same word-sized pieces the captions use.
+    """
+    words: list[str] = []
+    for chunk in text.split():
+        current = ""
+        for index, char in enumerate(chunk):
+            wordy = unicodedata.category(char)[0] in "LMN"
+            inner = char in "'’-" and current and index + 1 < len(chunk) and unicodedata.category(chunk[index + 1])[0] in "LMN"
+            if wordy or inner:
+                current += char
+            elif current:
+                words.append(current)
+                current = ""
+        if current:
+            words.append(current)
+    return [edge_stripped(piece) for word in words for piece in (split_words(word) if any(is_tight(char) for char in word) else [word]) if edge_stripped(piece)]
+
+
 def tokens(text: str) -> list[str]:
-    return [w for w in _WORD.findall(text.lower()) if w not in _STOPWORDS and len(w) >= 3]
+    """Content-bearing words, lowercased: three columns ("oak", "水槽"), or two letters of a script without case ("सिंक"), so "of" and "का" do not count."""
+    return [w for w in _words(text.lower()) if w not in _STOPWORDS and (text_width(w) >= 3 or sum(unicodedata.category(c) == "Lo" for c in w) >= 2)]
 
 
 def keywords(goal: str) -> list[str]:
@@ -142,7 +186,9 @@ def _clip_title(text: str, limit: int) -> str:
 
 
 def _subject_phrase(goal: str) -> str:
-    """The thing the brief is about: "about the oak bowl" → "the oak bowl"."""
+    """The thing the brief is about: "about the oak bowl" → "the oak bowl". English briefs only."""
+    if not reads_english(goal):
+        return ""
     match = _ABOUT.search(goal)
     if match:
         phrase = _PHRASE_STOP.split(match.group(2), maxsplit=1)[0]
@@ -158,17 +204,24 @@ def _subject_phrase(goal: str) -> str:
 
 
 def _title_from_goal(goal: str, transcript: list[dict[str, Any]] | None = None, limit: int = 60) -> str:
-    """A short, content-based title: the brief's subject, else its content words, else the first spoken sentence."""
+    """A short, content-based title: the brief's subject, else its content words, else the first spoken sentence.
+
+    Content words are picked with English stopwords, so a brief in another
+    language takes its title from what is said, then from the brief as written.
+    """
     phrase = _subject_phrase(goal)
     if phrase:
         return _clip_title(phrase, limit)
-    words = content_words(goal)[:4]
+    english = reads_english(goal) or not goal.strip()
+    words = content_words(goal)[:4] if english else []
     if words:
-        return _clip_title(" ".join(words), limit)
+        return _clip_title(join_words(words), limit)
     for sentence in sentences_from_transcript(transcript or []):
-        text = _clip_title(sentence["text"].rstrip(".!?… "), limit)
+        text = _clip_title(sentence["text"].rstrip(SENTENCE_ENDS + " "), limit)
         if text:
             return text
+    if not english:
+        return _clip_title(goal.rstrip(SENTENCE_ENDS + " "), limit)
     return "Your story"
 
 
@@ -177,8 +230,8 @@ def _hashtags(goal: str, transcript: list[dict[str, Any]] | None = None, limit: 
     tags: list[str] = []
 
     def add(word: str) -> None:
-        clean = re.sub(r"[^a-z0-9]", "", word)
-        if len(clean) >= 3 and not clean.isdigit() and clean not in tags and len(tags) < limit:
+        clean = "".join(char for char in word if unicodedata.category(char)[0] in "LMN")
+        if text_width(clean) >= 3 and not clean.isdigit() and clean not in tags and len(tags) < limit:
             tags.append(clean)
 
     for word in content_words(goal):
@@ -363,7 +416,7 @@ def coverage_weight(goal: str, *, spans: bool) -> float:
     """How strongly selection should spread across scenes: strong for process briefs, mild otherwise, none without spans."""
     if not spans:
         return 0.0
-    return COVERAGE_STRONG if _PROCESS_HINT.search(goal) else COVERAGE_MILD
+    return COVERAGE_STRONG if reads_english(goal) and _PROCESS_HINT.search(goal) else COVERAGE_MILD
 
 
 def _trimmed(moment: Moment, length: float) -> Moment:
@@ -439,7 +492,7 @@ def temporal_spans(duration: float, target: float, sentences: list[dict[str, Any
 
 def _post_copy(title: str, segments: list[dict[str, Any]], sentences: list[dict[str, Any]], *, limit: int = 220, quotes: int = 2) -> str:
     """Title plus one or two complete sentences spoken inside the selected moments."""
-    parts = [title.rstrip(".!?… ") + "."] if title else []
+    parts = [title.rstrip(SENTENCE_ENDS + " ") + "."] if title else []
     used = 0
     for segment in segments:
         for sentence in sentences:
@@ -547,7 +600,7 @@ def sentences_from_transcript(transcript: list[dict[str, Any]], *, duration: flo
             return
         start = min(item[0] for item in group)
         end = max(item[1] for item in group)
-        text = " ".join(item[2] for item in group)[:MAX_SENTENCE_CHARS]
+        text = join_words(item[2] for item in group)[:MAX_SENTENCE_CHARS]
         if end > start and len(sentences) < MAX_CUES:
             sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
         group.clear()
@@ -879,7 +932,7 @@ def build_plan(
     heard = heard_ranges(speech, sentences) if transcribed else speech
     target = min(float(target_duration), duration)
     goal_keys = keywords(goal)
-    hook_first = bool(_HOOK_HINT.search(goal))
+    hook_first = reads_english(goal) and bool(_HOOK_HINT.search(goal))
 
     if duration <= target_duration + 0.05 and not exclude:
         chosen = [Moment(0.0, round(duration, 3), 1.0, "opening", ["The whole clip fits the requested length"])]
@@ -1051,7 +1104,8 @@ def analyze_source(
     work_dir.mkdir(parents=True, exist_ok=True)
     scenes = merge_cuts(detect_scenes_fast(source, duration=info.duration), cuts)
     track = info.audio_map if info.has_audio else None
-    silences = detect_silence(source, threshold_db=-35.0, min_silence=0.35, track=track) if info.has_audio else []
+    # No fixed line: detect_silence places it under this track's own loudness, so a quiet phone clip is not all pause.
+    silences = detect_silence(source, min_silence=0.35, track=track) if info.has_audio else []
     if info.has_audio and not audible(source, track=track):
         warnings.append("This clip's sound track is silent, so moments follow the picture.")
     transcribed = False

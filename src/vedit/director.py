@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from vedit.captions import CLOSERS, SENTENCE_ENDS, _phrase_spaced, is_tight, join_words
 from vedit.edit_spec import (
     CAPTION_POSITIONS,
     CAPTION_STYLES,
@@ -104,6 +105,8 @@ _FIELDS = (
     EditField("captions.position", "Caption position", "choice", CAPTION_POSITIONS),
     _color("captions.color", "Caption color"),
     _color("captions.highlight", "Caption highlight"),
+    # On with no words named, the next render asks Muse Spark for each line's punch word.
+    _flag("captions.emphasize", "Caption punch words"),
     _pick("zoom.mode", "Zoom", ZOOM_MODES),
     _number("zoom.strength", "Zoom strength", 0.0, 1.0),
     _flag("trim_pauses", "Trim pauses"),
@@ -364,12 +367,40 @@ def find_in_transcript(query: str, sentences: Iterable[dict[str, Any]], *, limit
     return found[:limit]
 
 
+_CHECKED = ("verified", "coverage", "thumbnail", "evidence", "flagged", "verification")
+
+
+def _checked_inside(checked: dict[str, Any], twin: dict[str, Any]) -> bool:
+    """True when at least half of the window SAM looked at (``evidence.window``) lies inside ``twin``.
+
+    A check with no window was made on the moment itself, so its own range stands in.
+    """
+    evidence = checked.get("evidence") if isinstance(checked.get("evidence"), dict) else {}
+    window = evidence.get("window")
+    numbers = isinstance(window, (list, tuple)) and len(window) == 2 and all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in window)
+    low, high = (float(window[0]), float(window[1])) if numbers else (checked.get("start"), checked.get("end"))
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (low, high, twin.get("start"), twin.get("end"))):
+        return False
+    if high <= low:
+        return twin["start"] <= low <= twin["end"]
+    return min(high, twin["end"]) - max(low, twin["start"]) >= 0.5 * (high - low)
+
+
 def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> list[dict[str, Any]]:
-    """Combine searches. A moment two searches agree on is one moment and ranks first."""
+    """Combine searches. A moment two searches agree on is one moment and ranks first.
+
+    Two moments are one only when they share more than half of the longer one:
+    a whole-clip moment (0 to 40 s) and a 3 s sentence inside it stay two.
+    When the moment that merges in carries SAM's check (``verify_find``) and its
+    twin does not, the check moves onto the twin only if the window SAM looked
+    at lies mostly inside the twin. Otherwise the twin shows no verdict, never
+    one about footage it does not hold.
+    """
     merged: list[dict[str, Any]] = []
     for group in groups:
         for moment in group:
-            twin = next((item for item in merged if min(item["end"], moment["end"]) - max(item["start"], moment["start"]) > 0.5 * min(item["end"] - item["start"], moment["end"] - moment["start"])), None)
+            twin = next((item for item in merged if min(item["end"], moment["end"]) - max(item["start"], moment["start"]) > 0.5 * max(item["end"] - item["start"], moment["end"] - moment["start"])), None)
             if twin is None:
                 merged.append(dict(moment))
                 continue
@@ -377,6 +408,10 @@ def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> 
                 twin["source"] = "both"
                 twin["score"] = round(min(1.0, max(twin.get("score", 0), moment.get("score", 0)) + 0.1), 3)
                 twin["reason"] = f"{twin['reason']} {moment['reason']}"[:600]
+            if ((twin.get("verified") is None and moment.get("verified") is not None) or ("verification" not in twin and "verification" in moment)) \
+                    and _checked_inside(moment, twin):
+                # SAM checked the footage moment; its verdict and picture survive the merge when they are about the twin's footage.
+                twin.update({key: moment[key] for key in _CHECKED if key in moment})
     merged.sort(key=lambda item: (-item.get("score", 0), item["start"]))
     return merged[:limit]
 
@@ -386,16 +421,63 @@ def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> 
 # ---------------------------------------------------------------------------
 
 _SCENE_LABEL = re.compile(r"^\s*(?:#{1,6}\s*)?(?:scene|shot|part)\s*\d+\s*[:.\-–—]?\s*", re.IGNORECASE)
-_SENTENCE_END = re.compile(r"(?<=[.!?…])[\"'”’)\]]*\s+")
-_SENTENCE_CLOSE = re.compile(r"[.!?…][\"'”’)\]]*$")
+# Sentence ends in every script the captions know (captions.SENTENCE_ENDS): Latin marks end a
+# sentence only before a space ("3.5" and "e.g." stay whole), while 。！？।؟ and the like end one
+# even with no space after, as Chinese and Japanese are written. Closing quotes stay with their sentence.
+_LATIN_ENDS = frozenset(".!?…‼⁇⁈⁉‽")
+_SENTENCE_BOUNDARY = re.compile("[" + re.escape(SENTENCE_ENDS) + "]+[" + re.escape(CLOSERS) + r"]*\s*")
+_SENTENCE_CLOSE = re.compile("[" + re.escape(SENTENCE_ENDS) + "][" + re.escape(CLOSERS) + "]*$")
+
+
+_TIGHT_CHARS_PER_WORD = 2  # a script without spaces reads at about 5 characters a second at READING_WORDS_PER_SECOND
 
 
 def _words(text: str) -> int:
-    return len(text.split())
+    """Words in any script, for pacing. A run written without spaces (Chinese, Japanese, Thai)
+    counts one word per ``_TIGHT_CHARS_PER_WORD`` characters, so a long Japanese line is not one word."""
+    count = 0
+    for chunk in text.split():
+        tight = sum(1 for char in chunk if is_tight(char))
+        count += math.ceil(tight / _TIGHT_CHARS_PER_WORD) if tight else 1
+    return count
+
+
+def count_words(text: str) -> int:
+    """Words in a script, in any script: what the word limit and reading time count."""
+    return _words(text)
 
 
 def _sentences(text: str) -> list[str]:
-    return [part.strip() for part in _SENTENCE_END.split(text) if part.strip()]
+    sentences: list[str] = []
+    begin = 0
+    for match in _SENTENCE_BOUNDARY.finditer(text):
+        mark = match.group(0).rstrip()
+        spaced = match.end() == len(text) or match.group(0) != mark
+        if not spaced and all(char in _LATIN_ENDS or char in CLOSERS for char in mark):
+            continue
+        piece = text[begin:match.start() + len(mark)].strip()
+        if piece:
+            sentences.append(piece)
+        begin = match.end()
+    if text[begin:].strip():
+        sentences.append(text[begin:].strip())
+    return sentences
+
+
+def _join_lines(parts: Iterable[str]) -> str:
+    """Lines, sentences or scenes back into one text.
+
+    Like ``join_words``, no space goes between Chinese or Japanese text. Thai,
+    Lao, Khmer and Myanmar write no space between words but one between
+    phrases, so a line break there becomes a space, as it reads.
+    """
+    text = ""
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        text = f"{text} {part}" if text and _phrase_spaced(text[-1]) and _phrase_spaced(part[0]) else join_words((text, part))
+    return text
 
 
 def _shared_out(sentences: list[str], scenes: int) -> list[str]:
@@ -411,7 +493,7 @@ def _shared_out(sentences: list[str], scenes: int) -> list[str]:
             groups.append([])
         groups[-1].append(sentence)
         spent += _words(sentence)
-    return [" ".join(group) for group in groups if group]
+    return [_join_lines(group) for group in groups if group]
 
 
 def split_script(script: str, *, max_scenes: int = MAX_SCENES) -> list[str]:
@@ -424,7 +506,7 @@ def split_script(script: str, *, max_scenes: int = MAX_SCENES) -> list[str]:
     blocks: list[str] = []
     for block in re.split(r"\n\s*\n", script.strip()):
         lines = [_SCENE_LABEL.sub("", line).strip() for line in block.splitlines()]
-        text = " ".join(line for line in lines if line)
+        text = _join_lines(lines)
         if text:
             blocks.append(text)
     if not blocks:
@@ -442,7 +524,7 @@ def split_script(script: str, *, max_scenes: int = MAX_SCENES) -> list[str]:
     while len(scenes) > max_scenes:
         # The shortest neighbouring pair reads most naturally as one scene.
         index = min(range(len(scenes) - 1), key=lambda at: _words(scenes[at]) + _words(scenes[at + 1]))
-        scenes[index:index + 2] = [scenes[index] + " " + scenes[index + 1]]
+        scenes[index:index + 2] = [_join_lines(scenes[index:index + 2])]
     return scenes
 
 
@@ -468,9 +550,14 @@ def _word_map(heard: list[dict[str, Any]], written: list[str]) -> list[int | Non
     """For each heard word, the written word it lines up with, or None."""
     from difflib import SequenceMatcher
 
-    plain = re.compile(r"[^\w']+", re.UNICODE)
-    heard_keys = [plain.sub("", str(word.get("text") or "")).lower() for word in heard]
-    written_keys = [plain.sub("", word).lower() for word in written]
+    import unicodedata
+
+    def key(text: str) -> str:
+        # Letters, digits, combining marks and apostrophes. A \w class drops marks such as Devanagari vowel signs.
+        return "".join(char for char in text if char == "'" or unicodedata.category(char)[0] in "LNM").lower()
+
+    heard_keys = [key(str(word.get("text") or "")) for word in heard]
+    written_keys = [key(word) for word in written]
     mapping: list[int | None] = [None] * len(heard)
     for tag, low, high, first, last in SequenceMatcher(None, heard_keys, written_keys, autojunk=False).get_opcodes():
         if tag == "equal" or (tag == "replace" and high - low == last - first):

@@ -1,0 +1,892 @@
+{
+  "run": "A5",
+  "title": "examples/demo/workshop.mp4 (speech) to 1:1 with captions and the Muse Spark director review, then revise director",
+  "path": "MCP stdio, the exact .mcp.json command, isolated VEDIT_WORKSPACE",
+  "command": [
+    "uv",
+    "run",
+    "--no-dev",
+    "--extra",
+    "mcp",
+    "--extra",
+    "sam",
+    "vedit",
+    "mcp"
+  ],
+  "started_at": "2026-11-04T11:35:19-0800",
+  "code": {
+    "head": "7b1cc73",
+    "working_tree_diff_sha256": "809d784cf5a873f2"
+  },
+  "job_id": "2553def149ca4e40a99dfc79d6c897ef",
+  "request": {
+    "clips": [
+      "workshop.mp4"
+    ],
+    "goal": "A 20-second square post that shows how the oak bowl is made, from the raw blank to the oiled bowl. Trim the pauses.",
+    "aspect": "1:1",
+    "target_duration": 20,
+    "budget_usd": 0.1,
+    "captions": true,
+    "review": true,
+    "steps": []
+  },
+  "meta_mode": "contributor",
+  "tools_listed": 21,
+  "plan": {
+    "title": "Raw Blank to Oiled Oak Bowl",
+    "caption": "Raw blank to oiled bowl in seconds \u2014 turning, sanding and oiling, pauses trimmed.",
+    "hashtags": [
+      "#woodturning",
+      "#oakbowl",
+      "#makerprocess"
+    ],
+    "duration": 17.657,
+    "decisions": [
+      "Found no pauses longer than 0.6 s inside the selected moments"
+    ],
+    "warnings": [],
+    "provider": "meta",
+    "segments": [
+      {
+        "start": 8.2,
+        "end": 10.94,
+        "label": "Raw blank",
+        "reason": "Extreme close-up of concentric growth rings on mottled background shows the raw material stage, different from the finished bowl on planks. Keeps spoken sentence [8.2-10.9] intact and trims pauses.",
+        "kind": "speech"
+      },
+      {
+        "start": 12.2,
+        "end": 14.54,
+        "label": "Reading the grain",
+        "reason": "Holds on grain pattern detail while narration describes grain direction. Keeps spoken sentence [12.2-14.5] intact and trims pauses.",
+        "kind": "speech"
+      },
+      {
+        "start": 16.3,
+        "end": 19.18,
+        "label": "Shaping cuts",
+        "reason": "Top-down bowl view with light tool at rim and scattered particles visible, indicating cutting work. Keeps spoken sentence [16.3-19.2] intact and trims pauses.",
+        "kind": "speech"
+      },
+      {
+        "start": 24.383,
+        "end": 28.14,
+        "label": "Sanding",
+        "reason": "Continued top-down bowl view with smoother surface and tool presence, marking the smoothing stage. Keeps spoken sentence [24.5-28.1] intact and trims pauses; start moved back to sentence start at 24.4 s.",
+        "kind": "speech"
+      },
+      {
+        "start": 32.3,
+        "end": 34.94,
+        "label": "Oiling color",
+        "reason": "Bowl shows warmer deeper tone and soft sheen on dark planks, marking color change stage. Keeps spoken sentence [32.3-34.9] intact and trims pauses.",
+        "kind": "speech"
+      },
+      {
+        "start": 35.8,
+        "end": 39.1,
+        "label": "Finished bowl",
+        "reason": "Final top-down view of completed bowl centered on dark planks with clear grain rings. Keeps spoken sentence [35.8-39.1] intact and trims pauses.",
+        "kind": "speech"
+      }
+    ]
+  },
+  "source": {
+    "name": "workshop.mp4",
+    "duration": 40.021354,
+    "width": 1280,
+    "height": 720,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "workshop.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 40.021
+      }
+    ],
+    "filmstrip": {
+      "columns": 10,
+      "rows": 3,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 21,
+      "seconds_per_tile": 2.0,
+      "url": "filmstrip"
+    },
+    "waveform": {
+      "url": "waveform",
+      "count": 402,
+      "seconds_per_peak": 0.1
+    }
+  },
+  "plan_seconds": 88.5,
+  "render_seconds": 55.8,
+  "renders": [
+    {
+      "what": "first render",
+      "receipts": {
+        "revision": 1,
+        "passed": 11,
+        "total": 13,
+        "proof": {
+          "duration": 17.666667,
+          "width": 1080,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 2418176
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "every cut sits on a sentence boundary",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "meta-voice-transcribe"
+            ]
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "17.7 s cut vs 20.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "6 moments inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "100% of 16.2 s of speech has a caption",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "meta-voice-transcribe"
+            ]
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Found no pauses longer than 0.6 s inside the selected moments.",
+            "basis": "derived",
+            "by": "brief-parser"
+          },
+          {
+            "name": "director: Duration under 20-second ceiling",
+            "passed": true,
+            "note": "Cut ends at 17.7s with final bowl held at 14.5-17.7s, under the ceiling.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Square post framing",
+            "passed": true,
+            "note": "Frame stays square throughout, rings at 0s and bowl at 6s fill center.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Shows raw blank to oiled bowl",
+            "passed": true,
+            "note": "Starts on wet ring close-up saying raw oak blank and ends on deep brown bowl saying ready to use.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Pauses trimmed",
+            "passed": true,
+            "note": "Speech runs 0.2-17.7s with no dead air, shaping line follows grain line cleanly.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Hook inside first 3 seconds",
+            "passed": true,
+            "note": "Voice enters at 0.2s with raw oak blank still wet and heavy over bold rings.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Pacing stays engaging",
+            "passed": false,
+            "note": "Ring close-up holds nearly unchanged 0-5.0s and top-down bowl holds 5-17.7s with little motion.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Picture matches words",
+            "passed": false,
+            "note": "At 8-11.7s hear sanding coarse to fine while view still shows gray shaping tip bottom-right with flying chips.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Captions read easily",
+            "passed": true,
+            "note": "Boxed white captions sit bottom-center 0.2-17.7s over wood with high contrast.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          }
+        ],
+        "warnings": [
+          "The source is 1280x720, so this 1080x1080 export is upscaled and gains no detail."
+        ],
+        "patches": [
+          {
+            "op": "set_edit",
+            "segment": null,
+            "seconds": null,
+            "path": "zoom.mode",
+            "value": "slow",
+            "reason": "Add motion to long static holds of rings and bowl to lift pacing",
+            "source": "director",
+            "summary": "Zoom: Slow push."
+          },
+          {
+            "op": "set_edit",
+            "segment": null,
+            "seconds": null,
+            "path": "texts",
+            "value": {
+              "text": "Sanding - coarse to fine",
+              "start": 8.0,
+              "duration": 3.7,
+              "style": "label",
+              "position": "top"
+            },
+            "reason": "Label sanding stage over bowl view to align picture with sanding words",
+            "source": "director",
+            "summary": "Add the text \u201cSanding - coarse to fine\u201d at 8.0 s."
+          }
+        ],
+        "review": {
+          "verdict": "Neat 17.7s arc from ring close-up at 0s to glossy bowl at 14.3s reads clearly, but static hold at 0-5s sags and gray tip bottom-right at 8-11.7s still reads as cutting during sanding line.",
+          "caption_suggestion": "Wet oak blank to warm oiled bowl \u2014 grain, shaping, sanding and oil in under 18 seconds.",
+          "strengths": [
+            "Opens at 0.2s with raw oak blank still wet and heavy over bold growth rings, immediate material entry.",
+            "Shaping at 5.2s shows bowl hollowing with shavings flying as voice says long steady cuts, picture and words line up.",
+            "Oil payoff at 11.8s shows deepening brown color as voice says brings out the color, clear before-after."
+          ],
+          "fixes": [
+            {
+              "what": "Add gentle push-in over ring close-up at 0-5s and over bowl view at 5-17.7s so static holds breathe",
+              "where_seconds": 0.0
+            },
+            {
+              "what": "Anchor sanding line at 8-11.7s where gray tip sits bottom-right with a top label naming the sanding stage so bowl reads as sanding",
+              "where_seconds": 8.0
+            }
+          ],
+          "hook_score": 3,
+          "checks": [
+            {
+              "name": "Duration under 20-second ceiling",
+              "passed": true,
+              "at": 17.667,
+              "note": "Cut ends at 17.7s with final bowl held at 14.5-17.7s, under the ceiling."
+            },
+            {
+              "name": "Square post framing",
+              "passed": true,
+              "at": 0.0,
+              "note": "Frame stays square throughout, rings at 0s and bowl at 6s fill center."
+            },
+            {
+              "name": "Shows raw blank to oiled bowl",
+              "passed": true,
+              "at": 0.2,
+              "note": "Starts on wet ring close-up saying raw oak blank and ends on deep brown bowl saying ready to use."
+            },
+            {
+              "name": "Pauses trimmed",
+              "passed": true,
+              "at": 5.0,
+              "note": "Speech runs 0.2-17.7s with no dead air, shaping line follows grain line cleanly."
+            },
+            {
+              "name": "Hook inside first 3 seconds",
+              "passed": true,
+              "at": 0.2,
+              "note": "Voice enters at 0.2s with raw oak blank still wet and heavy over bold rings."
+            },
+            {
+              "name": "Pacing stays engaging",
+              "passed": false,
+              "at": 2.5,
+              "note": "Ring close-up holds nearly unchanged 0-5.0s and top-down bowl holds 5-17.7s with little motion."
+            },
+            {
+              "name": "Picture matches words",
+              "passed": false,
+              "at": 9.5,
+              "note": "At 8-11.7s hear sanding coarse to fine while view still shows gray shaping tip bottom-right with flying chips."
+            },
+            {
+              "name": "Captions read easily",
+              "passed": true,
+              "at": 6.0,
+              "note": "Boxed white captions sit bottom-center 0.2-17.7s over wood with high contrast."
+            }
+          ],
+          "patches": [
+            {
+              "op": "set_edit",
+              "segment": null,
+              "seconds": null,
+              "path": "zoom.mode",
+              "value": "slow",
+              "reason": "Add motion to long static holds of rings and bowl to lift pacing",
+              "source": "director"
+            },
+            {
+              "op": "set_edit",
+              "segment": null,
+              "seconds": null,
+              "path": "texts",
+              "value": {
+                "text": "Sanding - coarse to fine",
+                "start": 8.0,
+                "duration": 3.7,
+                "style": "label",
+                "position": "top"
+              },
+              "reason": "Label sanding stage over bowl view to align picture with sanding words",
+              "source": "director"
+            }
+          ],
+          "provider": "meta",
+          "model": "muse-spark-1.3-contributor",
+          "director": "muse-spark",
+          "usage": {
+            "estimated_max_usd": 0.0034927,
+            "cached": false,
+            "input_tokens": 6358,
+            "output_tokens": 6935,
+            "total_tokens": 13293,
+            "cost_usd": 0.0020228
+          },
+          "warnings": []
+        },
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 11,
+            "total": 13,
+            "duration": 17.666667
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 17.666667,
+        "size_bytes": 2418176,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1080,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      }
+    },
+    {
+      "what": "briefcut_revise mode=director",
+      "error": null,
+      "receipts": {
+        "revision": 2,
+        "passed": 13,
+        "total": 13,
+        "proof": {
+          "duration": 17.666667,
+          "width": 1080,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 2616983
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "every cut sits on a sentence boundary",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "meta-voice-transcribe"
+            ]
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "17.7 s cut vs 20.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "6 moments inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "100% of 16.2 s of speech has a caption",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "meta-voice-transcribe"
+            ]
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Found no pauses longer than 0.6 s inside the selected moments.",
+            "basis": "derived",
+            "by": "brief-parser"
+          },
+          {
+            "name": "director: Duration within 20-second ceiling",
+            "passed": true,
+            "note": "Cut runs 17.7s and ends on the finished oiled bowl, under the 20s ceiling.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Square post framing",
+            "passed": true,
+            "note": "Raw oak rings and later bowl fill a square frame edge to edge.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Shows raw blank to oiled bowl arc",
+            "passed": true,
+            "note": "Starts on wet raw oak blank rings and ends on oiled bowl with deep color.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Pauses trimmed",
+            "passed": true,
+            "note": "Voice runs 0.2-17.7s back to back with no dead air between blank, lathe and oiling.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Hook inside first 3 seconds",
+            "passed": true,
+            "note": "Extreme close-up of oak growth rings at 0-2.7s while voice says wet and heavy.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Pacing holds attention",
+            "passed": true,
+            "note": "Six steps from blank at 0s to lathe cuts at 6s to sanding at 9s to oil at 12s move without linger.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Picture matches words",
+            "passed": true,
+            "note": "Bowl spinning with shavings at 5-8s matches long steady cuts, glowing bowl at 12s matches oil brings color.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          },
+          {
+            "name": "director: Captions and on-screen text read easily",
+            "passed": true,
+            "note": "Bottom boxed captions for lathe and sanding plus top Sanding - coarse to fine label stay clear of bowl.",
+            "basis": "inferred",
+            "by": "muse-spark"
+          }
+        ],
+        "warnings": [
+          "The source is 1280x720, so this 1080x1080 export is upscaled and gains no detail."
+        ],
+        "patches": [],
+        "review": {
+          "verdict": "Tight and clear square story that works: wet oak rings at 0s hook, steady lathe cuts at 6s and sanding label at 9s carry the middle, and the oiled glowing bowl at 12-17s lands the raw-to-ready arc with readable captions throughout.",
+          "caption_suggestion": "Wet oak blank to glowing food-safe bowl in under 18s \u2014 watch the grain come alive.",
+          "strengths": [
+            "Opening 0-2.7s close-up of raw oak rings while voice says still wet and heavy instantly establishes material",
+            "Lathe shaping 5.2-8.0s shows bowl spinning with shavings flying while voice says long steady cuts, process is legible",
+            "Oiling 11.8-14.4s shows bowl warming on dark boards while voice says brings out the color, payoff is visible"
+          ],
+          "fixes": [],
+          "hook_score": 4,
+          "checks": [
+            {
+              "name": "Duration within 20-second ceiling",
+              "passed": true,
+              "at": 17.667,
+              "note": "Cut runs 17.7s and ends on the finished oiled bowl, under the 20s ceiling."
+            },
+            {
+              "name": "Square post framing",
+              "passed": true,
+              "at": 1.0,
+              "note": "Raw oak rings and later bowl fill a square frame edge to edge."
+            },
+            {
+              "name": "Shows raw blank to oiled bowl arc",
+              "passed": true,
+              "at": 2.0,
+              "note": "Starts on wet raw oak blank rings and ends on oiled bowl with deep color."
+            },
+            {
+              "name": "Pauses trimmed",
+              "passed": true,
+              "at": 5.0,
+              "note": "Voice runs 0.2-17.7s back to back with no dead air between blank, lathe and oiling."
+            },
+            {
+              "name": "Hook inside first 3 seconds",
+              "passed": true,
+              "at": 1.0,
+              "note": "Extreme close-up of oak growth rings at 0-2.7s while voice says wet and heavy."
+            },
+            {
+              "name": "Pacing holds attention",
+              "passed": true,
+              "at": 8.0,
+              "note": "Six steps from blank at 0s to lathe cuts at 6s to sanding at 9s to oil at 12s move without linger."
+            },
+            {
+              "name": "Picture matches words",
+              "passed": true,
+              "at": 6.5,
+              "note": "Bowl spinning with shavings at 5-8s matches long steady cuts, glowing bowl at 12s matches oil brings color."
+            },
+            {
+              "name": "Captions and on-screen text read easily",
+              "passed": true,
+              "at": 9.5,
+              "note": "Bottom boxed captions for lathe and sanding plus top Sanding - coarse to fine label stay clear of bowl."
+            }
+          ],
+          "patches": [],
+          "provider": "meta",
+          "model": "muse-spark-1.3-contributor",
+          "director": "muse-spark",
+          "usage": {
+            "estimated_max_usd": 0.0034942,
+            "cached": false,
+            "input_tokens": 6373,
+            "output_tokens": 3961,
+            "total_tokens": 10334,
+            "cost_usd": 0.0014295
+          },
+          "warnings": []
+        },
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 11,
+            "total": 13,
+            "duration": 17.666667
+          },
+          {
+            "revision": 2,
+            "status": "verified",
+            "source": "director",
+            "passed": 13,
+            "total": 13,
+            "duration": 17.666667
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 17.666667,
+        "size_bytes": 2616983,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1080,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      },
+      "seconds": 36.3
+    }
+  ],
+  "tool_log": [
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.18,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.09,
+      "error": false
+    },
+    {
+      "tool": "briefcut_create_story",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 88.49,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 55.79,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.14,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_revise",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 36.25,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    }
+  ],
+  "wall_seconds_total": 181.9,
+  "meta": {
+    "calls": [
+      {
+        "operation": "review",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Review the finished cut",
+        "status": "done",
+        "seconds": 19.95,
+        "reserved_usd": 0.0034942,
+        "cost_usd": 0.0014295,
+        "size": {
+          "input_tokens": 6373,
+          "output_tokens": 3961
+        },
+        "request_id": "resp_6aeb8a435f333c14d9144cae",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "review",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Review the finished cut",
+        "status": "done",
+        "seconds": 35.49,
+        "reserved_usd": 0.0034927,
+        "cost_usd": 0.0020228,
+        "size": {
+          "input_tokens": 6358,
+          "output_tokens": 6935
+        },
+        "request_id": "resp_6aeb8983274c456c5dda4e89",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "story",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Plan the story",
+        "status": "done",
+        "seconds": 58.72,
+        "reserved_usd": 0.0033846,
+        "cost_usd": 0.0040396,
+        "size": {
+          "input_tokens": 11696,
+          "output_tokens": 14350
+        },
+        "request_id": "resp_6aeb894a1cac0eec0c5b416a",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "transcribe",
+        "model": "muse-voice-transcribe-1.0",
+        "purpose": "Transcribe speech for captions",
+        "status": "done",
+        "seconds": 9.75,
+        "reserved_usd": 0.00205,
+        "cost_usd": 0.002,
+        "size": {
+          "audio_seconds": 40.0
+        },
+        "request_id": null,
+        "runs_on": "meta-api"
+      }
+    ],
+    "totals": {
+      "calls": 4,
+      "running": 0,
+      "spent_usd": 0.0094919,
+      "held_usd": 0.0130765,
+      "api_calls": 4,
+      "local_calls": 0,
+      "budget_usd": 0.1,
+      "remaining_usd": 0.0869235
+    },
+    "spent_usd": 0.009492,
+    "reserved_usd": 0.012422
+  },
+  "contact_sheets": [
+    "a5-v1.jpg",
+    "a5-v2.jpg"
+  ],
+  "findings": [
+    "v1 11 of 13: all 5 lint checks passed, and Spark failed 2 of its 8 opinion checks (pacing; picture vs words) and proposed 2 patches. revise director produced v2: slow push-in plus a 'Sanding - coarse to fine' label, 13 of 13.",
+    "Voice Transcribe wrote '24 hours later the bowl the bowl is ready'. It was burned into v1 and v2. The caption cleanup (captions.py:381) collapses only a repeated single word: run C's 'the bowl bowl' came out clean. Spark's 'Captions read easily' check passed both versions."
+  ]
+}

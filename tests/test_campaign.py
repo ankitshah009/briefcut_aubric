@@ -154,7 +154,8 @@ def test_cost_receipts_reserve_uncertain_calls_and_deduplicate_ids(tmp_path: Pat
         {"id": "first", "reserved_usd": 0.1},
     ]}))
     summary = CampaignManager._usage_summary(tmp_path, 0.25)
-    assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.12, "remaining_usd": 0.13}
+    # The uncertain call keeps its whole reservation ($0.10, counted once); the finished one holds what it billed ($0.01).
+    assert {key: summary[key] for key in ("cap_usd", "reserved_usd", "remaining_usd")} == {"cap_usd": 0.25, "reserved_usd": 0.11, "remaining_usd": 0.14}
     assert set(summary["operations"]) == {"story", "tracking", "cover", "transcribe", "review", "patch", "translate", "other"}
     (root / "meta-usage.json").write_text('{"calls": "corrupt"}')
     with pytest.raises(CampaignError, match="unreadable"):
@@ -425,7 +426,7 @@ def test_directors_notes_are_attached_to_the_verified_render(manager: CampaignMa
     monkeypatch.setenv("VEDIT_META_ENABLED", "1")
     seen: dict[str, object] = {}
 
-    def fake_review(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float):
+    def fake_review(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float, **kwargs):
         info = probe(video)
         seen.update(width=info.width, height=info.height, goal=goal, plan_duration=plan.get("duration"), work_dir=work_dir)
         return {"verdict": "Tight and clear.", "strengths": ["Good opener"], "fixes": [{"what": "Hold the end.", "where_seconds": 0.8}], "caption_suggestion": "A clear look.", "hook_score": 4, "provider": "meta", "usage": {"cost_usd": 0.0004}, "warnings": []}
@@ -461,7 +462,7 @@ def test_failed_review_warns_but_keeps_the_verified_render(manager: CampaignMana
     manager.process(job["id"])
     complete = manager.get(job["id"])
     assert complete["status"] == "complete", complete["error"]
-    assert complete["result"]["review"] == {"error": "Meta's rate limit was reached. Wait briefly, then retry."}
+    assert complete["result"]["review"] == {"error": "Meta's rate limit was reached. Wait briefly, then retry.", "director": "muse-spark"}
     assert any(warning.startswith("Director's notes unavailable") for warning in complete["result"]["warnings"])
     assert complete["result"]["proof"]["has_video"] is True
 

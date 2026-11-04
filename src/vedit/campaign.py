@@ -33,9 +33,9 @@ from vedit.edit_spec import TEMPLATES, EditError, catalogue, merge_edit, validat
 from vedit.effects import REQUIRED_EFFECT_FILTERS, EffectError, effect_catalogue, validate_effect
 from vedit.errors import RenderCancelled, VeditError
 from vedit.ir import Brief, Canvas, brief_dumps
-from vedit.captions import Cue, build_caption_file, concat_cues, cue_key, extract_kept_audio, preview_cues, word_records, write_caption_files
+from vedit.captions import Cue, build_caption_file, concat_cues, cue_key, preview_cues, translation_target, word_records, write_caption_files
 from vedit.captions import TRANSCRIBER, transcribe as transcribe_speech
-from vedit.media import check_playable, export_problem, has_filter, plain_failure, probe, resolve_ffmpeg, resolve_ffprobe, run_ffmpeg, source_notes, source_problem
+from vedit.media import check_playable, export_problem, has_filter, plain_failure, probe, resolve_ffmpeg, resolve_ffprobe, source_notes, source_problem, standard_rate
 from vedit.pipeline import Pipeline, execute, write_codegen, write_report
 from vedit.presets import get_preset, verification
 from vedit import project_media
@@ -43,10 +43,11 @@ from vedit.beats import snap_to_music
 from vedit.render_plan import assembly_op, brief_sources, build_ops, delivery_preset, has_sound
 from vedit.render_plan import context as render_context
 from vedit.director import (
-    EDIT_FIELDS, IMAGE_PRICE_USD, IMAGE_SIZES, MAX_QUERY_CHARS, MAX_REFINE_ROUNDS, MAX_SCRIPT_WORDS, SCRIPT_EDIT, describe_patch, find_in_transcript,
+    EDIT_FIELDS, IMAGE_PRICE_USD, IMAGE_SIZES, MAX_QUERY_CHARS, MAX_REFINE_ROUNDS, MAX_SCRIPT_WORDS, SCRIPT_EDIT, count_words, describe_patch, find_in_transcript,
     merge_moments, place_script_words, reading_seconds, refine_stop, split_script,
 )
-from vedit.lint import MAX_MOMENTS, PATCH_OPS, apply_patches, lint_plan, subject_cutout_check, subject_in_frame_check
+from vedit.lint import (MAX_MOMENTS, PATCH_OPS, apply_patches, brief_bookends, hero_word_check, lint_plan, snap_to_clips, subject_cutout_check,
+                        subject_in_frame_check)
 from vedit.timeline import MAX_SPEED, MIN_SPEED, build_timeline, output_duration, plan_timeline
 
 _ACTIVE = {"queued", "analyzing", "rendering"}
@@ -69,6 +70,8 @@ _LONGEST_EDIT = 86_400.0
 _ID = re.compile(r"^[a-f0-9]{32}$")
 _LANGUAGE = re.compile(r"^(?:auto|[a-z]{2,3}(?:-[A-Za-z]{2,8})?)$")
 _KIND = re.compile(r"^[a-z][a-z_-]{0,23}$")
+FOUND_THUMBNAILS = "verified-find"  # inside the project's meta folder, beside the ledger SAM's check spends on
+_FOUND_NAME = re.compile(r"[a-z0-9-]{1,80}\.jpg")  # verify_find's names: no dot or slash before the suffix
 
 
 class CampaignError(Exception):
@@ -162,6 +165,16 @@ def _partial_edit(value: Any) -> dict[str, Any]:
     return known(value, clean)
 
 
+DIRECTORS = ("spark", "wonder")
+
+
+def _director_choice(value: Any) -> str:
+    """Who reviews the finished cut: ``spark`` (Muse Spark, the default) or ``wonder`` (Muse Wonder, which also listens)."""
+    if not isinstance(value, str) or value not in DIRECTORS:
+        raise CampaignError("Choose spark or wonder as the director.")
+    return value
+
+
 def _rounds(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_REFINE_ROUNDS:
         raise CampaignError(f"Auto-refine takes a whole number of rounds from 0 to {MAX_REFINE_ROUNDS}.")
@@ -222,10 +235,31 @@ def capabilities() -> dict[str, Any]:
         "effects": _effect_support(),
         "editor": _editor_support(),
         "script": _script_support(cloud),
-        "director": {"auto_refine_rounds": MAX_REFINE_ROUNDS, "patch_ops": list(PATCH_OPS), "edit_paths": list(EDIT_FIELDS)},
+        "director": {"auto_refine_rounds": MAX_REFINE_ROUNDS, "patch_ops": list(PATCH_OPS), "edit_paths": list(EDIT_FIELDS), "choices": list(DIRECTORS)},
+        "motion_cards": _motion_cards(),
         "limits": {"upload_bytes": _MAX_SOURCE_BYTES, "source_seconds": _MAX_SOURCE_SECONDS, "segments": _MAX_SEGMENTS, "target_seconds": _MAX_STORY_SECONDS,
                    "clips": project_media.MAX_ITEMS, "photo_seconds": project_media.PHOTO_SECONDS, "assets": project_media.MAX_ASSETS},
     }
+
+
+def _private_mode() -> bool:
+    """Whether private mode (Muse Glimmer on this computer) is on. A bad setting counts as off here; the model call itself refuses it."""
+    from vedit import open_weights
+
+    try:
+        return open_weights.enabled()
+    except open_weights.OpenWeightsError:
+        return False
+
+
+def _motion_cards() -> bool:
+    """Whether Blender can render 3D motion cards here. Studio and agents hide the feature otherwise."""
+    try:
+        from vedit import blender_cards
+
+        return blender_cards.blender_available()
+    except (ImportError, OSError):
+        return False
 
 
 def _script_support(cloud: dict[str, Any]) -> dict[str, Any]:
@@ -393,8 +427,28 @@ def validate_plan(value: Any, duration: float, *, original: dict[str, Any] | Non
         "decisions": bounded_strings(value.get("decisions")),
         "ignored_edits": bounded_strings(value.get("ignored_edits")),
     }
+    bookends = _bookends(value["bookends"] if "bookends" in value else trusted.get("bookends"), duration)
+    if bookends:
+        plan["bookends"] = bookends
     plan["timeline"] = _timeline_view(plan, view)
     return plan
+
+
+def _bookends(value: Any, duration: float) -> dict[str, Any]:
+    """The moments the planner placed first and last because the brief named an opening or an ending. Display and lint data only."""
+    out: dict[str, Any] = {}
+    for key in ("opening", "ending"):
+        record = value.get(key) if isinstance(value, dict) else None
+        if not isinstance(record, dict):
+            continue
+        start, end = record.get("start"), record.get("end")
+        if not all(isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) for item in (start, end)):
+            continue
+        start, end = max(0.0, float(start)), min(float(duration), float(end))
+        if end > start:
+            label = record.get("label")
+            out[key] = {"label": " ".join(label.split())[:100] if isinstance(label, str) else "", "start": round(start, 3), "end": round(end, 3)}
+    return out
 
 
 def _analysis(value: Any, duration: float) -> dict[str, Any] | None:
@@ -697,6 +751,9 @@ class CampaignManager:
         }
         if "photo_seconds" in value:
             request["photo_seconds"] = _number(value["photo_seconds"], "Photo length", project_media.MIN_PHOTO_SECONDS, project_media.MAX_PHOTO_SECONDS)
+        if value.get("director") is not None:
+            # Left out, the review follows VEDIT_META_DIRECTOR, else Muse Spark.
+            request["director"] = _director_choice(value["director"])
         if request["auto_refine"] and not request["review"]:
             raise CampaignError("Auto-refine acts on the director's review. Turn the review on, or set auto_refine to 0.")
         if provider == "local" and request["generate_cover"]:
@@ -801,6 +858,8 @@ class CampaignManager:
     def _choose_output(job: dict[str, Any], value: dict[str, Any]) -> None:
         """Captions and the frame are read at render time, so the story keeps its moments when either changes."""
         request = job["request"]
+        if value.get("director") is not None:
+            request["director"] = _director_choice(value["director"])
         if "captions" in value:
             request["captions"] = _boolean(value, "captions", False)
         if "aspect" in value:
@@ -892,10 +951,11 @@ class CampaignManager:
         from vedit import meta
 
         request, plan = job["request"], job["plan"]
-        self._update(ident, stage="noting", progress=0.03, message="Asking Meta to turn your note into changes to the story.")
+        who = "Muse Glimmer on " + meta.this_computer() if _private_mode() else "Meta"
+        self._update(ident, stage="noting", progress=0.03, message=f"Asking {who} to turn your note into changes to the story.")
         analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
         proposal = meta.patch_plan(goal=request["goal"], note=job.get("note") or "", plan=plan, sentences=analysis.get("sentences") or None,
-                                   work_dir=self.root / ident / "meta", budget_usd=request["budget_usd"], language=request.get("language", "en"))
+                                   work_dir=self.root / ident / "meta", budget_usd=request["budget_usd"], language=(request.get("language") or "auto"))
         patches = list(proposal.get("patches") or [])
         if not patches:
             raise CampaignError("Meta could not turn that note into a change to the story. Try naming a moment and what should happen to it.")
@@ -918,6 +978,8 @@ class CampaignManager:
         mode = value.get("mode")
         if not isinstance(mode, str) or mode not in {"director", "auto", "note"}:
             raise CampaignError("Choose director, auto, or note as the revision mode.")
+        # The next version may be reviewed by another director; the request keeps the choice.
+        director = _director_choice(value["director"]) if value.get("director") is not None else None
         note: str | None = None
         patches: list[dict[str, Any]] = []
         with self._lock, self._connect() as connection:
@@ -925,12 +987,16 @@ class CampaignManager:
             request = job["request"]
             if mode == "note":
                 note = _text(value.get("note", ""), "Director's note", 500, required=True)
-                uses_meta = request.get("provider") == "meta" or (request.get("captions") and request.get("caption_provider") == "meta") or request.get("review")
-                if not uses_meta:
-                    raise CampaignError("Director's notes need Meta mode.", 409)
-                cloud = capabilities()["meta"]
-                if not cloud.get("configured") or not cloud.get("enabled"):
-                    raise CampaignError("Meta is not enabled. Add your API key and turn on Meta in Settings, or choose Local edit.", 409)
+                # Private mode reads the note with Muse Glimmer on this computer: no Meta key, nothing sent.
+                if not _private_mode():
+                    uses_meta = request.get("provider") == "meta" or (request.get("captions") and request.get("caption_provider") == "meta") or request.get("review")
+                    if not uses_meta:
+                        from vedit.meta import this_computer
+
+                        raise CampaignError(f"Director's notes need Meta mode, or private mode with Muse Glimmer on {this_computer()}.", 409)
+                    cloud = capabilities()["meta"]
+                    if not cloud.get("configured") or not cloud.get("enabled"):
+                        raise CampaignError("Meta is not enabled. Add your API key and turn on Meta in Settings, or turn on private mode.", 409)
             else:
                 patches = [patch for patch in (job["result"].get("patches") or []) if isinstance(patch, dict) and patch.get("source") == mode]
                 if not patches:
@@ -938,6 +1004,8 @@ class CampaignManager:
         with self._lock, self._connect() as connection:
             job = self._revisable(connection, ident)
             duration = job["source"]["duration"]
+            if director is not None:
+                job["request"]["director"] = director
             if mode == "note":
                 # The model call happens in the worker with its own progress stage, so the
                 # request returns at once and a slow answer never blocks the editor.
@@ -957,10 +1025,19 @@ class CampaignManager:
         The transcript search is local and free. Meta runs only for a project
         created in Meta mode, so nothing is uploaded without that consent, and its
         result is checked against the source length before anyone sees it.
+
+        With ``verify`` (the default), SAM 3.1 then looks for the searched thing
+        in each moment Muse Spark found (``verify_find``), on the same budget.
+        Every moment carries ``verified`` (true, false or null), ``coverage``
+        (0 to 1 or null), ``flagged``, ``thumbnail`` (a file name) and
+        ``thumbnail_url``. ``drop_unseen`` moves moments SAM never saw to
+        ``verification.dropped`` instead of flagging them.
         """
         if not isinstance(value, dict):
             raise CampaignError("Send a JSON object with a search.")
         query = _text(value.get("query", ""), "Search", MAX_QUERY_CHARS, required=True)
+        verify = _boolean(value, "verify", True)
+        drop_unseen = _boolean(value, "drop_unseen", False)
         with self._lock, self._connect() as connection:
             job = self._load(connection, ident)
         if not job.get("source"):
@@ -970,6 +1047,10 @@ class CampaignManager:
         sentences = analysis.get("sentences") or []
         heard = find_in_transcript(query, sentences)
         searched, warnings, seen = ["transcript"] if sentences else [], [], []
+        verification: dict[str, Any] = {"status": "skipped", "phrase": None, "receipt": None, "dropped": [], "spend": [], "spent_usd": 0.0,
+                                        "reason": "Only moments found in the footage are checked, and no footage search ran."}
+        if not verify:
+            verification["reason"] = "SAM's check was turned off for this search."
         if request.get("provider") == "meta" and capabilities()["meta"].get("available"):
             from vedit import meta
 
@@ -977,10 +1058,13 @@ class CampaignManager:
                 source = self._project_source(job)
                 proxy = self._analysis_proxy(root, source, probe(source))
                 answer = meta.find_moments(proxy, query=query, duration=float(job["source"]["duration"]), work_dir=root / "meta",
-                                           language=request.get("language", "en"), budget_usd=request["budget_usd"])
+                                           language=(request.get("language") or "auto"), budget_usd=request["budget_usd"])
                 seen = answer["moments"]
                 searched.append("footage")
                 warnings.extend(answer.get("warnings", []))
+                if verify:
+                    seen, verification = self._verify_found(seen, query, answer.get("subject"), proxy, root, request["budget_usd"],
+                                                            drop_unseen=drop_unseen, warnings=warnings)
             except (CampaignError, meta.MetaError) as exc:
                 warnings.append(f"The footage search did not complete: {exc}")
             except VeditError as exc:
@@ -991,7 +1075,58 @@ class CampaignManager:
             warnings.append("This project has no transcript to search. Searching the picture needs a story made with Meta director.")
         budget = self._usage_summary(root, request["budget_usd"])
         self._update(ident, budget=budget)
-        return {"moments": merge_moments(heard, seen), "searched": searched, "warnings": warnings, "budget": budget}
+        verification["dropped"] = [self._found_view(ident, root, moment) for moment in verification.get("dropped") or []]
+        moments = [self._found_view(ident, root, moment) for moment in merge_moments(heard, seen)]
+        return {"moments": moments, "searched": searched, "warnings": warnings, "budget": budget, "verification": verification}
+
+    @staticmethod
+    def _verify_found(seen: list[dict[str, Any]], query: str, subject: Any, proxy: Path, root: Path, budget: float, *,
+                      drop_unseen: bool, warnings: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """SAM 3.1 looks for the searched thing in what Muse Spark found. A failure keeps Spark's moments, unchecked, with a warning."""
+        from vedit import meta, verify_find
+
+        # Spark names what to look for. A search for something said skips SAM whatever Spark names.
+        phrase = subject if isinstance(subject, str) and subject and verify_find.query_subject(query)["kind"] != "spoken" else None
+        try:
+            checked = verify_find.verify_moments(seen, query, proxy, root / "meta", budget, phrase=phrase, unseen="drop" if drop_unseen else "flag",
+                                                 out_dir=root / "meta" / FOUND_THUMBNAILS, phrase_from="muse-spark" if phrase else "caller")
+        except (meta.MetaError, VeditError, OSError, ValueError) as exc:
+            message = str(getattr(exc, "plain", "") or exc) if isinstance(exc, (meta.MetaError, ValueError)) else plain_failure(exc) if isinstance(exc, VeditError) else "a file could not be read"
+            warnings.append(f"SAM could not check the found moments: {message}")
+            return seen, {"status": "failed", "phrase": phrase, "receipt": None, "dropped": [], "spend": [], "spent_usd": 0.0, "reason": message}
+        warnings.extend(checked.get("warnings") or [])
+        return checked["moments"], {"status": checked["status"], "phrase": checked["phrase"], "receipt": checked.get("receipt"),
+                                    "dropped": checked.get("dropped") or [], "spend": checked.get("spend") or [], "spent_usd": checked.get("spent_usd", 0.0),
+                                    "reason": checked.get("reason"), "kind": checked.get("kind"), "model": checked.get("model")}
+
+    @staticmethod
+    def _found_view(ident: str, root: Path, moment: dict[str, Any]) -> dict[str, Any]:
+        """A found moment as a client sees it: SAM's fields always present, and its thumbnail by name and URL, never by path."""
+        item = dict(moment)
+        item.setdefault("verified", None)
+        item.setdefault("coverage", None)
+        item["flagged"] = bool(item.get("flagged"))
+        folder = (root / "meta" / FOUND_THUMBNAILS).resolve()
+        raw, name = item.get("thumbnail"), None
+        if isinstance(raw, str) and raw:
+            path = Path(raw).resolve()
+            if path.parent == folder and _FOUND_NAME.fullmatch(path.name):
+                name = path.name
+        item["thumbnail"] = name
+        item["thumbnail_url"] = f"/api/campaigns/{ident}/find-thumbnail?name={name}" if name else None
+        return item
+
+    def found_thumbnail(self, ident: str, name: Any) -> Path:
+        """One picture SAM's check drew for a found moment. Only this project's thumbnail folder can answer."""
+        if not isinstance(name, str) or not _FOUND_NAME.fullmatch(name):
+            raise CampaignError("Thumbnail not found.", 404)
+        with self._lock, self._connect() as connection:
+            job = self._load(connection, ident)
+        folder = (self.root / job["id"] / "meta" / FOUND_THUMBNAILS).resolve()
+        path = (folder / name).resolve()
+        if path.parent != folder or not path.is_file():
+            raise CampaignError("Thumbnail not found.", 404)
+        return path
 
     def shorts(self, ident: str, value: Any) -> list[dict[str, Any]]:
         """Start 2 to 5 sibling projects from this source, each with its own moments.
@@ -1091,7 +1226,7 @@ class CampaignManager:
         scenes = split_script(text)
         if not scenes:
             raise CampaignError("Write at least one sentence for the script.")
-        if len(text.split()) > MAX_SCRIPT_WORDS:
+        if count_words(text) > MAX_SCRIPT_WORDS:  # counts Japanese, Chinese and Thai too, which have no spaces
             raise CampaignError(f"Keep the script to {MAX_SCRIPT_WORDS} words, about three minutes of reading.")
         provider = value.get("provider", "meta")
         if not isinstance(provider, str) or provider not in {"local", "meta"}:
@@ -1134,6 +1269,8 @@ class CampaignManager:
             "template": _template(value.get("template", "none")), "edit": merge_edit(SCRIPT_EDIT, _partial_edit(value.get("edit"))),
             "script": {"text": text, "scenes": scenes, "voice": None, "images": pictures},
         }
+        if value.get("director") is not None:
+            request["director"] = _director_choice(value["director"])
         key = _text(value.get("idempotency_key", ""), "Request key", 100)
         return self._add_job(request, key, extras={"_action": "script", "message": "Waiting to start on your script."})
 
@@ -1636,11 +1773,14 @@ class CampaignManager:
     def _usage_summary(root: Path, cap: float) -> dict[str, Any]:
         """Reserve every attempted provider call, including uncertain failures.
 
-        Successful cache reads do not append a new call id. We intentionally keep
-        the larger reservation after success: small refunds cannot hide retries.
+        Successful cache reads do not append a new call id. A finished call holds
+        what Meta billed (``meta.held_usd``); a running or uncertain one holds its
+        reservation, so a retry can never spend it twice.
         ``operations`` splits the same reservations by Meta operation (story,
         tracking, cover) so a reader can see which step held the money.
         """
+        from vedit import meta
+
         reservations: dict[str, float] = {}
         attribution: dict[str, tuple[str, str]] = {}
         try:
@@ -1651,10 +1791,12 @@ class CampaignManager:
                 for entry in data["calls"]:
                     if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
                         raise ValueError
-                    reserved = _number(entry.get("reserved_usd"), "Recorded Meta reservation", 0, 100)
+                    # Validate the recorded numbers, then count what the call holds now, as the meta adapter does.
+                    _number(entry.get("reserved_usd"), "Recorded Meta reservation", 0, 100)
                     usage = entry.get("usage", {})
-                    actual = _number(usage.get("cost_usd", 0), "Recorded Meta usage", 0, 100) if isinstance(usage, dict) else 0
-                    reservations[entry["id"]] = max(reservations.get(entry["id"], 0), reserved, actual)
+                    if isinstance(usage, dict):
+                        _number(usage.get("cost_usd", 0), "Recorded Meta usage", 0, 100)
+                    reservations[entry["id"]] = max(reservations.get(entry["id"], 0), meta.held_usd(entry))
                     operation = entry.get("operation")
                     model = entry.get("model")
                     attribution[entry["id"]] = (operation if isinstance(operation, str) and operation else "other", model if isinstance(model, str) else "")
@@ -1685,6 +1827,7 @@ class CampaignManager:
                 if problem:
                     raise CampaignError(problem)
                 check_playable(info)
+                info = probe(source)  # read again: the first look measured any letterbox bars, so this one reports the cropped picture
                 width, height = getattr(info, "display_width", info.width), getattr(info, "display_height", info.height)
                 if not (request.get("aspect") == "16:9" and height > width):
                     clips = [{"name": source.name, "kind": "video", "start": 0.0, "end": round(info.duration, 3)}]
@@ -1757,14 +1900,31 @@ class CampaignManager:
         self._update(ident, source=media)
         return warnings
 
-    def _hear(self, ident: str, request: dict[str, Any], source: Path, info: Any, root: Path, warnings: list[str]) -> list[Cue] | None:
-        """The project's speech, heard once by Meta Voice Transcribe. None when Meta could not listen.
+    def _hear(self, ident: str, request: dict[str, Any], source: Path, info: Any, root: Path, warnings: list[str],
+              *, recorded: bool = True) -> list[Cue] | None:
+        """The project's speech, heard once by Meta Voice Transcribe. None when Meta did not listen.
 
         A failure never falls back to another model. The plan goes on without a
         transcript, says so, and the render asks Meta again for the kept speech.
+        A project with no sound of its own, or a silent track, is never sent, so
+        the plan records no transcript rather than an empty one Meta never made.
         """
-        if not info.has_audio:
+        if not info.has_audio or not recorded:
             return None
+        from vedit.analyze import audible
+
+        if not audible(source, track=info.audio_map):
+            warnings.append("The sound track is silent, so it was not sent to Meta Voice Transcribe. This plan has no transcript.")
+            return None
+        if request.get("short"):
+            # A short cuts its parent's source; the parent's Meta transcript is already on that clock.
+            with self._lock, self._connect() as connection:
+                try:
+                    parent = self._load(connection, request["short"]["parent"]).get("plan")
+                except CampaignError:
+                    parent = None
+            if isinstance(parent, dict) and _heard_by_meta(parent):
+                return [Cue(float(line["start"]), float(line["end"]), str(line["text"])) for line in parent["analysis"].get("transcript") or []]
         self._update(ident, stage="transcribing", progress=0.16, message="Asking Meta to transcribe the speech.")
         try:
             heard = transcribe_speech(source, root / "analysis" / "heard", language=request["language"], budget_usd=request["budget_usd"], meta_dir=root / "meta")
@@ -1805,8 +1965,10 @@ class CampaignManager:
                 raise CampaignError("Meta analysis is limited to 10 minutes of footage. Shorten or split the source before using Meta tools.")
             # Meta Voice Transcribe hears the speech once. The planner, the lint,
             # find, and the captions all read this one transcript; FFmpeg measures
-            # scene cuts and speech bands. No local model runs.
-            heard = self._hear(ident, request, source, info, root, warnings)
+            # scene cuts and speech bands. No local model runs. Disk is checked
+            # first, so nothing is uploaded for an analysis that cannot finish.
+            self._disk_preflight("analysis", info.duration, info)
+            heard = self._hear(ident, request, source, info, root, warnings, recorded=bool(details["has_audio"]))
             self._update(ident, stage="measuring", progress=0.22, message="Measuring scene cuts and speech in your footage.")
             signals = analyze_signals(source, work_dir=root / "analysis" / "signals", heard=heard, transcribed_by=TRANSCRIBER if heard is not None else None, cuts=clip_cuts(clips))
             warnings.extend(signals.pop("warnings", []))
@@ -1852,6 +2014,26 @@ class CampaignManager:
             if request["subject"]:
                 warnings.append("Subject tracking needs Meta mode. This local cut will use a center crop.")
         warnings.extend(proposed.get("warnings", []))
+        if not details["has_audio"]:
+            # A project of photos or silent clips plays a generated silent track. Nobody recorded it, so it is not
+            # reported as a silent sound track next to "This source has no audio".
+            warnings = [warning for warning in warnings if not warning.startswith("This clip's sound track is silent")]
+        if len(clips) > 1:
+            # A project joins its clips into one file; a moment that strays a few frames into a neighbour is trimmed back.
+            proposed["segments"] = snap_to_clips(list(proposed.get("segments") or []), details["clips"])
+        ends = brief_bookends(request["goal"])
+        if proposed.get("provider") == "meta" and proposed.get("segments") and (ends["opening"] or ends["ending"]):
+            # Muse Spark read the brief and ordered the moments, so the first and last moments are its opening and ending.
+            picked = {"opening": proposed["segments"][0], "ending": proposed["segments"][-1]}
+            proposed["bookends"] = {key: {"label": str(picked[key].get("label") or ""), "start": picked[key].get("start"), "end": picked[key].get("end")}
+                                    for key in ("opening", "ending") if ends[key]}
+        if request["target_duration"] > info.duration + 0.05:
+            # The target is a ceiling, so a short source is not an error, but the receipt says it was not reached.
+            held = ""
+            if details["clips"] and all(clip.get("kind") == "photo" for clip in details["clips"]):
+                seconds = float(request.get("photo_seconds", project_media.PHOTO_SECONDS))
+                held = f" Each photo holds for {seconds:g} s. Set a longer photo length to fill more."
+            warnings.append(f"You asked for {request['target_duration']:.1f} s, but the footage runs {info.duration:.1f} s, so the cut is at most {info.duration:.1f} s.{held}")
         warnings.extend(source_notes(info))
         shape = shape_mismatch(request["goal"], request["aspect"])
         if shape:
@@ -1910,16 +2092,24 @@ class CampaignManager:
         return {"stage": phase, "required_bytes": required, "available_bytes": available}
 
     def _review_cut(self, ident: str, job: dict[str, Any], work: Path, video: Path, plan: dict[str, Any], duration: float, warnings: list[str]) -> dict[str, Any]:
-        """Ask Muse Spark for director's notes on a small copy of the verified output, in its own shape.
+        """Ask the director (Muse Spark, or Muse Wonder when chosen) for notes on a small copy of the verified output, in its own shape.
 
         The director must see what a viewer sees, so a vertical video is reviewed
         vertical: fitted into a wide frame it would gain bars and tiny captions
-        that the finished file does not have.
+        that the finished file does not have. A failed review names the director
+        it asked, and Meta's refusal says what budget a Wonder review needs.
         """
         from vedit import meta
 
         request, root = job["request"], self.root / ident
-        self._update(ident, stage="reviewing", progress=0.9, message="Asking Meta to review the finished cut.")
+        # None lets VEDIT_META_DIRECTOR choose, else Muse Spark.
+        choice = request.get("director")
+        try:
+            label = meta._DIRECTOR_LABELS[meta._director(choice)]
+        except meta.MetaError:
+            label = None
+        name = "Muse Wonder" if label == "muse-wonder" else "Muse Spark"
+        self._update(ident, stage="reviewing", progress=0.9, message=f"Asking {name} to review the finished cut.")
         try:
             proxy_dir = work / "review-proxy"
             proxy = proxy_dir / "review.mp4"
@@ -1931,7 +2121,8 @@ class CampaignManager:
                 write_codegen(compiler.pipeline)
                 execute(compiler.pipeline, progress=False, cancel_event=self._event(ident))
             self._check_cancel(ident)
-            notes = meta.review_cut(proxy, goal=request["goal"], plan=dict(plan, duration=duration), work_dir=root / "meta", language=request.get("language", "en"), budget_usd=request["budget_usd"])
+            notes = meta.review_cut(proxy, goal=request["goal"], plan=dict(plan, duration=duration), work_dir=root / "meta", language=(request.get("language") or "auto"),
+                                    budget_usd=request["budget_usd"], director=choice)
             warnings.extend(notes.get("warnings", []))
             return notes
         except (_Cancelled, RenderCancelled):
@@ -1944,7 +2135,251 @@ class CampaignManager:
             else:
                 message = "The review did not complete."
             warnings.append("Director's notes unavailable: " + message + " The verified video is unaffected.")
-            return {"error": message}
+            return {"error": message, "director": label} if label else {"error": message}
+
+    def _emphasis(self, ident: str, job: dict[str, Any], plan: dict[str, Any], warnings: list[str]) -> list[dict[str, Any]] | None:
+        """Ask Muse Spark for each caption line's punch word when the edit wants them and names none yet.
+
+        The picks are data: ``emphasis.suggest_emphasis`` keeps only words the
+        lines really have, and ``validate_edit`` bounds the merged edit. The
+        merged edit is saved on the plan, so the next version reuses it. A
+        failure is a warning: the video renders with plain captions. Returns the
+        picks with Spark's ``why``, or None when nothing was asked.
+        """
+        request = job["request"]
+        captions = plan["edit"].get("captions") or {}
+        if not request.get("captions") or not captions.get("emphasize") or captions.get("emphasis"):
+            return None
+        if translation_target(captions, request, plan=plan):
+            # Punch words are not drawn on a translation, so none are bought. The captions stage says so.
+            return None
+        if request.get("provider") != "meta" and _caption_provider(request) != "meta":
+            warnings.append("Punch words are picked by Muse Spark, and this project does not use Meta, so the captions stay plain.")
+            return None
+        from vedit import emphasis, meta
+        from vedit.captions import story_cues
+
+        self._update(ident, stage="emphasis", progress=0.07, message="Asking Muse Spark for the punch word in each caption line.")
+        try:
+            picked = emphasis.suggest_emphasis(story_cues(plan), request["goal"], (request.get("language") or "auto"), work_dir=self.root / ident / "meta",
+                                               budget_usd=request["budget_usd"])
+            edit = validate_edit(merge_edit(plan["edit"], {"captions": picked["edit"]}), duration=_LONGEST_EDIT, assets=job.get("assets"))
+        except (_Cancelled, RenderCancelled):
+            raise
+        except (emphasis.EmphasisError, meta.MetaError, EditError) as exc:
+            warnings.append(f"Punch words were not added: {exc} The captions stay plain.")
+            return None
+        except Exception:
+            warnings.append("Punch words were not added: the request did not complete. The captions stay plain.")
+            return None
+        self._check_cancel(ident)
+        warnings.extend(picked.get("warnings") or [])
+        if not picked["emphasis"]:
+            warnings.append("Muse Spark found no word worth a punch in these captions, so they stay plain.")
+        plan["edit"] = edit
+        self._update(ident, plan=plan, _emphasis_picks=picked["emphasis"], _emphasis_model=picked.get("model"))
+        return picked["emphasis"]
+
+    @staticmethod
+    def _hero_spoken(plan: dict[str, Any], spoken: Any) -> dict[str, Any] | None:
+        """The edit's hero word, with when Spark's pick is said when the word and window are still that pick."""
+        hero = plan["edit"].get("hero_word")
+        if not hero:
+            return None
+        if isinstance(spoken, dict) and spoken.get("word") == hero["word"] and isinstance(spoken.get("start"), (int, float)) \
+                and abs(float(spoken["start"]) - float(hero["start"])) < 1e-3 and spoken.get("spoken"):
+            return dict(hero, spoken=spoken["spoken"])
+        return dict(hero)
+
+    @staticmethod
+    def _emphasis_result(plan: dict[str, Any], picks: list[dict[str, Any]] | None, request: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """The punch words this render draws, each with the model's ``why`` when a model picked it.
+
+        Translated captions draw none, so with ``request`` a translation reports none.
+        """
+        captions = plan["edit"].get("captions") or {}
+        if not captions.get("emphasize") or (request is not None and translation_target(captions, request, plan=plan)):
+            return []
+        whys = {(pick.get("cue_key"), pick.get("word_index")): pick.get("why", "") for pick in picks or [] if isinstance(pick, dict)}
+        return [dict(pick, why=whys.get((pick["cue_key"], pick["word_index"]), "")) for pick in captions.get("emphasis") or []]
+
+    def _hero_matte(self, job: dict[str, Any], source: Path, plan: dict[str, Any], fps: float, warnings: list[str]) -> tuple[Path | None, dict[str, Any] | None]:
+        """SAM's matte of the hero word's subject over its window only, with the side and subject box written back into the edit.
+
+        Only a Meta project masks. Any failure is a warning: the word is left
+        out of this version, and its receipt says no matte was made.
+        """
+        hero, request, ident = plan["edit"].get("hero_word"), job["request"], job["id"]
+        if not hero:
+            return None, None
+        if request.get("provider") != "meta":
+            warnings.append("The hero word needs SAM to cut the subject out, and this project does not use Meta, so it is left out.")
+            return None, None
+        from vedit import hero_word, meta
+        from vedit.edit_spec import validate_hero_word
+
+        self._update(ident, stage="hero_word", progress=0.15, message=f"Cutting out {hero['subject']} behind “{hero['word']}”.")
+        try:
+            # reanchor: a cut re-trimmed since the word was set moves the window to where the word is said now.
+            made = hero_word.window_matte(source, plan, hero, work_dir=self.root / ident, budget_usd=request["budget_usd"], fps=fps,
+                                          aspect=request.get("aspect"), cancel_event=self._event(ident), reanchor=True)
+            # The side, colour and window come from what was measured on this footage, not from the proposal.
+            measured = made.get("edit") if isinstance(made.get("edit"), dict) else dict(hero, side=made["side"], subject_box=made["subject_box"],
+                                                                                     color=made.get("color") or hero.get("color"))
+            placed = validate_hero_word(measured, duration=float(plan["duration"]))
+        except (_Cancelled, RenderCancelled):
+            raise
+        except (hero_word.HeroWordError, meta.MetaError, EditError) as exc:
+            warnings.append(f"The hero word was left out: {getattr(exc, 'plain', '') or exc}")
+            return None, None
+        except VeditError as exc:
+            warnings.append(f"The hero word was left out: {plain_failure(exc)}")
+            return None, None
+        except OSError:
+            warnings.append("The hero word was left out: its subject mask could not be saved. Check free disk space and render again.")
+            return None, None
+        self._check_cancel(ident)
+        warnings.extend(made.get("warnings") or [])
+        for note in (made.get("side_note"), made.get("color_note")):
+            if note:
+                warnings.append(note)
+        plan["edit"] = dict(plan["edit"], hero_word=placed)
+        self._update(ident, plan=plan)
+        return Path(made["path"]), dict(made["stats"])
+
+    def suggest_hero_word(self, ident: str, *, subject: str | None = None, font: str = "heavy", color: str = "#FFFFFF") -> dict[str, Any]:
+        """Ask Muse Spark for this cut's hero word and return a checked ``edit.hero_word``. Nothing renders.
+
+        Spark reads the cut's caption words only and proposes; ``hero_word``
+        checks the word is said, inside one shot, for 0.5 to 3 seconds, and
+        ``validate_hero_word`` bounds the edit. SAM runs later, at render, on the
+        word's window only. Meta projects only, on the project's budget. The
+        client applies ``hero_word`` with a render or an edit.
+        """
+        from vedit import hero_word, meta
+        from vedit.captions import preview_cues
+        from vedit.edit_spec import HERO_COLORS, HERO_FONTS
+
+        subject = _text(subject or "", "Hero word subject", 150)
+        fonts = [row[0] for row in HERO_FONTS]
+        if not isinstance(font, str) or font not in fonts:
+            raise CampaignError("Choose a hero word font: " + ", ".join(fonts) + ".")
+        if not isinstance(color, str) or color.upper() not in {str(item).upper() for item in HERO_COLORS}:
+            raise CampaignError("Choose a hero word color: " + ", ".join(HERO_COLORS) + ".")
+        color = next(str(item) for item in HERO_COLORS if str(item).upper() == color.upper())
+        with self._lock, self._connect() as connection:
+            job = self._load(connection, ident)
+        if not job.get("plan") or not job.get("source"):
+            raise CampaignError("Create a story plan before picking a hero word.", 409)
+        request = job["request"]
+        if request.get("provider") != "meta" or not capabilities()["meta"].get("available"):
+            raise CampaignError("The hero word needs a project made in Meta mode, with Meta connected.", 409)
+        # SAM is never sent a guessed subject: footage with no person would be billed and the word dropped.
+        subject = subject or _text(request.get("subject") or "", "Hero word subject", 150)
+        if not subject:
+            raise CampaignError("Name what the word sits behind, for example the person in the red jacket.")
+        plan = job["plan"]
+        root = self.root / ident
+        try:
+            suggestion = hero_word.suggest_hero_word(plan, preview_cues(plan), work_dir=root / "meta", budget_usd=request["budget_usd"],
+                                                     aspect=request.get("aspect", "9:16"), language=(request.get("language") or "auto"), subject=subject)
+            edit = hero_word.build_hero_word_edit(plan, suggestion, subject=subject, font=font, color=color)
+        except (hero_word.HeroWordError, meta.MetaError) as exc:
+            raise CampaignError(str(getattr(exc, "plain", "") or exc), 409) from exc
+        except EditError as exc:
+            raise CampaignError(str(exc)) from exc
+        spoken = {"word": edit["word"], "start": edit["start"], "spoken": suggestion.get("spoken")}
+        budget = self._usage_summary(root, request["budget_usd"])
+        self._update(ident, _hero_spoken=spoken, budget=budget)
+        warnings = [] if meta.mask_decoder_ready() else ["Rendering the hero word needs Meta's mask decoder on this machine. Run: uv sync --extra sam"]
+        translated = translation_target(plan["edit"].get("captions"), request, plan=plan) if request.get("captions") else None
+        if translated:
+            warnings.append(f"The hero word is the spoken word, so it stays as said while the captions are in {meta.write_language(translated, translated)}.")
+        return {"hero_word": edit, "proposal": suggestion.get("proposal"), "adjusted": list(suggestion.get("adjusted") or []),
+                "usage": suggestion.get("usage"), "model": suggestion.get("model"), "spoken": suggestion.get("spoken"),
+                "estimated": bool(suggestion.get("estimated")), "budget": budget, "warnings": warnings}
+
+    def suggest_motion_card(self, ident: str, *, kind: str = "intro_title", backdrop: bool = True) -> dict[str, Any]:
+        """Ask Muse Spark to design a 3D motion card for this cut, and Muse Image for its backdrop. Nothing renders.
+
+        Spark reads the goal and the cut's caption words only and picks closed
+        choices; ``blender_cards`` validates them into ``edit.motion_card``. With
+        ``backdrop``, Muse Image paints the plate the card opens on ($0.01) and
+        it is kept as an image asset of this project. Meta projects only, on the
+        project's budget, and only where Blender can render the card. The client
+        applies ``motion_card`` with a render or an edit.
+        """
+        from vedit import blender_cards, meta
+        from vedit.captions import preview_cues
+        from vedit.edit_spec import MOTION_CARD_KINDS, validate_motion_card
+
+        kinds = [row[0] for row in MOTION_CARD_KINDS]
+        if not isinstance(kind, str) or kind not in kinds:
+            raise CampaignError("Choose a motion card kind: " + ", ".join(kinds) + ".")
+        if not isinstance(backdrop, bool):
+            raise CampaignError("backdrop must be true or false.")
+        with self._lock, self._connect() as connection:
+            job = self._load(connection, ident)
+        if not job.get("plan") or not job.get("source"):
+            raise CampaignError("Create a story plan before designing a motion card.", 409)
+        request = job["request"]
+        if request.get("provider") != "meta" or not capabilities()["meta"].get("available"):
+            raise CampaignError("The motion card needs a project made in Meta mode, with Meta connected.", 409)
+        if not blender_cards.blender_available():
+            raise CampaignError("3D motion cards need Blender on this machine. Install Blender 4.2 or later, or set VEDIT_BLENDER.", 409)
+        warnings: list[str] = []
+        if backdrop and kind == "lower_third":
+            backdrop = False
+            warnings.append("A lower third sits over the footage, so it has no backdrop.")
+        if backdrop and len(job.get("assets") or {}) >= project_media.MAX_ASSETS:
+            raise CampaignError(f"A project holds up to {project_media.MAX_ASSETS} audio files and images, so there is no room for a backdrop. Ask without one.", 409)
+        plan, root = job["plan"], self.root / ident
+        # The card's words match the captions: a translation target names the language Spark writes in.
+        translated = translation_target(plan["edit"].get("captions"), request, plan=plan) if request.get("captions") else None
+        if translated:
+            warnings.append(f"The card is written in {meta.write_language(translated, translated)} to match the translated captions.")
+        try:
+            suggestion = blender_cards.suggest_card(plan, preview_cues(plan), goal=request["goal"], aspect=request.get("aspect", "9:16"), work_dir=root / "meta",
+                                                    kind=kind, language=translated or (request.get("language") or "auto"), backdrop=backdrop,
+                                                    budget_usd=request["budget_usd"])
+        except (blender_cards.MotionCardError, meta.MetaError) as exc:
+            raise CampaignError(str(getattr(exc, "plain", "") or exc), 409) from exc
+        card, kept, backdrop_usage = suggestion["card"], None, None
+        if backdrop and suggestion.get("backdrop_prompt"):
+            canvas = get_preset(_ASPECTS[request.get("aspect", "9:16")]).canvas
+            try:
+                made = blender_cards.generate_backdrop(suggestion["backdrop_prompt"], width=canvas.width, height=canvas.height, work_dir=root / "meta",
+                                                       budget_usd=request["budget_usd"])
+                image = self._keep_image(ident, Path(made["path"]), name="Motion card backdrop")
+                card = validate_motion_card(dict(card, backdrop=image["id"]), duration=float(plan["duration"]),
+                                            assets=dict(job.get("assets") or {}, **{image["id"]: image}))
+                kept, backdrop_usage = image, made.get("usage")
+            except (blender_cards.MotionCardError, meta.MetaError, CampaignError, EditError) as exc:
+                # Spark's card is already paid for; it stands without the plate.
+                warnings.append(f"The backdrop was not added: {exc} The card opens over the footage.")
+        elif backdrop:
+            warnings.append("Muse Spark described no backdrop, so the card opens over the footage.")
+        budget = self._usage_summary(root, request["budget_usd"])
+        self._update(ident, budget=budget)
+        return {"motion_card": card, "proposal": suggestion.get("proposal"), "notes": list(suggestion.get("notes") or []),
+                "usage": suggestion.get("usage"), "backdrop_usage": backdrop_usage, "model": suggestion.get("model"),
+                "backdrop": kept, "poster": f"/api/campaigns/{ident}/assets?id={kept['id']}" if kept else None,
+                "budget": budget, "warnings": warnings}
+
+    def _keep_image(self, ident: str, path: Path, *, name: str) -> dict[str, Any]:
+        """Store a generated picture as an image asset of this project, as a generated background is stored."""
+        try:
+            item = project_media.inspect_asset(path, name=name)
+            asset_id = project_media.new_asset_id()
+            stored = project_media.store_asset(item, self.root / ident / "assets", asset_id)
+        except project_media.MediaProblem as exc:
+            raise CampaignError(str(exc)) from exc
+        record = project_media.asset_record(item, asset_id)
+        with self._lock, self._connect() as connection:
+            job = self._load(connection, ident)
+            job.update(assets=dict(job.get("assets") or {}, **{asset_id: dict(record, path=str(stored))}), updated_at=_now())
+            self._save(connection, job)
+        return record
 
     def _cutout_matte(self, job: dict[str, Any], source: Path, info: Any, plan: dict[str, Any], assembly: dict[str, Any],
                       view: dict[str, Any], warnings: list[str]) -> tuple[Path | None, dict[str, Any] | None]:
@@ -2045,20 +2480,14 @@ class CampaignManager:
         Returns the ASS file, or None when no speech was heard. Provider failures
         raise their own actionable error; captions never silently switch providers.
         """
-        from vedit import meta
+        from vedit.captions import transcribe_kept
 
         spans = ctx.view["spans"]
-        seconds = sum(span.source_end - span.source_start for span in spans)
-        if seconds > 600:
-            raise CampaignError("Meta transcription covers up to 10 minutes of selected audio. Shorten the story or use local captions.")
         if cancel_event.is_set():
             raise _Cancelled()
-        wav = ctx.work / "speech-16k.wav"
-        extract_kept_audio(source, spans, wav)
+        heard = transcribe_kept(source, spans, ctx.work, language=ctx.request["language"], budget_usd=ctx.request["budget_usd"], meta_dir=root / "meta")
         if cancel_event.is_set():
             raise _Cancelled()
-        result = meta.transcribe_audio(wav, duration=seconds, work_dir=root / "meta", language=ctx.request["language"], budget_usd=ctx.request["budget_usd"])
-        heard = [Cue(float(cue["start"]), float(cue["end"]), str(cue["text"])) for cue in result.get("cues", [])]
         edits = ctx.plan.get("edit", {}).get("captions", {}).get("edits", {})
         if edits:
             base_plan = dict(ctx.plan)
@@ -2088,6 +2517,7 @@ class CampaignManager:
         effect = _effect(request.get("effect"), duration=plan["duration"])
         plan["effect"] = effect
         warnings = list(plan.get("warnings", []))
+        picked = self._emphasis(ident, job, plan, warnings)
         preset = _ASPECTS[request["aspect"]]
         delivery = delivery_preset(preset, plan["edit"])
         target = delivery.canvas
@@ -2136,6 +2566,7 @@ class CampaignManager:
         elif request["provider"] == "meta" and request["subject"] and request.get("tracking_disabled"):
             warnings.append("Subject tracking was turned off for this version; a center crop was used.")
         matte_path, cutout_stats = self._cutout_matte(job, source, info, plan, assembly, view, warnings)
+        hero_path, hero_stats = self._hero_matte(job, source, plan, float(target.fps or standard_rate(info.fps if info.has_video else None)), warnings)
         # The brief is read again against the approved edit, so the receipts
         # say what this render really does, not what was first asked.
         edits = brief_edit(request["goal"], plan=plan, has_audio=info.has_audio, final=plan["edit"])
@@ -2148,22 +2579,26 @@ class CampaignManager:
                 warnings.append("Camera shake could not be measured, so stabilization may add crop or drift to steady footage.")
             elif measured_shake < STABILIZE_SHAKE_WARNING:
                 warnings.append(f"Measured camera shake is low ({measured_shake:.2f} px at 160x90); stabilization may add crop without a clear benefit.")
-        caption_provider = _caption_provider(request) if request["captions"] and info.has_audio else None
+        # A project of photos or silent clips plays a silent track; nobody recorded sound to caption.
+        # A script video is caption-led: its captions come from the script's own text, not from listening.
+        recorded = info.has_audio and (bool((job.get("source") or {}).get("has_audio", True)) or bool(plan.get("script")))
+        caption_provider = _caption_provider(request) if request["captions"] and recorded else None
         ctx = render_context(plan, request=request, aspect=request["aspect"], canvas=target, work=work, has_audio=info.has_audio, preset=preset, assets=job.get("assets") or {},
-                             tracking=subject_track, matte=matte_path, effect=effect)
+                             tracking=subject_track, matte=matte_path, hero_matte=hero_path, effect=effect)
         if caption_provider == "meta" and _heard_by_meta(plan):
             # Meta heard the whole source at planning; these captions are cut from that transcript at no cost.
             self._update(ident, stage="transcribing", progress=0.16, message="Writing the captions from Meta's transcript.")
             ctx.subtitle = build_caption_file(ctx.plan, ctx.view, ctx)
             warnings = [warning for warning in warnings if not warning.startswith("Captions are unavailable")]
             if ctx.subtitle is None:
-                warnings.append("Meta heard no speech in these moments. This video has no captions.")
+                warnings.append("Meta's transcript has no speech in these moments. This video has no captions.")
         elif caption_provider == "meta":
             self._update(ident, stage="transcribing", progress=0.16, message="Asking Meta to transcribe the approved speech.")
             ctx.subtitle = self._meta_captions(root, source, ctx, cancel_event=self._event(ident))
             warnings = [warning for warning in warnings if not warning.startswith("Captions are unavailable")]
             if ctx.subtitle is None:
-                warnings.append("Meta heard no speech in the selected audio. This video has no captions.")
+                # Silence is never sent, so this is either Meta finding no speech or a silent cut that was not sent.
+                warnings.append("No speech was found in the kept audio. This video has no captions.")
         elif caption_provider == "local":
             self._update(ident, stage="transcribing", progress=0.16, message="Writing the captions for this edit.")
             if _listened(plan):
@@ -2251,27 +2686,46 @@ class CampaignManager:
         # Deterministic grading of the render, then the director's structured
         # checks and patches. Both are display data until a revision applies them.
         report["cutout"] = cutout_stats
+        report["hero_word"] = {"edit": plan["edit"].get("hero_word"), "matte": hero_stats} if plan["edit"].get("hero_word") else None
+        emphasis_drawn = self._emphasis_result(plan, picked if picked is not None else job.get("_emphasis_picks"), request)
+        report["emphasis"] = emphasis_drawn
         grade = self._grade(plan, request, info.duration, work, review, edits=edits, tracking=subject_track, cutout=cutout_stats,
-                            cut_duration=output.duration, source_size=(getattr(info, "display_width", info.width) or info.width, getattr(info, "display_height", info.height) or info.height))
+                            hero=self._hero_spoken(plan, job.get("_hero_spoken")), hero_stats=hero_stats,
+                            cut_duration=output.duration, source_size=(getattr(info, "display_width", info.width) or info.width, getattr(info, "display_height", info.height) or info.height),
+                            clips=(job.get("source") or {}).get("clips"))
         report.update(checks=grade["checks"], passed=grade["passed"], total=grade["total"], patches=grade["patches"])
         _write_json(report_path, report)
         copy = plan["caption"] + ("\n\n" + " ".join(tag if tag.startswith("#") else "#" + tag for tag in plan["hashtags"]) if plan["hashtags"] else "")
         (work / "post.txt").write_text(copy + "\n", encoding="utf-8")
         _write_json(work / "story.json", plan)
+        packed = [(video, "video" + video.suffix.lower()), (cover, "cover" + cover.suffix.lower()), (work / "post.txt", "post.txt"), (work / "story.json", "story.json"), (work / "brief.yaml", "brief.yaml"), (report_path, "report.json")]
+        packed += [(work / name, name) for name in ("captions.srt", "captions.ass", *sorted(path.name for path in work.glob("captions.*.srt"))) if (work / name).is_file()]
+        # Tamper-evident receipts: every check, the probe and the Meta calls get an evidence id,
+        # and one root id covers them and the video's sha256. `vedit verify` re-hashes all of it.
+        from vedit.evidence import RECEIPTS, bundle_receipts, write_receipts
+
+        receipts: dict[str, Any] = {"evidence_id": None}
+        try:
+            receipts = bundle_receipts(dict(grade, proof=proof, revision=job["revision"], caption_provider=caption_provider, applied_patches=job.get("applied_patches") or []),
+                                       video, plan=plan, project_root=root, base=work, info=output, files=packed[1:], video_name=packed[0][1], note=job.get("note"))
+            write_receipts(receipts, work / RECEIPTS)
+            packed.append((work / RECEIPTS, RECEIPTS))
+        except (OSError, TypeError, ValueError) as exc:
+            # The file already passed its probe; a receipt that cannot be sealed is said out loud, not faked.
+            warnings.append(f"The tamper-evident receipts could not be written ({type(exc).__name__}). The video and report are still verified.")
         bundle = work / "campaign.zip"
         pending_bundle = work / "campaign.zip.part"
         with zipfile.ZipFile(pending_bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for file, name in [(video, "video" + video.suffix.lower()), (cover, "cover" + cover.suffix.lower()), (work / "post.txt", "post.txt"), (work / "story.json", "story.json"), (work / "brief.yaml", "brief.yaml"), (report_path, "report.json")]:
+            for file, name in packed:
                 self._check_cancel(ident)
                 archive.write(file, name, compress_type=zipfile.ZIP_STORED if file.suffix.lower() in {".mp4", ".mov", ".webm", ".gif", ".jpg", ".png", ".webp"} else zipfile.ZIP_DEFLATED)
-            for name in ("captions.srt", "captions.ass", *sorted(path.name for path in work.glob("captions.*.srt"))):
-                if (work / name).is_file():
-                    archive.write(work / name, name)
         pending_bundle.replace(bundle)
         artifacts = {"video": str(video.relative_to(root)), "cover": str(cover.relative_to(root)), "bundle": str(bundle.relative_to(root)), "brief": str((work / "brief.yaml").relative_to(root)), "report": str(report_path.relative_to(root))}
         result = {f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in artifacts}
         result.update(proof=proof, warnings=warnings, cover_kind=cover_kind, caption=plan["caption"], hashtags=plan["hashtags"], provider=request["provider"], revision=job["revision"], stale=False, effect=effect, tracked_subject=tracked_subject, caption_provider=caption_provider, review=review)
+        result.update(emphasis=emphasis_drawn, hero_word=plan["edit"].get("hero_word"))
         result.update(checks=grade["checks"], passed=grade["passed"], total=grade["total"], patches=grade["patches"])
+        result["evidence_id"] = receipts["evidence_id"]
         self._check_cancel(ident)
         timings = dict(job.get("timings") or {}, render_seconds=round(time.monotonic() - started, 3), render_revision=job["revision"])
         notes = review if isinstance(review, dict) and "error" not in review else {}
@@ -2281,7 +2735,7 @@ class CampaignManager:
             "checks": grade["checks"], "passed": grade["passed"], "total": grade["total"],
             "hook_score": notes.get("hook_score"), "verdict": notes.get("verdict"),
             "applied_patches": job.get("applied_patches") or [], "note": job.get("note"),
-            "timings": {"render_seconds": timings["render_seconds"]},
+            "timings": {"render_seconds": timings["render_seconds"]}, "evidence_id": receipts["evidence_id"],
         }
         version.update({f"{name}_url": self._url(ident, name, revision=job["revision"]) for name in ("video", "report", "cover")})
         versions = [entry for entry in (job.get("versions") or []) if isinstance(entry, dict) and entry.get("revision") != job["revision"]] + [version]
@@ -2290,16 +2744,19 @@ class CampaignManager:
     @staticmethod
     def _grade(plan: dict[str, Any], request: dict[str, Any], duration: float, work: Path, review: dict[str, Any] | None,
                *, edits: dict[str, Any] | None = None, tracking: list[dict[str, Any]] | None = None, cutout: dict[str, Any] | None = None,
-               cut_duration: float | None = None, source_size: tuple[float, float] | None = None) -> dict[str, Any]:
+               hero: dict[str, Any] | None = None, hero_stats: dict[str, Any] | None = None,
+               cut_duration: float | None = None, source_size: tuple[float, float] | None = None,
+               clips: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Lint the approved plan against the source analysis and merge the director's checks.
 
         Sentences and speech bands come from the plan's stored analysis when a
         planner measured them; captions are read back from the SRT the render
-        actually burned. Missing inputs degrade to passing "not requested" checks.
+        actually burned. A check with nothing to measure is left out, not passed.
+        ``clips`` are the project's clip ranges, so a moment that crosses one is caught.
 
         Every check says how it knows (``basis``) and what produced it (``by``).
         Code measured the lint, the requested edits and SAM's boxes (``derived``);
-        the director's checks are Muse Spark's judgment (``inferred``). ``inputs``
+        the director's checks are Muse Spark's or Muse Wonder's judgment (``inferred``). ``inputs``
         names the models whose data a measurement read, only when the plan says so.
         """
         analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
@@ -2311,15 +2768,20 @@ class CampaignManager:
         speech = [item for item in (analysis.get("speech") or []) if isinstance(item, dict)] or None
         captions = None
         srt = work / "captions.srt"
-        if request.get("captions") and srt.is_file():
-            from vedit.captions import read_srt
+        if request.get("captions"):
+            # Requested and none burned is a cut with no captions, not a check that was never asked for.
+            captions = []
+            if srt.is_file():
+                from vedit.captions import read_srt
 
-            try:
-                captions = [{"start": cue.start, "end": cue.end} for cue in read_srt(srt)]
-            except (OSError, ValueError):
-                captions = []
+                try:
+                    captions = [{"start": cue.start, "end": cue.end} for cue in read_srt(srt)]
+                except (OSError, ValueError):
+                    captions = []
         # With no transcript these bands are only energy, and a music bed would read as talk nobody captioned.
-        heard = speech if captions is not None and analysis.get("transcript") else None
+        # A transcript that was made and holds no speech is still a measurement: there was nothing to caption.
+        transcribed = bool(analysis.get("transcript")) or (bool(analysis.get("transcribed")) and CampaignManager._heard_by(analysis) is not None)
+        heard = (speech or []) if captions is not None and transcribed else None
         heard_by = CampaignManager._heard_by(analysis)
         captioned_by = None
         if captions is not None:
@@ -2330,7 +2792,7 @@ class CampaignManager:
                 # The caption check needs the plan's transcript, and local captions are cut from it.
                 captioned_by = heard_by
         graded = lint_plan(plan, target_duration=request["target_duration"], duration=duration, sentences=sentences or None, captions=captions, speech=heard,
-                           heard_by=heard_by, captioned_by=captioned_by)
+                           heard_by=heard_by, captioned_by=captioned_by, clips=clips)
         checks = list(graded["checks"])
         patches = list(graded["patches"])
         applied = list((edits or {}).get("decisions") or [])
@@ -2348,9 +2810,12 @@ class CampaignManager:
             checks.append(subject_in_frame_check(tracking, duration=cut_duration or float(plan["duration"]), aspect=request.get("aspect", "9:16"), source_width=width, source_height=height))
         if cutout:
             checks.append(subject_cutout_check(cutout))
+        if hero:
+            # Code measured it from Spark's word and SAM's matte: derived, by lint, reading both models.
+            checks.append(hero_word_check(hero, hero_stats, duration=float(plan["duration"])))
         if isinstance(review, dict) and "error" not in review:
-            # Only Muse Spark reviews a cut today. A review from anywhere else keeps its own name.
-            director = "muse-spark" if review.get("provider", "meta") == "meta" else str(review.get("provider"))
+            # Muse Spark or Muse Wonder reviewed, as the review says. A review from anywhere else keeps its own name.
+            director = str(review.get("director") or "muse-spark") if review.get("provider", "meta") == "meta" else str(review.get("provider"))
             for check in review.get("checks") or []:
                 if isinstance(check, dict):
                     checks.append({"name": "director: " + str(check.get("name", "")), "passed": bool(check.get("passed")), "at": check.get("at"), "note": str(check.get("note", "")),
@@ -2359,7 +2824,9 @@ class CampaignManager:
                 if isinstance(patch, dict):
                     patches.append(dict(patch, source="director"))
         patches = [dict(patch, summary=describe_patch(patch)) for patch in patches]
-        return {"checks": checks, "passed": sum(1 for check in checks if check["passed"]), "total": len(checks), "patches": patches}
+        # An advisory note is shown with the checks but is not a check: it never counts as a pass.
+        counted = [check for check in checks if not check.get("advisory")]
+        return {"checks": checks, "passed": sum(1 for check in counted if check["passed"]), "total": len(counted), "patches": patches}
 
     @staticmethod
     def _heard_by(analysis: dict[str, Any]) -> str | None:

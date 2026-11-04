@@ -82,12 +82,18 @@ def measure_camera_shake(path: str | Path, *, seconds: float = 12.0, ffmpeg: str
     A low value is a reason to warn before applying stabilization, not a quality
     score. ``None`` means there was too little textured motion to measure safely.
     """
-    from vedit.media import resolve_ffmpeg
+    from vedit.errors import VeditError
+    from vedit.media import probe, resolve_ffmpeg
 
     binary = ffmpeg or resolve_ffmpeg()
     try:
+        # FFmpeg's own pick is the largest picture, which can be a cover image or a still proxy.
+        footage = probe(path).video_map
+    except VeditError:
+        return None
+    try:
         result = subprocess.run(
-            [binary, "-hide_banner", "-loglevel", "error", "-i", str(path), "-t", f"{seconds:.3f}", "-an",
+            [binary, "-hide_banner", "-loglevel", "error", "-i", str(path), "-map", f"0:v:{footage}", "-t", f"{seconds:.3f}", "-an",
              "-vf", "fps=4,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,format=gray",
              "-f", "rawvideo", "-pix_fmt", "gray", "-"],
             capture_output=True, timeout=max(120.0, seconds * 12), check=False,

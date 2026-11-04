@@ -25,12 +25,16 @@ never a traceback.
 
 from __future__ import annotations
 
+import functools
+import inspect
 import os
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import time
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -46,7 +50,7 @@ except ImportError:  # mcp 1.x
     from mcp.server.fastmcp.exceptions import ToolError  # type: ignore[no-redef]
 
 from vedit import __version__
-from vedit.campaign import CampaignError, CampaignManager, capabilities, get_manager, product_request
+from vedit.campaign import NO_NARRATION, CampaignError, CampaignManager, capabilities, get_manager, product_request
 from vedit.edit_spec import default_edit, merge_edit
 from vedit.errors import VeditError
 from vedit.lint import MAX_MOMENTS, apply_patches
@@ -65,6 +69,17 @@ _MAX_PATCHES = 2 * MAX_MOMENTS
 # Lists in the edit that can grow long. The summary counts them instead of listing them.
 _LONG_EDIT = (("removed",), ("captions", "edits"))
 _SAME = object()
+
+# What an unexpected error message must never carry to the agent: an Authorization header,
+# a bearer token, a key=value secret, or a long opaque token such as an API key.
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)\b(authorization|proxy-authorization)\b\s*[:=]\s*(?:bearer\s+|basic\s+)?\S+"),
+    re.compile(r"(?i)\bbearer\s+\S+"),
+    re.compile(r"(?i)\b([a-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)s?)\b(['\"]?\s*[:=]\s*['\"]?)[^\s'\",;]+"),
+    # 24+ characters mixing letters and digits: a key or token, not a Python name.
+    re.compile(r"\b(?=[A-Za-z_\-]*\d)(?=[\d_\-]*[A-Za-z])[A-Za-z0-9_\-]{24,}\b"),
+)
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE)
 
 _STATE: dict[str, Any] = {"manager": None}
 _STATE_LOCK = threading.Lock()
@@ -107,14 +122,82 @@ def shutdown(*, wait: bool = True) -> None:
         manager.close(wait=wait)
 
 
+def _scrub(text: str) -> str:
+    """``text`` with anything that looks like a credential replaced by [redacted]."""
+    for name, value in os.environ.items():
+        if _SECRET_ENV.search(name) and len(value.strip()) >= 8:
+            text = text.replace(value.strip(), "[redacted]")
+    for number, pattern in enumerate(_SECRET_PATTERNS):
+        if number == 2:
+            text = pattern.sub(lambda match: match.group(1) + match.group(2) + "[redacted]", text)
+        elif number == 0:
+            text = pattern.sub(lambda match: match.group(1) + ": [redacted]", text)
+        else:
+            text = pattern.sub("[redacted]", text)
+    return text
+
+
+def _unexpected(where: str, exc: BaseException) -> ToolError:
+    """A tool error for a bug: the exception type and one scrubbed line, never a traceback.
+
+    The full traceback goes to stderr (scrubbed too), where the operator reads
+    the server log; stdout is the MCP channel and stays untouched.
+    """
+    trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    print(f"briefcut: unexpected error in {where}:\n" + _scrub(trace), file=sys.stderr, flush=True)
+    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
+    summary = _scrub(lines[0])[:200] if lines else "no details"
+    return ToolError(f"Briefcut hit an unexpected {type(exc).__name__} in {where}: {summary}. "
+                     "Nothing was changed by this call. The full error is in the Briefcut server log. Retry once, and report it if it repeats.")
+
+
 def _call(fn, *args: Any, **kwargs: Any) -> Any:
-    """Run a manager call, turning its actionable failures into tool errors."""
+    """Run a manager call, turning its actionable failures into tool errors, and any other failure into a specific one."""
     try:
         return fn(*args, **kwargs)
     except CampaignError as exc:
         raise ToolError(str(exc)) from exc
     except VeditError as exc:
         raise ToolError(plain_failure(exc)) from exc
+    except ToolError:
+        raise
+    except Exception as exc:
+        raise _unexpected(getattr(fn, "__name__", "a Briefcut call"), exc) from None
+
+
+def _guard(fn):
+    """Wrap a tool so an unexpected exception reaches the agent as a specific, scrubbed message.
+
+    The MCP library reports any other exception only as "Error executing tool <name>".
+    """
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def run_async(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await fn(*args, **kwargs)
+            except ToolError:
+                raise
+            except Exception as exc:
+                raise _unexpected(fn.__name__, exc) from None
+        return run_async
+
+    @functools.wraps(fn)
+    def run(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise _unexpected(fn.__name__, exc) from None
+    return run
+
+
+def _tools(server: MCPServer):
+    """``server.tool`` with every tool wrapped by ``_guard``."""
+    def tool(*args: Any, **kwargs: Any):
+        register = server.tool(*args, **kwargs)
+        return lambda fn: register(_guard(fn))
+    return tool
 
 
 def _safe_filename(raw: str) -> str:
@@ -271,6 +354,22 @@ def _meta_uses(job: dict[str, Any], before: dict[str, Any], after: dict[str, Any
                 uses.append(f"Cut out \"{cutout.get('subject')}\". A proxy of the footage goes to Meta SAM on this project's budget, unless that subject was already tracked.")
             if not (capabilities()["meta"].get("features") or {}).get("cutout"):
                 warnings.append("A cutout needs Meta and its mask decoder on this machine, and one is not ready. Check briefcut_status before rendering.")
+    hero, old_hero = after.get("hero_word"), before.get("hero_word")
+    if hero:
+        if request.get("provider") != "meta":
+            warnings.append("This project was not made with Meta, so the render leaves the hero word out. SAM must cut the subject out behind it.")
+        elif not old_hero or any(hero.get(key) != old_hero.get(key) for key in ("subject", "start", "end")):
+            uses.append(f"Cut out \"{hero.get('subject')}\" behind the hero word. A copy of its window only goes to Meta SAM on this project's budget.")
+    if after.get("motion_card") and not capabilities().get("motion_cards"):
+        warnings.append("This machine has no Blender, so the render leaves the motion card out. Install Blender 4.2 or later, or set VEDIT_BLENDER.")
+    wants = (after.get("captions") or {}).get("emphasize") and not (after.get("captions") or {}).get("emphasis")
+    if wants and not (before.get("captions") or {}).get("emphasize"):
+        if not captions_on:
+            warnings.append("Captions are off, so punch words have no effect. Pass captions true to burn them.")
+        elif request.get("provider") != "meta":
+            warnings.append("This project was not made with Meta, so the captions stay plain. Muse Spark picks the punch words.")
+        else:
+            uses.append("Pick a punch word in the captions. The caption text goes to Muse Spark on this project's budget.")
     return uses, warnings
 
 
@@ -292,8 +391,9 @@ def build_server() -> MCPServer:
             "Flow: briefcut_import_clip, briefcut_create_story, briefcut_wait until planned, briefcut_timeline to read the cut, "
             "briefcut_edit to change it (a dry run unless render is true) or briefcut_render, briefcut_wait until complete, "
             "briefcut_receipts, then briefcut_artifact_path to read files. "
-            "More: briefcut_find_moments searches a project, briefcut_make_shorts cuts 2 to 5 shorts, "
-            "briefcut_script_to_video narrates a script, briefcut_add_asset adds music, a logo, or a picture, "
+            "More: briefcut_find_moments searches a project (SAM 3.1 checks what Muse Spark found), briefcut_make_shorts cuts 2 to 5 shorts, "
+            "briefcut_script_to_video turns a script into a caption-led video, briefcut_add_asset adds music, a logo, or a picture, "
+            "briefcut_hero_word proposes one spoken word to show behind the subject, briefcut_motion_card designs a 3D title card, "
             "and briefcut_revise renders version N+1 from fixes or a note. "
             "A render is verified only when receipts show passed == total and proof has_video. A status alone proves nothing. "
             "Creating a project sends its footage to Meta on the project's budget; each later tool or setting that sends more says so."
@@ -301,8 +401,9 @@ def build_server() -> MCPServer:
         version=__version__,
         lifespan=_lifespan,
     )
+    tool = _tools(server)
 
-    @server.tool()
+    @tool()
     def briefcut_import_clip(path: str) -> dict[str, Any]:
         """Copy a video file on this machine into a fresh inbox folder the campaign manager accepts.
 
@@ -328,7 +429,7 @@ def build_server() -> MCPServer:
             "has_audio": info.audio is not None,
         }
 
-    @server.tool()
+    @tool()
     def briefcut_create_story(
         paths: list[str],
         goal: str,
@@ -337,12 +438,13 @@ def build_server() -> MCPServer:
         aspect: str = "9:16",
         captions: bool = True,
         caption_provider: str = "meta",
-        language: str = "en",
+        language: str | None = None,
         subject: str = "",
-        budget_usd: float = 0.25,
+        budget_usd: float | None = None,
         generate_cover: bool = False,
         review: bool = False,
         effect: dict[str, Any] | None = None,
+        director: str | None = None,
     ) -> dict[str, Any]:
         """Queue a story plan from one or more imported clips and return the job.
 
@@ -353,9 +455,16 @@ def build_server() -> MCPServer:
         ``meta.available``). ``provider`` and ``caption_provider`` are always
         ``meta``; there is no local mode. ``aspect`` is 9:16, 16:9, or 1:1;
         ``target_duration`` is 0.5-180 seconds. ``effect`` is an optional effect
-        dict as Studio sends it. Planning runs in the background: call
-        briefcut_wait until the status is ``planned``, then read ``job.plan``
-        and render it.
+        dict as Studio sends it. ``director`` picks who reviews the cut when
+        ``review`` is on: ``spark`` (Muse Spark, the default) or ``wonder``
+        (Muse Wonder, which also listens; it needs a ``budget_usd`` of about
+        $0.40 or more, and a lower budget gets a note saying what to raise it to).
+        ``language`` is the spoken language code, or ``auto`` to let Meta detect
+        it; ``meta.languages`` in briefcut_status lists the codes (``heard`` marks
+        the ones Voice Transcribe hears). Leave ``language`` and ``budget_usd``
+        out to use the defaults saved in Studio Settings.
+        Planning runs in the background: call briefcut_wait until the status is
+        ``planned``, then read ``job.plan`` and render it.
         """
         request: dict[str, Any] = {
             "paths": list(paths),
@@ -365,29 +474,42 @@ def build_server() -> MCPServer:
             "aspect": aspect,
             "captions": captions,
             "caption_provider": caption_provider,
-            "language": language,
             "subject": subject,
-            "budget_usd": budget_usd,
             "generate_cover": generate_cover,
             "review": review,
         }
+        # Left out, the project takes the person's Settings defaults rather than a value fixed here.
+        if language is not None:
+            request["language"] = language
+        if budget_usd is not None:
+            request["budget_usd"] = budget_usd
         if effect is not None:
             request["effect"] = effect
+        if director is not None:
+            request["director"] = director
         # Refused before the manager opens, so a local request never takes the workspace lease.
         checked = _call(product_request, request)
         return _call(_manager().create, checked)
 
-    @server.tool()
-    def briefcut_find_moments(job_id: str, query: str) -> dict[str, Any]:
+    @tool()
+    def briefcut_find_moments(job_id: str, query: str, verify: bool = True, drop_unseen: bool = False) -> dict[str, Any]:
         """Find moments matching words or visible content in an existing project.
 
         Searching the project's transcript is free. Muse Spark can also search
-        the footage; results include ``searched``, ``warnings``, and the
-        project's Meta budget ledger.
+        the footage. With ``verify`` (the default), SAM 3.1 then looks for the
+        searched thing in up to 5 moments Spark found, on the project's budget
+        (about $0.01 per moment, nothing for a search about speech). Each
+        moment carries ``verified`` (true, false or null when not checked),
+        ``coverage`` (share of sampled frames SAM masked it in), ``flagged``
+        (SAM never saw it), ``thumbnail`` and ``thumbnail_url``.
+        ``drop_unseen`` moves never-seen moments to ``verification.dropped``.
+        ``verification`` holds ``status``, ``phrase`` (what SAM looked for),
+        ``receipt``, ``dropped`` and ``spend``. Results also include
+        ``searched``, ``warnings``, and the project's Meta budget ledger.
         """
-        return _call(_manager().find, job_id, {"query": query})
+        return _call(_manager().find, job_id, {"query": query, "verify": verify, "drop_unseen": drop_unseen})
 
-    @server.tool()
+    @tool()
     def briefcut_make_shorts(
         job_id: str,
         count: int = 3,
@@ -406,52 +528,62 @@ def build_server() -> MCPServer:
             payload["budget_usd"] = budget_usd
         return {"jobs": _call(_manager().shorts, job_id, payload)}
 
-    @server.tool()
+    @tool()
     def briefcut_script_to_video(
         script: str,
         aspect: str = "9:16",
         provider: str = "meta",
-        budget_usd: float = 0.25,
-        language: str = "en",
+        budget_usd: float | None = None,
+        language: str | None = None,
         voice: str | None = None,
         images: list[str] | None = None,
         review: bool = False,
         auto_refine: int = 0,
         template: str = "none",
         edit: dict[str, Any] | None = None,
+        director: str | None = None,
     ) -> dict[str, Any]:
-        """Create a narrated video project from a script and return its queued job.
+        """Create a caption-led video project from a script and return its queued job.
 
-        Scenes become editable clips in the normal Studio timeline. Needs a
-        Meta API key. With no images, Muse Image draws one picture per scene.
-        ``images`` must be absolute paths to PNG, JPEG, or WebP files on this
-        machine; ``voice`` must be one of the voices briefcut_status lists.
-        ``provider`` is always ``meta``.
+        The script becomes on-screen captions, scene by scene. There is no
+        synthetic voice: Meta offers no text-to-speech, so leave ``voice`` out
+        (any voice is refused). Scenes become editable clips in the normal
+        Studio timeline. Needs a Meta API key. With no images, Muse Image draws
+        one picture per scene. ``images`` must be absolute paths to PNG, JPEG,
+        or WebP files on this machine. ``provider`` is always ``meta``. ``language`` is the script's language
+        code, or ``auto``. Leave ``language`` and ``budget_usd`` out to use the
+        defaults saved in Studio Settings.
         """
         payload: dict[str, Any] = {
             "script": script, "aspect": aspect, "provider": provider,
-            "budget_usd": budget_usd, "language": language,
             "images": list(images or []), "review": review,
             "auto_refine": auto_refine, "template": template,
         }
+        if budget_usd is not None:
+            payload["budget_usd"] = budget_usd
+        if language is not None:
+            payload["language"] = language
         if voice is not None:
-            payload["voice"] = voice
+            # Kept only so an agent that asks for a voice hears why, instead of a schema error.
+            raise ToolError(NO_NARRATION + " Leave voice out.")
         if edit is not None:
             payload["edit"] = edit
+        if director is not None:
+            payload["director"] = director
         checked = _call(product_request, payload)
         return {"job": _call(_manager().create_script, checked)}
 
-    @server.tool()
+    @tool()
     def briefcut_get(job_id: str) -> dict[str, Any]:
         """Return the current public job: status, stage, progress, plan, result, versions."""
         return _call(_manager().get, job_id)
 
-    @server.tool()
+    @tool()
     def briefcut_list() -> dict[str, Any]:
         """List the most recent campaigns in this workspace as ``jobs``, newest first."""
         return {"jobs": _call(_manager().list)}
 
-    @server.tool()
+    @tool()
     async def briefcut_wait(job_id: str, timeout_seconds: float = 600) -> dict[str, Any]:
         """Poll the job every 0.5 s until it is planned, complete, failed, or cancelled.
 
@@ -467,7 +599,7 @@ def build_server() -> MCPServer:
                 raise ToolError(f"Timed out after {timeout_seconds:g}s; campaign {job_id} is still {job['status']} ({job.get('message') or job.get('stage')}). Call briefcut_wait again or briefcut_cancel.")
             await anyio.sleep(POLL_SECONDS)
 
-    @server.tool()
+    @tool()
     def briefcut_render(job_id: str, plan: dict[str, Any] | None = None, captions: bool | None = None, aspect: str | None = None) -> dict[str, Any]:
         """Render a planned job, optionally from an edited plan, and return the job.
 
@@ -487,21 +619,24 @@ def build_server() -> MCPServer:
             payload["aspect"] = aspect
         return _call(_manager().render, job_id, payload)
 
-    @server.tool()
-    def briefcut_revise(job_id: str, mode: str, note: str | None = None) -> dict[str, Any]:
+    @tool()
+    def briefcut_revise(job_id: str, mode: str, note: str | None = None, director: str | None = None) -> dict[str, Any]:
         """Render version N+1 of a verified job from patches; version N stays available.
 
         ``mode`` is ``auto`` (apply the deterministic lint patches from the last
         receipts), ``director`` (apply Meta's review patches), or ``note`` (turn
-        a free-text ``note`` into patches with Meta first). Returns the queued
-        job; wait for ``complete`` and compare receipts.
+        a free-text ``note`` into patches with Meta first). ``director``
+        (``spark`` or ``wonder``) picks who reviews version N+1 and later
+        versions. Returns the queued job; wait for ``complete`` and compare receipts.
         """
         payload: dict[str, Any] = {"mode": mode}
         if note is not None:
             payload["note"] = note
+        if director is not None:
+            payload["director"] = director
         return _call(_manager().revise, job_id, payload)
 
-    @server.tool()
+    @tool()
     def briefcut_receipts(job_id: str) -> dict[str, Any]:
         """Return the verification receipts of the last verified render.
 
@@ -512,7 +647,35 @@ def build_server() -> MCPServer:
         """
         return _receipts(_call(_manager().get, job_id))
 
-    @server.tool()
+    @tool()
+    def briefcut_verify(job_id: str, revision: int | None = None) -> dict[str, Any]:
+        """Re-hash the job's downloadable bundle against its receipts.json and say what changed.
+
+        Every check, the probe, the plan, the Meta calls and the video's sha256
+        carry an evidence id, and one root id covers them all. Returns ``ok``,
+        the root ``evidence_id``, each ``item`` checked and the ``changed`` ones.
+        It also compares the root with the one the job recorded at render time.
+        Hashes only: no network. Anyone can run the same check with ``vedit verify``.
+        """
+        from vedit.evidence import ReceiptsMissing, verify
+
+        job = _call(_manager().get, job_id)
+        result = job.get("result")
+        if not isinstance(result, dict):
+            raise ToolError(f"Campaign {job['id']} is {job['status']}; receipts exist once a render has been verified.")
+        if revision is None:
+            recorded = result.get("evidence_id")
+        else:
+            recorded = next((entry.get("evidence_id") for entry in job.get("versions") or [] if isinstance(entry, dict) and entry.get("revision") == revision), None)
+        bundle = _call(_manager().artifact, job_id, "bundle", revision=revision)
+        try:
+            report = verify(bundle, expect=recorded)
+        except ReceiptsMissing as exc:
+            raise ToolError(str(exc)) from None
+        report["receipts"] = Path(report["receipts"].split("!", 1)[0]).name + "!receipts.json"
+        return {"job_id": job["id"], "revision": result.get("revision") if revision is None else revision, "bundle": str(bundle), **report}
+
+    @tool()
     def briefcut_artifact_path(job_id: str, name: str, revision: int | None = None) -> dict[str, Any]:
         """Return the absolute on-disk path of an artifact so you can read it directly.
 
@@ -531,17 +694,17 @@ def build_server() -> MCPServer:
             path = _call(_manager().artifact, job_id, name, revision=revision)
         return {"path": str(path), "name": name, "revision": revision, "bytes": path.stat().st_size}
 
-    @server.tool()
+    @tool()
     def briefcut_cancel(job_id: str) -> dict[str, Any]:
         """Stop a queued or running job. Finished work and the saved plan are kept."""
         return _call(_manager().cancel, job_id)
 
-    @server.tool()
+    @tool()
     def briefcut_retry(job_id: str) -> dict[str, Any]:
         """Re-queue a failed or cancelled job from its saved source and plan."""
         return _call(_manager().retry, job_id)
 
-    @server.tool()
+    @tool()
     def briefcut_status() -> dict[str, Any]:
         """Report whether Briefcut can work here, and what Meta and this machine can do.
 
@@ -549,7 +712,9 @@ def build_server() -> MCPServer:
         only when both requirements hold: ``meta.available`` (a Meta API key is
         configured and Meta calls are allowed) and ``render.ready`` (FFmpeg can
         render). ``missing`` says what to fix, in plain words. ``meta.features``
-        lists the Meta features available. ``editor.choices`` holds the ids
+        lists the Meta features available. ``meta.last_problem`` is why the last
+        Meta call with this key failed (such as a rejected key or no credits),
+        or null; it clears when a call succeeds or the key changes. ``editor.choices`` holds the ids
         briefcut_edit accepts that this machine's FFmpeg can run.
         """
         caps = _call(capabilities)
@@ -569,7 +734,7 @@ def build_server() -> MCPServer:
             "ready": not missing,
             "missing": missing,
             "render": {"ready": render["ready"], "reason": render["reason"]},
-            "meta": {key: cloud.get(key) for key in ("configured", "enabled", "available", "mode", "reason", "features", "prices", "prices_as_of")},
+            "meta": {key: cloud.get(key) for key in ("configured", "enabled", "available", "mode", "reason", "features", "prices", "prices_as_of", "directors", "private", "languages", "last_problem")},
             "host": caps["host"],
             "effects": {"supported": caps["effects"]["supported"], "reason": caps["effects"]["reason"], "presets": ids(caps["effects"]["presets"])},
             "editor": {
@@ -585,6 +750,13 @@ def build_server() -> MCPServer:
                     "texts.style": ids(editor["text_styles"]),
                     "texts.position": list(editor["text_positions"]),
                     "logo.position": list(editor["overlay_positions"]),
+                    "hero_word.font": ids(editor["hero_word"]["fonts"]),
+                    "hero_word.color": list(editor["hero_word"]["colors"]),
+                    "hero_word.side": list(editor["hero_word"]["sides"]),
+                    "motion_card.kind": ids(editor["motion_card"]["kinds"]),
+                    "motion_card.style": ids(editor["motion_card"]["styles"]),
+                    "motion_card.camera": ids(editor["motion_card"]["cameras"]),
+                    "motion_card.palette": list(editor["motion_card"]["palettes"]),
                     "export.quality": list(export["qualities"]),
                     "export.fps": list(export["fps"]),
                     "export.format": list(export["formats"]),
@@ -593,10 +765,11 @@ def build_server() -> MCPServer:
             "script": {key: script.get(key) for key in ("narration", "generates_images", "default_voice", "reason", "image_reason")}
             | {"voices": [row["id"] for row in script.get("voices") or []]},
             "director": caps["director"],
+            "motion_cards": caps["motion_cards"],
             "limits": caps["limits"],
         }
 
-    @server.tool()
+    @tool()
     def briefcut_timeline(job_id: str, detail: str = "summary", offset: int = 0, limit: int = 50) -> dict[str, Any]:
         """Read a planned job's cut on the output clock, summary first.
 
@@ -640,7 +813,7 @@ def build_server() -> MCPServer:
         return {"job_id": job_id, "detail": detail, "revision": job["revision"], "duration": view.get("duration"),
                 "total": len(rows), "offset": offset, "limit": limit, "next_offset": following if following < len(rows) else None, "items": page}
 
-    @server.tool()
+    @tool()
     def briefcut_edit(
         job_id: str,
         edit: dict[str, Any] | None = None,
@@ -653,7 +826,7 @@ def build_server() -> MCPServer:
 
         ``edit`` is a partial edit merged into the saved one, such as
         {"look": {"preset": "warm"}}, {"captions": {"style": "bold", "language": "es"}},
-        or {"cutout": {"mode": "blur", "subject": "the bowl"}}. Objects merge;
+        or {"cutout": {"mode": "blur", "subject": "the person"}}. Objects merge;
         lists and plain values replace. briefcut_status lists the valid ids.
         ``patches`` change moments, numbered from 1 as briefcut_timeline shows:
         {"op": "trim_start" or "trim_end", "segment": n, "seconds": new source time},
@@ -724,14 +897,53 @@ def build_server() -> MCPServer:
                       next="Call briefcut_wait until the status is complete, then briefcut_receipts.")
         return result
 
-    @server.tool()
+    @tool()
+    def briefcut_hero_word(job_id: str, subject: str | None = None, font: str | None = None, color: str | None = None) -> dict[str, Any]:
+        """Ask Muse Spark for this cut's hero word: one spoken word shown huge behind the subject for 1 to 3 seconds.
+
+        Spark reads the cut's caption words only and proposes; Briefcut checks
+        the word is said, inside one shot, and returns a bounded
+        ``hero_word`` edit. Nothing renders and nothing is saved. ``subject``
+        is what the word goes behind, such as "the person in the red jacket".
+        It defaults to the project's subject, and is needed when the project has
+        none: Briefcut never guesses one, and without it the call is refused
+        before anything is spent. ``font`` and ``color`` are ids briefcut_status lists
+        under ``hero_word.font`` and ``hero_word.color``. Costs well under a
+        cent of the project's Meta budget; at render, SAM 3.1 masks the subject
+        over the word's window only (about $0.01 to $0.02). To apply it, call
+        briefcut_edit with {"hero_word": <the returned hero_word>} and render
+        true, or briefcut_render with the plan's edit updated. ``adjusted``
+        says what Briefcut changed in Spark's proposal and why.
+        """
+        options = {name: value for name, value in (("font", font), ("color", color)) if value is not None}
+        suggestion = _call(_manager().suggest_hero_word, job_id, subject=subject, **options)
+        return dict(suggestion, next="Apply it with briefcut_edit(job_id, edit={\"hero_word\": hero_word}, render=true). Nothing was saved yet.")
+
+    @tool()
+    def briefcut_motion_card(job_id: str, kind: str = "intro_title", backdrop: bool = True) -> dict[str, Any]:
+        """Ask Muse Spark to design a 3D motion card for this cut, rendered later by Blender on this machine.
+
+        ``kind`` is ``intro_title``, ``end_card`` or ``lower_third``. Spark reads
+        the goal and the cut's caption words only and picks closed choices
+        (text, subtitle, style, palette, camera, length); Briefcut validates them
+        into a ``motion_card`` edit. With ``backdrop`` (not for a lower third),
+        Muse Image paints the plate the card opens on for $0.01 and it is kept
+        as a project image. Spark's call costs under a cent. Nothing renders and
+        the plan is not changed. Needs Blender here: briefcut_status shows
+        ``motion_cards``. To apply it, call briefcut_edit with
+        {"motion_card": <the returned motion_card>} and render true.
+        """
+        suggestion = _call(_manager().suggest_motion_card, job_id, kind=kind, backdrop=backdrop)
+        return dict(suggestion, next="Apply it with briefcut_edit(job_id, edit={\"motion_card\": motion_card}, render=true). The plan was not changed.")
+
+    @tool()
     def briefcut_add_asset(job_id: str, path: str) -> dict[str, Any]:
         """Add an audio file or image from this machine to a project, for music, a logo, an overlay, or a cutout background.
 
         ``path`` is an absolute path. The file is copied into the project and
         stays on this machine. Returns the asset record. Use its ``id`` with
         briefcut_edit, such as {"music": {"asset": id}}, {"logo": {"asset": id}},
-        or {"cutout": {"mode": "image", "subject": "the bowl", "asset": id}}.
+        or {"cutout": {"mode": "image", "subject": "the person", "asset": id}}.
         """
         source, _size = _local_file(path, "file")
         manager = _manager()
@@ -742,7 +954,7 @@ def build_server() -> MCPServer:
             # The project keeps its own copy, so the staged upload is not needed.
             shutil.rmtree(dest.parent.parent, ignore_errors=True)
 
-    @server.tool()
+    @tool()
     def briefcut_generate_background(job_id: str, prompt: str, consent: bool) -> dict[str, Any]:
         """Generate a background picture with Meta and add it to the project as an image asset.
 

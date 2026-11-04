@@ -75,6 +75,12 @@ def _media_type(path: Path) -> str:
     return guessed
 
 
+def _displays_inline(content_type: str) -> bool:
+    """Plain pictures and sound show in place. SVG is a document that can run script, so it downloads."""
+    kind = content_type.split(";", 1)[0].strip().lower()
+    return kind.startswith(("image/", "audio/")) and "svg" not in kind
+
+
 def _static_relative(decoded_path: str) -> str | None:
     """Map a request path onto a file under the static directory.
 
@@ -176,6 +182,13 @@ def _session_root(query: str) -> Path:
         raise BriefError("root must be an absolute path")
     return path
 
+
+
+def _attachment(name: str) -> str:
+    """A download header that keeps a unicode file name: an ASCII fallback plus RFC 5987 ``filename*``."""
+    from urllib.parse import quote
+
+    return f'attachment; filename="{_safe_filename(name)}"; filename*=UTF-8\'\'{quote(name, safe="")}'
 
 def _safe_filename(raw: str) -> str:
     """A plain ASCII name that keeps its extension, so 写真.jpg stays a .jpg."""
@@ -346,7 +359,7 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
-        if path.startswith("/api/campaigns/") and path.endswith(("/artifact", "/filmstrip")):
+        if path.startswith("/api/campaigns/") and path.endswith(("/artifact", "/filmstrip", "/find-thumbnail")):
             self._handle_campaign(path, split.query, mutation=False, send_body=False)
             return
         if path == "/api/media":
@@ -420,7 +433,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             if path == "/api/capabilities" and not mutation:
                 self._send_json(200, {"ok": True, **capabilities()})
                 return
-            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact|timeline|find|shorts|assets|background|filmstrip|waveform|meta-calls))?)?", path)
+            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact|timeline|find|find-thumbnail|hero-word|motion-card|shorts|assets|background|filmstrip|waveform|meta-calls))?)?", path)
             if match is None and path != "/api/script":
                 self._send_json(404, {"ok": False, "error": "Campaign route not found."})
                 return
@@ -443,6 +456,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                     target = manager.artifact(job_id, names[0], revision=revision)
                     attachment = names[0] not in {"source", "video", "cover"}
                     ctype = _media_type(target)
+                    if names[0] == "cover" and not _displays_inline(ctype):
+                        ctype, attachment = "application/octet-stream", True
                     if names[0] in {"source", "video"} and not ctype.startswith("video/"):
                         # Probe validates contents, not extensions. An uploaded
                         # video named .html must never execute as an HTML page.
@@ -450,6 +465,12 @@ class StudioHandler(BaseHTTPRequestHandler):
                     self._serve_path(target, send_body=send_body, attachment=attachment, content_type=ctype)
                 elif action == "filmstrip":
                     self._serve_path(manager.filmstrip(job_id), send_body=send_body, content_type="image/jpeg")
+                elif action == "find-thumbnail":
+                    # SAM's picture of a found moment: one JPEG from this project's own folder, by name only.
+                    names = parse_qs(query, keep_blank_values=True).get("name", [])
+                    if len(names) != 1:
+                        raise CampaignError("Choose one thumbnail.")
+                    self._serve_path(manager.found_thumbnail(job_id, names[0]), send_body=send_body, content_type="image/jpeg")
                 elif action == "assets":
                     ids = parse_qs(query).get("id", [])
                     if len(ids) != 1:
@@ -457,7 +478,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     target = manager.asset_file(job_id, ids[0])
                     ctype = _media_type(target)
                     # Same rule as the source: only plain pictures and sound display in place.
-                    plain = ctype.startswith(("image/", "audio/"))
+                    plain = _displays_inline(ctype)
                     self._serve_path(target, send_body=send_body, attachment=not plain, content_type=ctype if plain else "application/octet-stream")
                 elif action == "waveform":
                     self._send_json(200, {"ok": True, **manager.waveform(job_id)})
@@ -472,7 +493,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(405, {"ok": False, "error": "This action requires POST."})
                 return
-            if action in {"artifact", "filmstrip", "waveform", "meta-calls"} or (job_id is not None and action is None):
+            if action in {"artifact", "filmstrip", "waveform", "meta-calls", "find-thumbnail"} or (job_id is not None and action is None):
                 self._send_json(405, {"ok": False, "error": "This resource requires GET."})
                 return
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -504,6 +525,23 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             if action == "find":
                 self._send_json(200, {"ok": True, **manager.find(job_id, payload)})
+                return
+            if action == "hero-word":
+                # A suggestion only: the client renders with the returned edit.hero_word.
+                for name in ("subject", "font", "color"):
+                    if payload.get(name) is not None and not isinstance(payload[name], str):
+                        raise CampaignError(f"The hero word {name} must be text.")
+                options = {name: payload[name] for name in ("font", "color") if payload.get(name) is not None}
+                self._send_json(200, {"ok": True, **manager.suggest_hero_word(job_id, subject=payload.get("subject"), **options)})
+                return
+            if action == "motion-card":
+                # A suggestion only: the client renders with the returned edit.motion_card.
+                if payload.get("kind") is not None and not isinstance(payload["kind"], str):
+                    raise CampaignError("The motion card kind must be text.")
+                if payload.get("backdrop") is not None and not isinstance(payload["backdrop"], bool):
+                    raise CampaignError("backdrop must be true or false.")
+                options = {name: payload[name] for name in ("kind", "backdrop") if payload.get(name) is not None}
+                self._send_json(200, {"ok": True, **manager.suggest_motion_card(job_id, **options)})
                 return
             if action == "shorts":
                 self._send_json(202, {"ok": True, "jobs": manager.shorts(job_id, payload)})
@@ -617,7 +655,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             if attachment:
-                self.send_header("Content-Disposition", f'attachment; filename="{_safe_filename(target.name)}"')
+                self.send_header("Content-Disposition", _attachment(target.name))
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.send_header("Content-Length", str(length))
@@ -630,7 +668,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
         if attachment:
-            self.send_header("Content-Disposition", f'attachment; filename="{_safe_filename(target.name)}"')
+            self.send_header("Content-Disposition", _attachment(target.name))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(size))
         self.end_headers()
@@ -783,7 +821,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             return False, None
         try:
             return True, json.loads(raw)
-        except json.JSONDecodeError:
+        except UnicodeDecodeError:
+            self._send_json(400, {"ok": False, "error": "Send JSON encoded as UTF-8."})
+            return False, None
+        except (ValueError, RecursionError):
+            # ValueError covers a decode error; RecursionError is nesting deeper than Python allows.
             self._send_json(400, {"ok": False, "error": "invalid JSON"})
             return False, None
 
@@ -855,6 +897,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", _media_type(path))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # Inside a frame every request is same-origin, so the Origin checks would not stop a
+        # framing page from clicking for the person. The editor is never framed.
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

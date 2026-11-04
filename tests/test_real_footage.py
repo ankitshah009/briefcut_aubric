@@ -323,8 +323,6 @@ CASES = [
 
 @pytest.fixture
 def manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Whisper is covered separately; here it would only slow the matrix down.
-    monkeypatch.setattr("vedit.agent.explain.local_transcriber_ready", lambda: False)
     instance = CampaignManager(tmp_path, start_worker=False)
     try:
         yield instance
@@ -344,31 +342,28 @@ def listening(tmp_path: Path):
 
 @pytest.fixture
 def hears(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], Path]:
-    """A stand-in whisper-cli that hears one fixed line and logs each call."""
-    folder = tmp_path / "bin"
-    folder.mkdir()
-    script = folder / "whisper-cli"
-    script.write_text(
-        '''#!/bin/sh
-while [ $# -gt 0 ]; do
-  if [ "$1" = "-of" ]; then prefix="$2"; fi
-  shift
-done
-echo called >> "$FAKE_WHISPER_LOG"
-printf '1\\n00:00:00,000 --> 00:00:01,000\\n%s\\n\\n' "$FAKE_WHISPER_TEXT" > "$prefix.srt"
-'''
-    )
-    script.chmod(0o755)
-    model = tmp_path / "ggml-fake.bin"
-    with model.open("wb") as handle:
-        handle.truncate(3_000_000)
-    log = tmp_path / "whisper.log"
-    monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("VEDIT_WHISPER_MODEL", str(model))
-    monkeypatch.setenv("FAKE_WHISPER_LOG", str(log))
+    """A stand-in Meta Voice Transcribe that hears one fixed turn and logs each call, on a Meta-mode project."""
+    from vedit import meta
+
+    log = tmp_path / "transcribe.log"
+    heard = {"text": ""}
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+
+    def transcribe_audio(wav: Path, **kwargs: Any) -> dict[str, Any]:
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write("called\n")
+        return {"cues": [{"start": 0.0, "end": 1.0, "text": heard["text"]}], "provider": "meta", "usage": {"cost_usd": 0.0}}
+
+    def plan_story(proxy: Path, **kwargs: Any) -> dict[str, Any]:
+        return {"title": "A cut", "summary": "s", "caption": "", "cover_prompt": "", "hashtags": [], "provider": "meta", "usage": {"cost_usd": 0.0}, "warnings": [],
+                "segments": [{"start": 0.0, "end": min(float(kwargs["duration"]), 2.0), "label": "Opening", "reason": "Chosen."}]}
+
+    monkeypatch.setattr(meta, "transcribe_audio", transcribe_audio)
+    monkeypatch.setattr(meta, "plan_story", plan_story)
 
     def hear(text: str) -> Path:
-        monkeypatch.setenv("FAKE_WHISPER_TEXT", text)
+        heard["text"] = text
         return log
 
     return hear
@@ -568,7 +563,8 @@ def test_hdr_is_tone_mapped(manager: CampaignManager, inbox: Path, name: str) ->
     clip = inbox / "phone.mov"
     transfer = HDR[name]
     ffmpeg("-f", "lavfi", "-i", f"color=c={PATCH}:s=1280x720:r=30:d=1.5", *tone(seconds=1.5), *AAC,
-           "-vf", f"format=yuv444p,zscale=tin=bt709:pin=bt709:min=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=100,format=yuv420p10le",
+           # BT.2408: SDR white sits at HDR reference white, 203 nits, as phones and graders place it.
+           "-vf", f"format=yuv444p,zscale=tin=bt709:pin=bt709:min=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=203,format=yuv420p10le",
            "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1",
            "-color_primaries", "bt2020", "-color_trc", transfer, "-colorspace", "bt2020nc", str(clip))
     assert_color(manager, clip)
@@ -590,11 +586,11 @@ def check(done: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def test_silent_clip_gets_no_invented_caption(listening: CampaignManager, inbox: Path, hears: Callable[[str], Path]) -> None:
-    """Whisper writes "You" on digital silence. Two real clips shipped with exactly that."""
+    """Recognizers write "You" on digital silence. Two real clips shipped with exactly that, so silence is never sent."""
     log = hears("You")
     clip = inbox / "quiet.mp4"
     digital_silence(clip)
-    done = render_campaign(listening, clip, captions=True)
+    done = render_campaign(listening, clip, captions=True, provider="meta")
     assert_delivered(listening, done, aspect="9:16", audio=True)
     assert "You" not in burned(listening, done)
     assert done["plan"]["analysis"]["transcript"] == []
@@ -605,7 +601,7 @@ def test_music_is_not_a_caption(listening: CampaignManager, inbox: Path, hears: 
     hears("(upbeat music)")
     clip = inbox / "music.mp4"
     plain(clip)
-    done = render_campaign(listening, clip, captions=True)
+    done = render_campaign(listening, clip, captions=True, provider="meta")
     assert_delivered(listening, done, aspect="9:16", audio=True)
     assert "music" not in burned(listening, done).lower()
     assert "music" not in json.dumps(done["plan"]["segments"]).lower()
@@ -617,7 +613,7 @@ def test_voice_over_a_music_bed_is_graded_on_the_voice(listening: CampaignManage
     hears("Proven to reduce anxiety.")
     clip = inbox / "advert.mp4"
     plain(clip)
-    done = render_campaign(listening, clip, captions=True)
+    done = render_campaign(listening, clip, captions=True, provider="meta")
     assert_delivered(listening, done, aspect="9:16", audio=True)
     assert "Proven to reduce anxiety." in burned(listening, done)
     verdict = check(done, "auto: captions cover the speech")
@@ -630,8 +626,8 @@ def test_long_clip_without_a_transcript_is_not_graded_on_energy(tmp_path: Path) 
     (tmp_path / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nHello there.\n", encoding="utf-8")
     plan = {"segments": [{"start": 0.0, "end": 20.0}], "analysis": {"speech": [{"start": 0.0, "end": 20.0}], "transcript": []}}
     graded = CampaignManager._grade(plan, {"captions": True, "target_duration": 20}, 400.0, tmp_path, None)
-    verdict = next(item for item in graded["checks"] if item["name"] == "auto: captions cover the speech")
-    assert verdict["passed"] and verdict["note"] == "no transcript to compare with"
+    # With no transcript there is nothing to compare the captions with, so there is no caption check, not a pass.
+    assert "auto: captions cover the speech" not in [item["name"] for item in graded["checks"]]
 
 
 # ---------------------------------------------------------------------------
@@ -653,7 +649,7 @@ def test_clip_shorter_than_the_target_passes_its_own_length(manager: CampaignMan
     plain(clip)
     done = render_campaign(manager, clip, target_duration=30)
     assert_delivered(manager, done, aspect="9:16", audio=True)
-    assert check(done, "auto: duration matches the target")["passed"]
+    assert check(done, "auto: length fits the target (\u2264 " + f"{done['plan']['source_duration']:.1f}".removesuffix(".0") + " s)")["passed"]
 
 
 def test_frame_counted_length_is_not_rounded_past_the_clip(manager: CampaignManager, inbox: Path) -> None:
@@ -790,7 +786,7 @@ def test_source_removed_after_planning_says_upload_again(manager: CampaignManage
         (RenderError("step failed", step="export_shorts_9x16", detail="Error opening output files: Result too large"), "The export stopped: Result too large."),
         (RenderError("step failed", step="thumbnail", detail="/Users/me/secret/clip.mp4: unknown failure at 0x7f"), "Making the cover frame stopped."),
         (ProbeError("ffprobe failed for /Users/me/clip.mp4: bad"), "could not be read"),
-        (CaptionError("whisper-cli did not write an SRT.\n/Users/me/whisper"), "turn captions off"),
+        (CaptionError("This ffmpeg build has no subtitles/ass filter.\n/Users/me/ffmpeg"), "turn captions off"),
         (BinaryMissing("executable not found: /opt/homebrew/bin/ffmpeg"), "vedit doctor"),
         (CompileError("missing source file(s): footage=/Users/me/My Videos/clip.mp4"), "Missing source file(s): footage."),
         (OSError(28, "No space left on device"), "full"),

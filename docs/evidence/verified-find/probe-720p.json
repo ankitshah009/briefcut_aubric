@@ -1,0 +1,87 @@
+{
+ "note": "The gouge window again at the source's full 720p instead of 360p, to rule out the downscale. SAM's raw answer was empty text, the same as at 360p. The thumbnail for this window is thumbs/gouge-22500-unmasked.jpg.",
+ "window_height": 720,
+ "verified": {
+  "query": "the gouge",
+  "kind": "visual",
+  "phrase": "gouge",
+  "status": "verified",
+  "reason": "SAM 3.1 looked for “gouge” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+  "moments": [
+   {
+    "start": 16.0,
+    "end": 32.0,
+    "reason": "A gray gouge tool contacts the wooden bowl rim with shavings scattering.",
+    "label": "A gray gouge tool contacts the wooden bowl rim with shavings",
+    "source": "meta",
+    "score": 0.9,
+    "evidence": {
+     "phrase": "gouge",
+     "window": [
+      22.5,
+      25.5
+     ],
+     "sample_fps": 15.0,
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ],
+     "sampled_frames": 45,
+     "masked_frames": 0,
+     "measured": "mask",
+     "object_id": null,
+     "peak_area": 0.0,
+     "confidence": null,
+     "thumbnail_frame": 22,
+     "thumbnail_time": 23.967
+    },
+    "verified": false,
+    "coverage": 0.0,
+    "thumbnail": null,
+    "verification": "SAM saw no “gouge” in any of 45 sampled frames.",
+    "flagged": true
+   }
+  ],
+  "dropped": [],
+  "spend": [
+   {
+    "model": "sam-3.1",
+    "operation": "verify-find",
+    "moment": 0,
+    "window": [
+     22.5,
+     25.5
+    ],
+    "frames": 50,
+    "cost_usd": 0.01,
+    "estimated_max_usd": 0.01,
+    "cached": false
+   }
+  ],
+  "spent_usd": 0.01,
+  "warnings": [],
+  "settings": {
+   "window_seconds": 3.0,
+   "max_frames": 46,
+   "min_area": 0.001,
+   "min_coverage": 0.2,
+   "min_confidence": 0.0,
+   "unseen": "flag",
+   "max_moments": 5,
+   "planned_usd": 0.01
+  },
+  "model": "sam-3.1",
+  "receipt": {
+   "name": "sam: “gouge” is on screen in the found moments",
+   "passed": false,
+   "at": 16.0,
+   "note": "SAM 3.1 looked for “gouge” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+   "basis": "derived",
+   "by": "sam-3.1",
+   "inputs": [
+    "muse-spark"
+   ]
+  }
+ }
+}

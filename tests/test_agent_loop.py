@@ -10,8 +10,9 @@ from vedit.agent.loop import _session_dir, load_session, run_session
 from vedit.compile import OPS
 from vedit.ir import load_brief
 
-# Absolute demo path from the task. Missing file is a skip; a compile error is a failure.
-TALK = Path("/Users/ankitparagshah/GitHub/video_editor/examples/demo/talk.mp4")
+# The tracked demo clip in this checkout, so the test runs on any machine and in CI.
+# A missing file is a skip; a compile error is a failure.
+TALK = Path(__file__).resolve().parents[1] / "examples" / "demo" / "talk.mp4"
 GOAL = "cut silence and caption this as a youtube video"
 
 

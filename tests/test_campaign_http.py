@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from vedit import meta
 from vedit.studio.server import StudioHandler, _LoopbackServer
 
 
@@ -377,9 +378,15 @@ def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(ser
     ident = complete["id"]
     result = complete["result"]
     names = [check["name"] for check in result["checks"]]
-    assert names[:4] == ["auto: cuts land on sentence boundaries", "auto: duration matches the target", "auto: moments inside the source and in order", "auto: captions cover the speech"]
-    assert result["total"] == len(result["checks"]) and result["passed"] == sum(1 for check in result["checks"] if check["passed"])
-    assert result["checks"][1]["passed"] is False and result["patches"] == []
+    # No transcript and captions off: those checks had nothing to measure, so they are left out. The target is a
+    # ceiling (the clip is 3 s), so the short cut passes, with a separate note that states how far under it is.
+    assert names[:3] == ["auto: length fits the target (\u2264 3 s)", "auto: note: the cut is well under the target", "auto: moments inside the source and in order"]
+    # The advisory note is shown with the checks but never counted as a pass.
+    counted = [check for check in result["checks"] if not check.get("advisory")]
+    assert result["total"] == len(counted) == len(result["checks"]) - 1
+    assert result["passed"] == sum(1 for check in counted if check["passed"])
+    assert result["checks"][0]["passed"] is True and result["checks"][1]["advisory"] is True and result["patches"] == []
+    assert "1.0 s, 33% of the 3.0 s target" in result["checks"][1]["note"]
     assert len(complete["versions"]) == 1
     version = complete["versions"][0]
     assert version["revision"] == 1 and version["status"] == "verified" and version["source"] == "approved"
@@ -394,7 +401,7 @@ def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(ser
         assert json.loads(raw)["error"] == message
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "note", "note": "Tighten the opener."})
     assert status == 409
-    assert json.loads(raw)["error"] == "Director's notes need Meta mode."
+    assert json.loads(raw)["error"] == f"Director's notes need Meta mode, or private mode with Muse Glimmer on {meta.this_computer()}."
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "sideways"})
     assert status == 400
     status, _, raw = request(server, "GET", f"/api/campaigns/{ident}/revise")

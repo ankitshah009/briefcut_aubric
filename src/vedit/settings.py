@@ -28,7 +28,7 @@ from typing import Any
 
 BUDGET_MIN, BUDGET_MAX = 0.01, 5.0
 DEFAULT_BUDGET = 0.25
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "auto"  # Voice Transcribe detects the spoken language; prompts take it from the brief
 _MODES = ("standard", "contributor")
 _LANGUAGE = re.compile(r"^(?:auto|[a-z]{2,3}(?:-[A-Za-z]{2,8})?)$")
 # Printable ASCII without quotes, backslash, or space: real keys never need them,
@@ -37,7 +37,9 @@ _KEY = re.compile(r"^[!#-&(-\[\]-~]{8,512}$")
 _KEYCHAIN_SERVICE = "ai.aubric.briefcut.meta-api-key"
 _KEYCHAIN_ACCOUNT = "briefcut"
 _KEYCHAIN_TIMEOUT = 10
-_FIELDS = {"meta_api_key", "clear_meta_api_key", "meta_enabled", "meta_mode", "default_budget_usd", "default_language", "workspace"}
+_FIELDS = {"meta_api_key", "clear_meta_api_key", "meta_enabled", "meta_mode", "default_budget_usd", "default_language", "workspace", "private_model"}
+# "" keeps every model call on the Meta Model API. "glimmer" runs text-only steps on Muse Glimmer 30B on this computer.
+_PRIVATE_MODELS = {"", "glimmer"}
 _ENV_LOCAL_KEYS = {"MODEL_API_KEY", "VEDIT_META_ENABLED", "VEDIT_META_MODE"}
 _LOCK = threading.RLock()
 _keychain_cache: dict[str, Any] = {}
@@ -238,8 +240,31 @@ def enter_workspace(default: Path | None = None) -> Path:
     return Path.cwd()
 
 
+def _env_value(raw: str) -> str:
+    """A value as a shell reads it: quotes removed, and a ``#`` after a space starts a comment.
+
+    A ``#`` inside a word (a key may hold one) or inside quotes is part of the value.
+    """
+    raw = raw.strip()
+    if raw.startswith("#"):
+        return ""  # "KEY= # paste your key here": the shell reads an empty value and a comment
+    if raw[:1] in ("'", '"'):
+        close = raw.find(raw[0], 1)
+        rest = raw[close + 1:].strip() if close > 0 else ""
+        if close > 0 and (not rest or rest.startswith("#")):
+            return raw[1:close]
+        return raw
+    comment = re.search(r"\s#", raw)
+    return (raw[: comment.start()] if comment else raw).strip()
+
+
 def load_env_file(path: Path) -> list[str]:
-    """Apply `KEY=value` lines for the Meta settings. Existing environment wins. Returns names set."""
+    """Apply `KEY=value` lines for the Meta settings. Returns names set.
+
+    The environment wins over the file, and an empty value in the file never
+    overrides anything: ``MODEL_API_KEY=`` copied from .env.example leaves a key
+    exported in the shell alone. scripts/studio.sh follows the same rule.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -250,9 +275,7 @@ def load_env_file(path: Path) -> list[str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, value = line.removeprefix("export ").split("=", 1)
-        name, value = name.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+        name, value = name.strip(), _env_value(value)
         if name in _ENV_LOCAL_KEYS and value and not os.environ.get(name):
             os.environ[name] = value
             applied.append(name)
@@ -293,6 +316,9 @@ def public() -> dict[str, Any]:
             "source": workspace_source,
             "restart_required": chosen is not None and _resolved(chosen) != _resolved(current),
         },
+        # A damaged config (a list, a number) must not stop Studio opening; only a known name counts.
+        "private_model": data.get("private_model") if isinstance(data.get("private_model"), str) and data.get("private_model") in _PRIVATE_MODELS else "",
+        "private_model_source": "environment" if os.environ.get("VEDIT_PRIVATE_MODEL", "").strip() else "settings",
         "keychain_available": keychain_available(),
         "config_path": _display_path(config_path()),
         "limits": {"budget_min": BUDGET_MIN, "budget_max": BUDGET_MAX},
@@ -372,6 +398,10 @@ def update(payload: Any) -> dict[str, Any]:
         changes["default_language"] = language
     if "workspace" in payload:
         changes["workspace"] = _checked_workspace(payload["workspace"])
+    if "private_model" in payload:
+        if not isinstance(payload["private_model"], str) or payload["private_model"] not in _PRIVATE_MODELS:
+            raise SettingsError("Private mode is either off or glimmer.")
+        changes["private_model"] = payload["private_model"]
     with _LOCK:
         data = load()
         if clear:
@@ -390,5 +420,7 @@ def update(payload: Any) -> dict[str, Any]:
         data.update(changes)
         if data.get("workspace") == "":
             data.pop("workspace")
+        if data.get("private_model") == "":
+            data.pop("private_model")
         _write(data)
     return public()

@@ -15,6 +15,8 @@ their prompts, schemas, validation and caches; only the model call moves here.
 Private mode fails closed: a bad setting, a server that is down, a server that is
 not on this machine or one that serves a different model raises
 ``OpenWeightsError`` (a ``MetaError``). It never falls back to the Meta API.
+``serve`` binds 127.0.0.1, requires a key from a 0600 file (so a web page in a
+browser cannot use the server), and turns off the slot monitor and web UI.
 
 Every call is logged to ``open-weights-calls.jsonl`` in the job's meta folder,
 with the model id, GGUF file and sha256, llama.cpp build, tokens, latency and a
@@ -60,6 +62,9 @@ OFFICIAL_SHA256 = {
 }
 # Model card sampling defaults: temperature 1.0, top_p 0.95, top_k 64.
 SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+# Structured edits use 0.3: on the two-part note in docs/evidence/open-weights it
+# covered both requests in 6 of 8 runs against 4 of 8 at 1.0 (temperature-ab.jsonl).
+EDIT_TEMPERATURE = 0.3
 LOG_NAME = "open-weights-calls.jsonl"
 _MIN_LLAMA_BUILD = 10353  # first llama.cpp release that registers the muse-glimmer architecture
 _OUTPUT_TOKENS = 16384  # reasoning shares this budget, as with Muse Spark
@@ -121,6 +126,20 @@ def _timeout() -> float:
     if not 1 <= value <= 7200:
         raise OpenWeightsError("VEDIT_PRIVATE_MODEL_TIMEOUT must be between 1 and 7200 seconds.")
     return value
+
+
+def _sampling() -> dict[str, float | int]:
+    """Model card top_p and top_k at the editing temperature; VEDIT_PRIVATE_TEMPERATURE overrides it (0 to 2)."""
+    raw = os.environ.get("VEDIT_PRIVATE_TEMPERATURE", "").strip()
+    if not raw:
+        return dict(SAMPLING, temperature=EDIT_TEMPERATURE)
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1
+    if not 0 <= value <= 2:
+        raise OpenWeightsError("VEDIT_PRIVATE_TEMPERATURE must be between 0 and 2.")
+    return dict(SAMPLING, temperature=value)
 
 
 def _reasoning_strength() -> str:
@@ -321,23 +340,24 @@ def structured(work_dir: Path, operation: str, *, name: str, schema: dict[str, A
     if not found["runtime"]["supported"]:
         raise OpenWeightsError(f"llama.cpp {found['runtime']['build']} predates Muse Glimmer support (b{_MIN_LLAMA_BUILD}). Update llama.cpp.")
     strength = _reasoning_strength()
+    sampling = _sampling()
     request = {
         "model": found.get("served_as") or SERVED_ALIAS,
         "messages": [{"role": "user", "content": prompt}],
         "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}},
         "chat_template_kwargs": {"reasoning_strength": strength},
-        "max_tokens": _OUTPUT_TOKENS, "stream": False, **SAMPLING,
+        "max_tokens": _OUTPUT_TOKENS, "stream": False, **sampling,
     }
     default = getattr(meta, "_PURPOSES", {}).get(operation, "Ask Muse")
     started = time.time()
     # A $0 reservation: the shared ledger and call log show the local call beside the Meta API calls.
-    ident = meta._reserve(work_dir, operation, MODEL_ID, 0.0, budget, purpose=f"{purpose or default} (private: {MODEL_NAME} on this machine)")
-    meta._ledger(work_dir, {"id": ident, "runtime": "llama.cpp", "local": True})
+    ident = meta._reserve(work_dir, operation, MODEL_ID, 0.0, budget, purpose=purpose or default,
+                          runs_on="local", runtime=f"llama.cpp {found['runtime']['build'] or ''}".strip(), weights=found["gguf"]["file"])
     record: dict[str, Any] = {
         "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"), "id": ident, "operation": operation,
         "provider": "meta-open-weights", "model": MODEL_ID, "model_name": MODEL_NAME, "license": LICENSE,
         "gguf": found["gguf"], "llama_cpp": found["runtime"]["build"], "server": base, "where": found["where"],
-        "reasoning_strength": strength, "sampling": SAMPLING, "schema": name, "prompt_chars": len(prompt),
+        "reasoning_strength": strength, "sampling": sampling, "schema": name, "prompt_chars": len(prompt),
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "cost_usd": 0.0,
     }
     response: dict[str, Any] = {}

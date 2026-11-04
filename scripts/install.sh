@@ -152,10 +152,10 @@ if [[ $have_ffmpeg -eq 0 ]]; then
   elif [[ -n "$apt_bin" ]]; then
     elevate=()
     if [[ "$(id -u)" -ne 0 ]]; then elevate=(sudo); fi
-    say "   apt installs ffmpeg and a font for titles. It asks for your password."
+    say "   apt installs ffmpeg and fonts for titles and for captions in Japanese, Chinese, Korean, Hindi and other scripts. It asks for your password."
     if confirm "Install ffmpeg with apt?"; then
       run "${elevate[@]}" "$apt_bin" update
-      run "${elevate[@]}" "$apt_bin" install -y ffmpeg fonts-dejavu-core
+      run "${elevate[@]}" "$apt_bin" install -y ffmpeg fonts-dejavu-core fonts-noto-core fonts-noto-cjk
     fi
   else
     say "   No apt here. Install FFmpeg with your package manager. It needs libx264, drawtext, and subtitles."

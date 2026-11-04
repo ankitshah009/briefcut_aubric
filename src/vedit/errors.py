@@ -14,7 +14,7 @@ class VeditError(Exception):
 
 
 class BinaryMissing(VeditError):
-    """ffmpeg, ffprobe, whisper-cli, or magick is not on PATH."""
+    """ffmpeg, ffprobe, or magick is not on PATH."""
 
 
 class ProbeError(VeditError):

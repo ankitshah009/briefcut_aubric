@@ -78,7 +78,9 @@
 #settings-button.needs-setup::after { position: absolute; top: 5px; right: 5px; }
 .autosave { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .autosave.is-warning { color: var(--amber); }
-@media (max-width: 1100px) { .autosave { display: none; } }
+/* The top bar fits 1280 px: below 1440 the save status stays for screen readers only, and New project shortens to New. */
+#new-project { gap: 0; }
+@media (max-width: 1439.98px) { .autosave { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } .autosave.is-warning { position: static; width: auto; height: auto; overflow: visible; clip: auto; } .np-more { display: none; } }
 /* A phone leaves the project heading no width. Its pill must not sit over Projects. */
 @media (max-width: 520px) { .topbar .editor-heading { overflow: hidden; } }
 @media (max-width: 700px) {
@@ -88,3 +90,52 @@
   .bc-copy { align-self: flex-end; }
   .bc-grid { grid-template-columns: 1fr; }
 }
+.bc-check code { padding: 0 3px; border-radius: 3px; background: var(--tint); font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); overflow-wrap: anywhere; }
+
+/* ---------- First-run setup: a calm, welcoming checklist ----------
+   Each requirement is its own card; the one that still needs doing is lifted and tinted, so the next step is obvious.
+   Colours, radii and shadows come from the tokens in studio.css. */
+.bc-dialog { box-shadow: var(--shadow-lg); }
+.bc-dialog::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.bc-head { padding: var(--space-5) var(--space-5) var(--space-4) 28px; }
+.bc-head h2 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -.4px; line-height: 1.2; }
+.bc-lead { margin-top: 6px; font-size: var(--text-sm); line-height: 1.45; }
+.bc-close { margin: -4px -6px 0 0; transition: background .15s, color .15s; }
+#setup .bc-body { padding: 20px var(--space-5) var(--space-5) 28px; }
+#setup .bc-row { margin-bottom: var(--space-3); padding: var(--space-4) 20px; border: 1px solid var(--line-soft); border-radius: var(--radius-md); background: var(--paper-2); font-size: var(--text-sm); line-height: 1.55; }
+#setup .bc-row:last-of-type { border-bottom: 1px solid var(--line-soft); }
+#setup .bc-row h3 { font-size: var(--text-md); font-weight: 650; letter-spacing: -.1px; }
+#setup .bc-row-head { margin-bottom: 6px; }
+#setup .bc-why { margin-top: 0; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-soft); }
+#setup .bc-row > p:not(.bc-why) { margin-top: var(--space-1); color: var(--muted); font-size: var(--text-xs); }
+/* "Required" reads as a step to take, not an error. */
+/* The key steps are a real sequence, so they are numbered. */
+#setup .bc-meta-steps { gap: var(--space-4); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--blue-line); }
+#setup .bc-meta-steps .bc-steps { list-style: none; counter-reset: bc-step; padding-left: 0; gap: var(--space-3); }
+#setup .bc-meta-steps .bc-steps li { counter-increment: bc-step; display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: var(--space-3); }
+#setup .bc-meta-steps .bc-steps li::before { content: counter(bc-step); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--blue-line); background: var(--paper); color: var(--blue-ink); font-size: var(--text-2xs); font-weight: 700; font-variant-numeric: tabular-nums; }
+#setup .bc-steps p { font-size: var(--text-sm); font-weight: 550; color: var(--ink); }
+#setup .bc-details { margin-top: var(--space-2); font-size: var(--text-xs); }
+#setup .bc-details summary { color: var(--muted); }
+#setup .bc-actions { gap: var(--space-2); padding-top: 20px; }
+
+/* ---------- Glass modal: a blurred, warm overlay and a panel that rises into place ---------- */
+.bc-dialog { border-color: var(--line); border-radius: var(--radius-xl); background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(1.2); backdrop-filter: blur(24px) saturate(1.2); }
+.bc-dialog::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2); }
+.bc-dialog[open] { animation: bc-rise 220ms var(--ease); }
+@keyframes bc-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .bc-dialog[open] { animation: none; } }
+.bc-head { border-bottom-color: var(--line); }
+.bc-sticky { background: transparent; }
+#setup .bc-row { background: color-mix(in srgb, var(--paper) 70%, transparent); }
+/* "Required" is a step to take: coral, not red. */
+#setup .status-pill.is-failed { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
+#setup .bc-row:has(.status-pill.is-failed) { border-color: var(--accent-line); background: linear-gradient(180deg, color-mix(in srgb, var(--paper) 80%, transparent), color-mix(in srgb, var(--accent-soft) 65%, transparent)); box-shadow: var(--shadow-md); }
+#setup .bc-meta-steps { border-top-color: var(--accent-line); }
+#setup .bc-meta-steps .bc-steps li::before { border-color: var(--accent-line); color: var(--accent-ink); }
+/* While something is required, "Add Meta key" is the one hero action; Close and Check again step back. */
+#bc-setup-key { min-height: 44px; padding-inline: 22px; font-size: var(--text-md); box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-md); }
+#setup:has(.status-pill.is-failed) .bc-actions .button-primary { background: var(--paper); border: 1px solid var(--steel); color: var(--ink); box-shadow: var(--shadow-sm); }
+#setup:has(.status-pill.is-failed) .bc-actions .button-primary:hover:not(:disabled) { background: var(--tint-2); box-shadow: var(--shadow-sm); transform: none; }
+#setup #bc-check-again { background: transparent; border-color: transparent; box-shadow: none; color: var(--ink-soft); }
+#setup #bc-check-again:hover:not(:disabled) { background: var(--tint-2); color: var(--ink); }

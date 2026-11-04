@@ -18,7 +18,7 @@ def _schema(properties: dict[str, Any], required: list[str] | None = None) -> di
 _SPECS: list[dict[str, Any]] = [
     {
         "name": "doctor",
-        "description": "Report whether ffmpeg, ffprobe, filters, and optional whisper are ready.",
+        "description": "Report whether ffmpeg, ffprobe, filters, and Meta access are ready.",
         "parameters": _schema({}),
     },
     {

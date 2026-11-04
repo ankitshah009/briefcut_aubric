@@ -18,13 +18,19 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from vedit.media import filter_value, has_filter, resolve_ffmpeg
+from vedit.errors import VeditError
+from vedit.media import filter_value, has_filter, probe, resolve_ffmpeg
 
 # afftdn holds half of its 50 ms analysis window and never accounts for it in
 # timestamps, so audio would lag the picture by this much. See ``voice_filters``.
 DENOISE_LATENCY = 0.025
 _GATE_THRESHOLD = 0.02
+# The expander engages only when the voice sits this far over the room. At 8 dB it cut
+# 12.67% of loud windows on a long talk and 5.33% in a hall (docs/HANDOFF.md, defect 2).
 _VOICE_GATE_MARGIN = 16.0
+# Where the expander opens, as a share of the way from the cleaned room up to the voice.
+# At the 16 dB margin this is about 10 dB under the voice, where quiet syllables still sit.
+_GATE_SHARE = 0.62
 # The sidechain sees speech normalized to this level, whatever the recording's own.
 _KEY_LEVEL = -20.0
 # A bed is normalized here before ``volume_db``, so that number means the same for any track.
@@ -86,9 +92,9 @@ def voice_settings(stats: dict[str, float]) -> dict[str, float]:
     # The denoiser's floor sits a little above the measured room, and always
     # well under the voice, or it starts to remove the voice.
     noise_floor = min(noise + 8, speech - 14)
-    # The expander opens halfway between the cleaned room and the voice.
+    # The expander opens ``_GATE_SHARE`` of the way from the cleaned room up to the voice.
     residual = noise - 10
-    gate_db = residual + 0.62 * (speech - residual)
+    gate_db = residual + _GATE_SHARE * (speech - residual)
     # Compression lifts whatever sits under the voice along with it, so it only
     # works as hard as the gap allows, and backs right off in a noisy room.
     press = _clip((margin - 8) / 16)
@@ -169,9 +175,23 @@ def music_commands(bed: dict[str, float], voice: dict[str, float] | None) -> str
     return ";\n".join(lines) + ";\n"
 
 
-def decode_mono(path: str | Path, *, rate: int = _RATE, seconds: float | None = None) -> array.array:
-    """16-bit mono samples of a file's first audio stream."""
-    argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(path), "-map", "0:a:0", "-vn"]
+def decode_mono(path: str | Path, *, rate: int = _RATE, seconds: float | None = None, start: float = 0.0,
+                track: int | None = None) -> array.array:
+    """16-bit mono samples of a file's sound, from ``start`` for ``seconds``.
+
+    ``track`` is the position among the audio streams. By default it is the
+    track the editor plays (``MediaInfo.audio_map``), not simply the first one,
+    so a measurement hears what the render will use.
+    """
+    if track is None:
+        try:
+            track = probe(path).audio_map
+        except VeditError:  # an unreadable file fails just below, in FFmpeg's own words
+            track = 0
+    argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error"]
+    if start > 0:
+        argv += ["-ss", f"{start:.3f}"]
+    argv += ["-i", str(path), "-map", f"0:a:{track}", "-vn"]
     if seconds is not None:
         argv += ["-t", f"{seconds:.3f}"]
     argv += ["-ac", "1", "-ar", str(rate), "-f", "s16le", "-"]

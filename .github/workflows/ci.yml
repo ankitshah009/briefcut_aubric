@@ -16,7 +16,8 @@ jobs:
       - name: Install Python 3.13
         run: uv python install 3.13
       - name: Install ffmpeg and fonts
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+        # Noto runs the caption-layout and Japanese card tests, which skip with DejaVu alone.
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-noto-core fonts-noto-cjk
       - name: Install package
         run: uv sync
       - name: Unit and render tests
@@ -30,7 +31,8 @@ jobs:
           uv tool install --python 3.13 .
           bin="$(uv tool dir --bin)"
           "$bin/briefcut" --version
-          "$bin/briefcut" setup
+          # CI has no Meta key, so setup reports one missing item (exit 1). Anything else fails the job.
+          "$bin/briefcut" setup || [ $? -eq 1 ]
           BROWSER=/bin/true "$bin/briefcut" &
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
             curl -sf http://127.0.0.1:8765/api/health && break

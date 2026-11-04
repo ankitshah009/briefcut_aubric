@@ -1,38 +1,124 @@
-# Briefcut by Aubric.ai
+# Briefcut by Aubric, Inc.
 
-Turn your footage into a story worth watching. Briefcut is a video editor built on Meta's models. Muse Spark watches your clips and proposes the story. SAM 3.1 follows the subject. Meta Voice Transcribe writes the transcript and captions. Muse Image makes the cover. You correct the plan, and FFmpeg renders the video on your own computer. Every version ships with receipts: a probe of the delivered file and the checks it passed or failed.
+Turn your footage into a story worth watching. Briefcut is a video editor built on Meta's models. Muse Spark watches your clips and proposes the story. SAM 3.1 follows the subject. Meta Voice Transcribe writes the transcript and captions. Muse Image makes the cover. Muse Wonder can watch and hear the finished cut as a senior director, and Muse Glimmer, Meta's open-weight model, can run the text steps on your own computer. You correct the plan, and FFmpeg renders the video on your own computer. Every version ships with receipts: a probe of the delivered file and the checks it passed or failed.
 
-Briefcut is an Aubric.ai product. The Python package and CLI are called `vedit`; `vedit` and `briefcut` are the same tool.
+Briefcut is a product of Aubric, Inc. The Python package and CLI are called `vedit`; `vedit` and `briefcut` are the same tool.
+
+## Why Briefcut
+
+Video editors today are either manual timelines that cost hours, or AI black boxes you cannot check, script, or trust. Briefcut splits the job: Meta's models understand the footage and propose the edit as bounded data, and a deterministic compiler on your computer checks it and renders it with FFmpeg. Every version ships with receipts that say how each claim is known: probed from the file, measured by code, or a model's opinion. Meta's models check each other (SAM 3.1 verifies what Muse Spark finds), and any agent can drive the same editor over MCP, including Meta's own Muse Code. [docs/WHY.md](docs/WHY.md) gives the reasoning and links each claim to its evidence.
+
+**Measured on real and public footage:** a verified short took 24 s to 2.5 minutes from raw clip to probed file, for $0.0005 to $0.08 of Meta usage per project. Tracking a subject with SAM 3.1 is the costliest step. A Muse Wonder review adds about $0.10. Meta Voice Transcribe hears 25 languages, by Meta's docs; Briefcut's captions were checked burning 17 languages and scripts, including Japanese, Arabic, Hebrew, Hindi and Thai. Every run, including the bugs it found, is in [docs/evidence/scenario-matrix](docs/evidence/scenario-matrix/README.md).
+
+## Architecture
+
+Every door into Briefcut reaches one project manager, `CampaignManager`. Only `meta.py` talks to Meta, and only what the red box receives leaves your computer: small proxies, 16 kHz audio, a still, or text, never your original files.
+
+```mermaid
+flowchart TB
+  subgraph who["Who drives it"]
+    browser["Studio<br/>in a browser"]
+    macapp["Mac app<br/>WKWebView"]
+    terminal["Terminal"]
+    musecode["Muse Code<br/>Meta's agent"]
+    mcpclient["MCP client<br/>Claude Code"]
+  end
+  subgraph entry["Entry points on this machine"]
+    http["Studio HTTP API<br/>studio/server.py"]
+    cli["CLI<br/>cli.py"]
+    mcp["MCP over stdio<br/>mcp_server.py"]
+  end
+  gate{{"product_request<br/>the Meta-only gate"}}
+  manager["CampaignManager<br/>campaign.py"]
+  subgraph local["Stays on this machine"]
+    compiler["Compiler<br/>render_plan.py, compile.py"]
+    disk[("Workspace<br/>vedit-sessions")]
+    ffmpeg["FFmpeg, ffprobe"]
+    blender["Blender<br/>headless"]
+    glimmer["llama.cpp<br/>Muse Glimmer 30B"]
+  end
+  adapter["Meta adapter<br/>meta.py"]
+  subgraph cloud["Leaves the machine"]
+    api["Meta Model API<br/>api.meta.ai<br/><br/>Muse Spark 1.3<br/>Muse Wonder 1.0<br/>SAM 3.1<br/>Meta Voice Transcribe 1.0<br/>Muse Image 1.0"]
+  end
+  browser --> http
+  macapp --> http
+  terminal --> cli
+  musecode --> mcp
+  mcpclient --> mcp
+  cli -.->|"vedit studio"| http
+  cli -.->|"vedit mcp"| mcp
+  http --> gate
+  mcp --> gate
+  gate --> manager
+  cli -->|"vedit plan, render, do:<br/>briefs only, no models"| compiler
+  manager --> compiler
+  manager --> disk
+  manager --> adapter
+  compiler --> ffmpeg
+  compiler --> blender
+  adapter -->|"private mode"| glimmer
+  adapter ==>|"HTTPS, your key: proxies,<br/>16 kHz audio, a still, text"| api
+  classDef actor fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a
+  classDef door fill:#ede7f6,stroke:#5e35b1,color:#1a1033
+  classDef core fill:#fff8e1,stroke:#f9a825,color:#2b2100
+  classDef here fill:#e8f5e9,stroke:#2e7d32,color:#0b2410
+  classDef away fill:#fdecea,stroke:#c62828,color:#3b0a0a
+  class browser,macapp,terminal,musecode,mcpclient actor
+  class http,mcp,cli door
+  class gate,manager,adapter core
+  class compiler,ffmpeg,blender,glimmer,disk here
+  class api away
+```
+
+[ARCHITECTURE.md](ARCHITECTURE.md) has the full set of diagrams, each with the reason it is built that way: one project end to end, how a model's answer becomes FFmpeg steps without ever running as code, the one clock, receipts and their evidence labels, the job lifecycle, Meta spend, each feature pipeline, and the agent surface.
 
 ## Which Meta models Briefcut uses, and where each runs
 
-Every model Briefcut calls is a Meta model. All calls go through one adapter, [`src/vedit/meta.py`](src/vedit/meta.py), to the Meta Model API at `https://api.meta.ai/v1`, sent from your computer with your key. Models return data (ranges, boxes, cues, checks, patches). They never run code.
+Every model Briefcut calls is a Meta model, and every call goes through one adapter, [`src/vedit/meta.py`](src/vedit/meta.py). Calls go to the Meta Model API at `https://api.meta.ai/v1`, sent from your computer with your key. The one exception is private mode: three text-only steps can run on Muse Glimmer on your own computer instead. Models return data (ranges, boxes, cues, checks, patches). They never run code.
 
 | Model | Model id in code | What it does in Briefcut | Where it runs | Source |
 | --- | --- | --- | --- | --- |
-| Muse Spark | `muse-spark-1.3`, or `muse-spark-1.3-contributor` in contributor mode | Plans the story from the footage and its transcript. Finds moments. Plans several shorts from one video. Turns a written script into scenes and picture prompts. Reviews the finished cut (Director's notes, checks, and patches). Turns a typed note into patches. Translates captions. | Meta Model API, called from this computer | `meta.py`: `plan_story`, `find_moments`, `plan_shorts`, `script_prompts`, `review_cut`, `patch_plan`, `translate_cues` |
-| SAM 3.1 | `sam-3.1` | Follows a subject you name in words. Its boxes drive the 9:16 reframe, and its masks drive the cutout. | Meta Model API, called from this computer | `meta.py`: `track_subject`, `subject_masks` |
-| Meta Voice Transcribe | `muse-voice-transcribe-1.0` | The only transcriber. It makes the planning transcript and the captions. | Meta Model API, called from this computer | `meta.py`: `transcribe_audio` |
-| Muse Image | `muse-image-1.0` | Makes the cover from a real frame, generated backgrounds for cutouts, and the stills for script to video. | Meta Model API, called from this computer | `meta.py`: `generate_cover`, `generate_background`, `generate_image` |
+| Muse Spark | `muse-spark-1.3`, or `muse-spark-1.3-contributor` in contributor mode | Plans the story from the footage and its transcript. Finds moments. Plans several shorts from one video. Turns a written script into scenes and picture prompts. Reviews the finished cut by default (Director's notes, checks, and patches). Turns a typed note into patches. Translates captions. Picks punch words for captions and the hero word. Designs 3D motion cards. | Meta Model API, called from this computer | `meta.py`: `plan_story`, `find_moments`, `plan_shorts`, `script_prompts`, `review_cut`, `patch_plan`, `translate_cues`; `emphasis.py`, `hero_word.py`, `blender_cards.py` |
+| Muse Wonder | `muse-wonder-1.0` | An optional reviewer. It watches the finished cut and also listens: captions against the voice, level across cuts, pops and gaps. Standard mode only. | Meta Model API, called from this computer | `meta.py`: `review_cut` with `director="wonder"` |
+| SAM 3.1 | `sam-3.1` | Follows a subject you name in words. Its boxes drive the 9:16 reframe. Its masks drive the cutout and put the hero word behind the subject. It also checks that what Muse Spark found is really on screen. | Meta Model API, called from this computer | `meta.py`: `track_subject`, `subject_masks`; `verify_find.py`, `hero_word.py` |
+| Meta Voice Transcribe | `muse-voice-transcribe-1.0` | The only transcriber. It hears the project once at planning. The plan, the checks, find, and the captions all read that one transcript. | Meta Model API, called from this computer | `meta.py`: `transcribe_audio`; `captions.py` |
+| Muse Image | `muse-image-1.0` | Makes the cover from a real frame, backgrounds for cutouts, the stills for script to video, and the backdrop of a motion card. | Meta Model API, called from this computer | `meta.py`: `generate_cover`, `generate_background`, `generate_image` |
+| Muse Glimmer 30B | `meta-models/Muse-Glimmer-30B`, served as `muse-glimmer-30b` | Private mode only. Runs the director's note, caption translation, and script scenes in place of Muse Spark. Open weights under Apache 2.0. | This computer, through llama.cpp on `127.0.0.1:8091` | `open_weights.py`, called from `meta.patch_plan`, `meta.translate_cues`, `meta.script_prompts` |
 
-<!-- VERIFY: planning transcript now comes from Voice Transcribe (Whisper removed). Confirm the call site in campaign.py and the 10-minute / 32 MB per-request limit for long sources. -->
+Voice Transcribe times turns, not words. Briefcut spreads each turn's words across it by length and marks those word times as estimated. Filler removal has no word times to cut at, so it does nothing. Planning with Meta takes up to 10 minutes of footage, and Briefcut says so before it encodes or pays for anything. Meta has no text-to-speech model, so script to video is caption-led with no voice.
 
 These run on your computer and are not models:
 
 - **FFmpeg** renders every frame of the delivered video.
-- **Deterministic code** snaps cuts to sentence boundaries ([`story.py`](src/vedit/story.py)), runs the lint checks ([`lint.py`](src/vedit/lint.py)), applies patches, and compiles the edit to an FFmpeg program ([`compile.py`](src/vedit/compile.py)).
+- **Blender** (optional, 4.2 or later) renders 3D motion cards from a fixed template Briefcut owns. Without it, the feature is hidden.
+- **Deterministic code** snaps cuts to sentence boundaries ([`story.py`](src/vedit/story.py)), runs the lint checks ([`lint.py`](src/vedit/lint.py)), checks every model answer, applies patches, and compiles the edit to an FFmpeg program ([`compile.py`](src/vedit/compile.py)).
 
-Prices, as encoded in `meta.py` (checked against <https://dev.meta.ai/docs/> on 2026-10-29): Muse Spark $1.25 in and $4.25 out per million tokens ($0.10 and $0.20 in contributor mode), SAM 3.1 $0.20 per 1,000 frames, Voice Transcribe $0.18 per hour of audio, Muse Image $0.01 per image.
+Prices, as encoded in `meta.py` to match <https://dev.meta.ai/docs/pricing-rate-limits> on 2026-11-04: Muse Spark $1.25 in and $4.25 out per million tokens ($0.10 and $0.20 in contributor mode), Muse Wonder $4 in and $20 out, SAM 3.1 $0.20 per 1,000 frames, Voice Transcribe $0.18 per hour of audio, Muse Image $0.01 per image. Muse Glimmer in private mode costs nothing.
 
-### Private mode (not yet confirmed)
+Meta's own coding agent, Muse Code, can drive Briefcut too. It is an agent, not a model Briefcut calls. See [Use Briefcut from any MCP agent](#use-briefcut-from-any-mcp-agent).
 
-<!-- VERIFY: placeholder. A private mode that runs an open-weight Meta model (Muse Glimmer or Muse Spark Open) on this computer through llama.cpp, for text-only work (director's notes, translation), is being attempted. Do not publish any claim here until it has run. Fill in: model name and file, how to install llama.cpp, the env variable that turns it on, which features use it, and the evidence file. Delete this section if it does not ship. -->
+### Private mode: Muse Glimmer on your computer
 
-Not available in this build.
+Private mode moves the three text-only Muse Spark steps onto Muse Glimmer 30B, Meta's open-weight model, distilled from Muse Spark. Those steps are the director's note, caption translation, and the script scene writer. Their text never leaves your computer, they need no Meta key, and they cost nothing. Story planning from video, the review of the finished cut, SAM 3.1, Muse Image, and Voice Transcribe still use the Meta Model API, so a project still needs a key.
+
+You need llama.cpp's `llama-server`, build 10353 or later (on a Mac, `brew install llama.cpp`), and about 21 GB of disk for the official 4-bit weights.
+
+```bash
+mkdir -p ~/.vedit/models/open-weights
+curl -L -C - -o ~/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf \
+  https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF/resolve/main/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf
+uv run python -m vedit.open_weights serve     # keep this running
+uv run python -m vedit.open_weights status    # in another terminal: what the server is serving
+```
+
+Then turn on **Private mode** in Settings, or set `VEDIT_PRIVATE_MODEL=glimmer`. The server listens only on `127.0.0.1` and needs a key from a 0600 file that `serve` creates. `serve` refuses a weights file whose sha256 does not match the official one. Private mode fails closed: if the server is down, serves another model, or is not on this machine, the step stops with an error and nothing goes to the Meta API. In Studio's Meta calls panel, local calls carry a "Private" tag and cost $0.00.
+
+Recorded on an Apple M5 Max with 128 GB ([evidence](docs/evidence/open-weights/README.md)): the server held 22 to 23 GB, and a note took 40 to 100 s. At the shipped settings, Muse Glimmer handled two director's notes, an English to Spanish and an English to Hindi translation, and three script scenes. The hardest note ("Hold the finished bowl a beat longer before the first cut, then tighten the sanding moment") got both edits in 6 of 8 runs. A miss returns no usable patch, and Briefcut never applies a malformed one.
 
 ## Judge quickstart
 
-This works from a clean clone on macOS or Linux.
+This works from a clean clone on macOS or Linux. A fresh clone was run through an earlier version of these steps on 2026-11-04 ([scenario matrix, run C](docs/evidence/scenario-matrix/README.md)), and the steps below fix the problems it found.
 
 ### What you need
 
@@ -40,7 +126,7 @@ This works from a clean clone on macOS or Linux.
 - **FFmpeg** with the `drawtext` and `subtitles` filters. On a Mac that is Homebrew's `ffmpeg-full`. On Debian or Ubuntu, `apt-get install ffmpeg` has both.
 - **A Meta Model API key** from <https://dev.meta.ai>. Your own key works. Briefcut never ships with one.
 
-`bash scripts/install.sh` installs uv and FFmpeg for you. It prints a plan first and asks before each step. `bash scripts/install.sh --dry-run` shows the plan and changes nothing.
+`bash scripts/install.sh` installs uv and FFmpeg, then installs a global `briefcut` command with `uv tool install --force --reinstall`, which replaces any `briefcut` tool you already have. It prints a plan first and asks before each step. `bash scripts/install.sh --dry-run` shows the plan and changes nothing.
 
 ### Run it
 
@@ -48,25 +134,36 @@ This works from a clean clone on macOS or Linux.
 git clone https://github.com/ankitshah009/briefcut_aubric && cd briefcut_aubric
 bash scripts/install.sh          # skip if you already have uv and FFmpeg
 uv sync
-uv run vedit doctor              # every [required] row must pass
 cp .env.example .env.local       # then paste your key after MODEL_API_KEY=
-bash scripts/studio.sh --open
+bash scripts/studio.sh --open    # loads .env.local, runs vedit doctor, opens Studio
 ```
+
+A key already exported in your shell also works. Everywhere Briefcut reads `.env.local`, a variable already set in the shell wins, and an empty line such as `MODEL_API_KEY=` never replaces it. `scripts/studio.sh` reads the file as data and never runs it.
+
+To run the doctor on its own, after the key is in place:
+
+```bash
+uv run vedit doctor              # every row marked [required] must pass, including meta
+```
+
+`vedit doctor` and `vedit setup` read the three Meta settings from `.env.local`. Other `vedit` commands do not, so load the file first for those: `set -a; . ./.env.local; set +a`.
 
 `.env.local` is in `.gitignore`. [`.env.example`](.env.example) explains each setting:
 
 | Variable | Value | Meaning |
 | --- | --- | --- |
 | `MODEL_API_KEY` | your key | Sent only to `api.meta.ai`. |
-| `VEDIT_META_ENABLED` | `1` | Allows Meta calls. Nothing is sent until you start a project. |
+| `VEDIT_META_ENABLED` | `1` | Allows Meta calls. `0` pauses them. Footage is sent only when you create a story and confirm the send. |
 | `VEDIT_META_MODE` | `standard` or `contributor` | Contributor mode makes Muse Spark cheaper. In exchange, Meta may train on what you send to Muse Spark. See [Privacy](docs/PRIVACY.md#contributor-mode). |
+| `VEDIT_PRIVATE_MODEL` | `glimmer`, optional | Private mode, as above. |
+| `VEDIT_META_DIRECTOR` | `spark` or `wonder`, optional | The default reviewer. |
 | `VEDIT_FFMPEG` | optional path | The FFmpeg to use. `scripts/studio.sh` picks `ffmpeg-full` on a Mac when it is installed. |
-
-<!-- VERIFY: exact env names and whether VEDIT_META_ENABLED stays in Meta-only mode. -->
 
 You can also leave `.env.local` out: open Settings (the gear) in Studio, paste the key, and turn on **Allow Meta calls**. The key goes to the macOS Keychain when one is available, and to `~/.vedit/config.json` (mode 0600) otherwise. A variable in the environment wins over Settings.
 
-`scripts/studio.sh` creates `.venv` with uv if needed, loads `.env.local`, runs `vedit doctor`, and opens Studio at `http://127.0.0.1:8765`. Studio listens only on your own machine.
+`scripts/studio.sh` creates `.venv` with uv if needed, reads `.env.local`, runs `vedit doctor`, and opens Studio at `http://127.0.0.1:8765`. If the doctor finds something missing, Studio still opens, and its setup panel says what to fix. Studio listens only on your own machine.
+
+No browser? Studio's HTTP API drives the same flow: upload, plan, render, revise, receipts. [docs/CAMPAIGN.md](docs/CAMPAIGN.md) documents its routes, and `scripts/demo_run.py` drives them end to end.
 
 ### Check the key without spending
 
@@ -77,38 +174,61 @@ set -a; . ./.env.local; set +a
 uv run vedit meta check
 ```
 
-Both list the models your account can see. Neither buys inference. If your account cannot see one of the four models above, the check names it.
-
-<!-- VERIFY: does `uv run vedit meta check` now read .env.local itself? Today only `briefcut` with no arguments and scripts/studio.sh load it. -->
+Both list the models your account can see. Neither buys inference. If your account cannot see Muse Spark, SAM 3.1, Voice Transcribe, or Muse Image, the check names it. Muse Wonder is optional and is not checked.
 
 ### Make a first video
 
 1. In Studio, choose `examples/demo/workshop.mp4` (40 s, in the repository) or your own clip.
 2. Pick the "Product story, edited" chip, or type a brief, for example: "Make a 25-second vertical story: open with the finished bowl, then show how it is made. Trim the pauses, add a title card, fade out at the end."
-3. Tick the box that confirms this footage may be sent to Meta, then press **Create story**. Muse Spark proposes the moments. Each one shows its reason and its source time.
+3. Leave the spoken language on "Detect automatically", or pick one of 25. Tick "Send this footage to Meta using my API key", then press **Create story**. Voice Transcribe hears the clip and Muse Spark proposes the moments. Each one shows its reason and its source time.
 4. Move, trim, reorder, add, or delete moments. Name a subject such as "the wooden bowl" if you want SAM 3.1 to keep it in frame.
 5. Press **Make the video**. FFmpeg renders on your computer. The server probes the file before it marks the job done.
 6. Read **The receipts**, then try **Apply director's fixes** or type a note. Version 2 renders and version 1 stays downloadable.
 
-The demo clip is stylised computer-generated footage with a synthetic voice, not a recording. `uv run python scripts/make_demo.py` rebuilds it.
+The cut can come out shorter than the brief asks. The duration check passes anything from half the target to 15% over it, plus 0.5 s. In the fresh-clone run, the 25-second example came out at 18.9 s and passed.
 
-<!-- VERIFY: how make_demo.py produces the narration now that macOS `say` is removed from the runtime. The checked-in workshop.mp4 was built before that change. -->
+To have the cut reviewed by ear as well as by eye, choose **Muse Wonder** as the reviewer. Raise the project API limit to at least $0.50 first: a Wonder review reserves $0.33 before the video is counted, and at the default $0.25 Briefcut refuses and uploads nothing.
+
+Then try the newer features on the same project:
+
+- **Captions tab, Punch words.** Muse Spark picks the word that carries each line, and Briefcut checks that the word is really there.
+- **Effects tab, Hero word.** One spoken word shows huge behind the subject for a moment, using a SAM 3.1 mask.
+- **Effects tab, 3D motion card.** Muse Spark designs a title card and Blender renders it here. Hidden when Blender is missing.
+- **Find, in the media bin.** Muse Spark finds a moment, then SAM 3.1 checks it is on screen. Each result is marked verified or flagged.
+
+The demo clip is stylised computer-generated footage, not a recording. Its voice is the macOS `say` voice, added when `scripts/make_demo.py` built the clip. Briefcut does not use `say` when it runs.
 
 ### See every Meta call, and the receipts
 
-- **Meta calls panel.** Studio lists every Meta call as it happens: the model id, what it was for, how long it took, what it cost, and Meta's request id. <!-- VERIFY: panel name, where it opens in Studio, and the exact columns. Built and browser-checked; not yet seen on a live Meta run. -->
-- **The receipts.** After each render: the probe of the delivered file (duration, size, streams, color) and every check with a jump to its moment. Each check is tagged **Probed** or **Measured** (computed by code) or **Model opinion** (Muse Spark's review).
-- **On disk.** Each project folder keeps `meta-usage.json` (every Meta reservation and its usage), `report.json` (the probe and checks), `brief.yaml`, `project.json`, and `render.sh`. The archive you download carries the video, cover, post copy, captions, `story.json`, `brief.yaml`, and `report.json`.
+- **Meta calls panel.** The **Meta calls** button in Studio's top bar (a pulse line with a count) opens it once a project is open. It lists every Meta call the open project makes, live, newest first: what it was for, its status, the model, its cost (or the amount reserved when Meta reports no exact charge), how long it took, its size, and Meta's response id. Private-mode rows run on this computer and cost $0.00. The panel reads `GET /api/campaigns/{id}/meta-calls` and never shows keys, prompts, transcripts, or footage. Screenshots: [light](docs/evidence/open-weights/studio-meta-calls-light.png), [dark](docs/evidence/open-weights/studio-meta-calls-dark.png), and [mid-call](docs/evidence/open-weights/studio-meta-calls-running.png).
+- **The receipts.** After each render: the probe of the delivered file (duration, size, streams, color) and every check with a jump to its moment. Each check is labeled **Probed** (read from the file), **Measured** (computed by code), or **Model opinion** (a reviewer's judgment).
+- **On disk.** Each project folder keeps `meta-calls.jsonl` (the call log the panel reads), `meta-usage.json` (every reservation and its usage), `report.json` (the probe and checks), `brief.yaml`, `project.json`, and `render.sh`. The archive you download carries the video, cover, post copy, captions, `story.json`, `brief.yaml`, and `report.json`.
 
 ### What it costs
 
-Each project has a spending cap: $0.25 by default, $5 at most, set in Settings. The adapter reserves the worst-case cost before each call and keeps the reservation after an uncertain failure, so retries cannot exceed the cap. In the recorded runs, a full loop on the 40 s demo clip with SAM tracking reserved $0.29 to $0.31; a run without SAM reserved about $0.01. SAM is the cost that grows with the cut's length. These are local estimates, not Meta's bill.
+Each project has a spending cap: $0.25 by default, $5 at most. Before each call the adapter reserves an upper bound: Meta's input token count, plus an allowance for any video in the request, plus the full output allowance. The video allowance exists because Meta's count leaves the video out ([scenario matrix, bug 5](docs/evidence/scenario-matrix/README.md)). It is 320 tokens per second, above the 156 to 265 per second measured on ten live calls. The adapter keeps each reservation after an uncertain failure, so a retry cannot spend it twice. In the recorded runs, a full loop on the 40 s demo clip with SAM tracking reserved $0.29 to $0.31, and a run without SAM about $0.01. SAM is the cost that grows with the cut's length. These are local estimates, not Meta's bill.
 
 ## No key? See recorded runs
 
-You can see what Briefcut does without a key. These are records of real runs, written by `scripts/demo_run.py` or the same HTTP routes Studio calls. Each holds the request, the stage timings, the plan, the probe of the delivered file, the receipts, and the Meta ledger.
+You can see what Briefcut does without a key. These are records of real runs, through the code paths Studio and agents use. Each holds what was sent, what came back, the probe of the delivered file, the receipts, and the spend, with Meta's response ids.
 
-- [docs/evidence/latest.md](docs/evidence/latest.md) is the best honest run: Muse Spark plan, SAM 3.1 tracking, Voice Transcribe captions, Muse Image cover, Director's notes, and a typed note to version 2 (15 of 15 checks, then 13 of 15).
+Recorded on 2026-11-04, after Briefcut became Meta-only:
+
+| Record | What it shows |
+| --- | --- |
+| [Scenario matrix](docs/evidence/scenario-matrix/README.md) | 14 renders. 6 on public sample clips with live Meta over MCP, 5 on real iPhone clips and photos with Meta stubbed, and 3 on the demo clip, one from a fresh clone. It also lists the 11 quality bugs it found. |
+| [Private mode](docs/evidence/open-weights/README.md) | Muse Glimmer 30B on this Mac: director's notes, Spanish and Hindi captions, and script scenes, with no Meta call. |
+| [Muse Wonder review](docs/evidence/wonder-review/README.md) | Wonder and Spark review the same cut. Wonder failed two checks that the frames confirm and heard the soundtrack correctly; Spark invented a lathe sound. |
+| [Verified find](docs/evidence/verified-find/README.md) | Muse Spark finds, SAM 3.1 checks. The bowl was verified; a stylised gouge was flagged, a SAM false negative. |
+| [Hero word](docs/evidence/hero-word/README.md) | "oak" behind the bowl in 16:9 and 9:16, with the side chosen from SAM's mask. |
+| [Punch words](docs/evidence/caption-emphasis/README.md) | Muse Spark picked "finished" and "raw", burned in two caption styles. |
+| [3D motion card](docs/evidence/blender-cards/README.md) | A card designed by Muse Spark, a backdrop by Muse Image, rendered by Blender over the first 3 s. |
+| [Muse Code](docs/evidence/muse-code/README.md) | Meta's coding agent imported a clip through Briefcut's MCP server. |
+| [Hero word and find, off the demo clip](docs/evidence/robust-features/README.md) | People on a light background in three shapes, a silent track the product refuses, a re-trimmed cut, and searches in Spanish and Chinese. 21 calls, $0.1094. |
+
+Recorded on 2026-10-31, before Meta-only:
+
+- [docs/evidence/latest.md](docs/evidence/latest.md) is the richest full loop: Muse Spark plan, SAM 3.1 tracking, Voice Transcribe captions, Muse Image cover, Director's notes, and a typed note to version 2 (15 of 15 checks, then 13 of 15).
 
 | Record | What it shows |
 | --- | --- |
@@ -122,12 +242,13 @@ You can see what Briefcut does without a key. These are records of real runs, wr
 | [`20261031-script-to-video.json`](docs/evidence/20261031-script-to-video.json) | One Spark script call and 4 Muse Image stills became a 19.67 s video, 5 of 5 checks. Frames in [`script-to-video-frames.jpg`](docs/evidence/script-to-video-frames.jpg). |
 | [`20261031T005236Z.json`](docs/evidence/20261031T005236Z.json) | SAM 3.1 tracking a red square across 300 frames. Frames in [`sam-tracking-frames.png`](docs/evidence/sam-tracking-frames.png). |
 
-What these records do not show:
+What the records do not show:
 
-- They were recorded on 2026-10-31, before Briefcut became Meta-only. In them, the transcript sent with the planning prompt came from a local Whisper model, which has since been removed. The auto-refine and note runs also captioned with local Whisper. Script to video was narrated by a local macOS voice.
-- All used contributor mode for Muse Spark, which lets Meta train on the submitted clip. No user footage was sent.
-- The clips are generated demo footage, so they say nothing about quality on real footage.
-- They came from the HTTP routes, not a browser session. The Meta calls panel did not exist yet.
+- The 2026-10-31 runs predate Meta-only. In them, the planning transcript came from a local Whisper model, since removed. The auto-refine and note runs also captioned with local Whisper, and script to video was narrated by the macOS voice. Today Voice Transcribe is the only transcriber and script to video has no voice.
+- Some 2026-11-04 proofs (hero word, the private-mode inputs) also used a local whisper.cpp transcript as their input. Each README says so.
+- Every Muse Spark call on record used contributor mode, which lets Meta train on what it received. Only demo clips and public samples were sent. The iPhone runs in the scenario matrix had Meta stubbed and sent nothing.
+- Most runs used the generated demo clip. The scenario matrix is the only Meta-only record on other footage. Its iPhone runs used stubbed plans, so they test rotation, HDR, geometry, and color, not editorial choices. The scenario matrix had no live run on speech from a real person.
+- None is a browser session, apart from the Meta calls panel screenshots.
 
 More records, including older ones, are in [docs/evidence](docs/evidence/). [docs/SUBMISSION.md](docs/SUBMISSION.md) ties each claim to its record.
 
@@ -135,11 +256,9 @@ More records, including older ones, are in [docs/evidence](docs/evidence/). [doc
 
 Studio turns one or more clips or photos into an editable story and a downloadable campaign: video, cover, post copy, captions, and a verified render report. Planning and rendering run as durable jobs; closing the browser does not stop them.
 
-Every cut snaps to a transcript sentence boundary. Editing phrases in the brief ("trim the pauses", "add a title card", "fade out at the end", `hook:`, `cta:`) become engine ops and are listed as decisions on the plan. After the render, the receipts list the probe of the file and the checks that passed or failed: automatic checks from `src/vedit/lint.py` (sentence boundaries, duration, bounds, caption coverage, requested edits) and, with review on, Director's notes from Muse Spark with its own checks and proposed fixes. "Apply director's fixes", "Apply automatic fixes", or a typed note render the next version. The previous verified version stays downloadable under its own tab with its own report.
+Every cut snaps to a transcript sentence boundary. Editing phrases in the brief ("trim the pauses", "add a title card", "fade out at the end", `hook:`, `cta:`) become engine ops and are listed as decisions on the plan. After the render, the receipts list the probe of the file and the checks that passed or failed: automatic checks from `src/vedit/lint.py` (sentence boundaries, duration, bounds, caption coverage, requested edits) and, with review on, Director's notes from Muse Spark or Muse Wonder with their own checks and proposed fixes. "Apply director's fixes", "Apply automatic fixes", or a typed note render the next version. The previous verified version stays downloadable under its own tab with its own report.
 
-Studio takes up to 30 videos and photos, up to 4 GB each and 2 hours in all, plus audio and images for music and overlays. Meta's own limits still apply to what is sent: 200 MB per upload and 10 minutes of audio per transcription request. Briefcut checks these before it encodes the proxy.
-
-<!-- VERIFY: how Meta-only planning handles sources longer than 10 minutes of speech. -->
+Studio takes up to 30 videos and photos, up to 4 GB each, plus audio and images for music and overlays. Planning with Meta takes up to 10 minutes of footage in all. Meta's own limits also apply to what is sent: 200 MB per upload and 10 minutes of audio per transcription request. Briefcut checks these before it encodes the proxy.
 
 Floating frame, Perspective sway, and Push-in reveal add curated motion inside the same flow. They animate a flat video plane; they are not 3D reconstruction. See [spatial effects](docs/SPATIAL_EFFECTS.md).
 
@@ -147,9 +266,11 @@ Social publishing is not built. The delivery is a downloadable archive. See [set
 
 ## Use Briefcut from any MCP agent
 
-`vedit mcp` serves the same project manager as Studio over MCP on stdio, so any MCP client can drive it: Claude Code, Codex, Cursor, Gemini CLI, and others. An agent can import clips, plan a story, edit and render it, find moments, make shorts, turn a script into a video, and read the receipts and artifact paths. [MCP for coding agents](docs/CAMPAIGN.md#mcp-for-coding-agents) lists the tools. Every route needs uv and FFmpeg, and Meta features need the key set up as above.
+`vedit mcp` serves the same project manager as Studio over MCP on stdio, so any MCP client can drive it: Muse Code, Claude Code, Codex, Cursor, Gemini CLI, and others. Its 21 tools import clips, plan a story, edit and render it, revise it, find moments, make shorts, turn a script into a video, propose a hero word or a 3D motion card, add assets, generate a background, and read the receipts and artifact paths. [MCP for coding agents](docs/CAMPAIGN.md#mcp-for-coding-agents) lists them. Every route needs uv and FFmpeg, and Meta features need the key set up as above.
 
-**This repository.** [`.mcp.json`](.mcp.json) defines a `briefcut` server that runs `uv run --no-dev --extra mcp --extra sam vedit mcp` in the repository root. Clients that read a project `.mcp.json`, such as Claude Code, offer it when you open the checkout.
+**This repository.** [`.mcp.json`](.mcp.json) defines a `briefcut` server that runs `uv run --no-dev --extra mcp --extra sam vedit mcp` in the repository root. Clients that read a project `.mcp.json`, such as Claude Code, offer it when you open the checkout. The scenario matrix drove this exact command with a raw JSON-RPC client.
+
+**Muse Code.** Meta's coding agent reads MCP servers from `~/.config/muse/settings.json`, and finds the Briefcut skill at `.agents/skills/briefcut/`. [docs/MUSE_CODE.md](docs/MUSE_CODE.md) has the setup, and [the recorded run](docs/evidence/muse-code/README.md) shows Muse Code importing a clip through Briefcut.
 
 **Any client, by hand.** From a checkout:
 
@@ -185,9 +306,7 @@ If the `briefcut` tools do not appear in `/mcp`, restart Claude Code. The first 
 
 **Where projects go.** In `VEDIT_WORKSPACE` when it is set, otherwise under `vedit-sessions/` in the folder the server starts in. In a git repository, add `vedit-sessions/` to `.gitignore`. One process at a time can work on a workspace. While Studio or the Mac app has it open, the agent's calls fail with "Another Studio is already processing this workspace". Close the other one, or give the agent a different `VEDIT_WORKSPACE`.
 
-`briefcut_edit` needs `allow_meta` before a change sends captions or footage to Meta, and `briefcut_generate_background` needs `consent`. The skill tells the agent to send footage only when you chose Meta for that project. See [Privacy](docs/PRIVACY.md).
-
-<!-- VERIFY: which MCP tools still take a provider argument now that local mode is gone. -->
+Creating a story over MCP sends the footage to Meta, as in Studio. `provider` and `caption_provider` are always `meta`, and the server refuses `local`. `briefcut_edit` says in its `meta` field when a change would send more at render (a new caption language, or a cutout), and `briefcut_generate_background` needs `consent: true`. The skill tells the agent to send footage only when you chose to. See [Privacy](docs/PRIVACY.md).
 
 ## The Mac app
 
@@ -199,49 +318,13 @@ If the `briefcut` tools do not appear in `/mcp`, restart Claude Code. The first 
 
 The app and `briefcut` share the `~/Library/Application Support/Vedit` workspace, so both show the same projects. Only one can run on a workspace at a time. `VEDIT_WORKSPACE`, or the project folder in Settings, moves it.
 
-## Architecture
-
-```text
-browser (src/vedit/studio/static)        talks only to 127.0.0.1
-   │  upload once · brief · plan · edit · approve · receipts · revise · download
-   ▼
-HTTP server (src/vedit/studio/server.py)
-   ▼
-CampaignManager (src/vedit/campaign.py)  SQLite job record · one worker · cancel · retry · versions
-   ├── Meta adapter (src/vedit/meta.py)          Spark · SAM 3.1 · Voice Transcribe · Muse Image
-   │        spending cap · schema validation · upload cleanup · ledger
-   ├── Story (src/vedit/story.py)                scene cuts, speech ranges, snap_to_sentences
-   ├── Brief ops (src/vedit/brief_ops.py)        "trim the pauses", "title card", "fade out" → ops
-   ├── Lint (src/vedit/lint.py)                  deterministic checks and patches; apply_patches is pure
-   ▼
-approved plan → YAML brief → compiler (src/vedit/compile.py) → project.json + render.sh
-   ▼
-FFmpeg on this computer → probe → report.json → checks → campaign.zip
-```
-
-The boundary that matters: models propose moments, geometry, cues, and patches. The compiler is the only thing that produces executable steps, and the lint re-runs after every model patch. `render.sh` in the project folder re-runs the edit with FFmpeg alone, and `brief.yaml` recompiles it with `vedit`.
-
-```text
-intent (YAML brief | English DSL | Python API)
-        ↓
-   analysis (silence, scenes, loudness, speech)
-        ↓
-   timeline program (project.json + render.sh)
-        ↓
-   FFmpeg
-        ↓
-   verified outputs + report.json
-```
-
-The engine follows the open-source tools that last: [MLT](https://www.mltframework.org/) / Shotcut / Kdenlive (tractor and playlist), [OpenTimelineIO](https://opentimeline.io/) (interchange), [editly](https://github.com/mifi/editly) (JSON to FFmpeg), and [auto-editor](https://github.com/WyattBlue/auto-editor) (silence-first cutting). `vedit` takes the IR and code generation idea and makes the program the product.
-
 ## The engine
 
 | Job | How |
 |---|---|
 | Cut / trim / concat / speed / reverse / freeze | FFmpeg trim, concat, setpts |
 | Remove silence (jump cut) | `silencedetect` → keep ranges → `select`/`aselect` |
-| Captions | Meta Voice Transcribe → polished sentence cues, two lines of at most 42 characters → SRT/ASS → burned in by FFmpeg. A finished `.srt` or `.ass` also works through `captions` with `file:`. |
+| Captions | Meta Voice Transcribe (needs the key) → polished sentence cues, two lines of at most 42 characters → SRT/ASS → burned in by FFmpeg. Silence is never sent; a recording over 10 minutes is heard in pieces cut at pauses. A finished `.srt` or `.ass` burns through `captions` with `file:` and calls no model. |
 | Story plan checks | `lint.py`: sentence boundaries, duration vs target, bounds and order, caption coverage; patches applied by a pure function |
 | Titles, watermarks, PIP | `drawtext` / `overlay` (ffmpeg-full) |
 | Music duck under speech | `sidechaincompress` |
@@ -257,7 +340,6 @@ The engine follows the open-source tools that last: [MLT](https://www.mltframewo
 | Color | bt709 / tv range / yuv420p / `+faststart` / High profile on delivery presets |
 | Interchange | `timeline.otio.json` (OTIO-lite) next to `project.json` |
 
-<!-- VERIFY: how the brief-level `captions` op transcribes in Meta-only mode (vedit do --captions, recipes). -->
 
 Every run writes:
 

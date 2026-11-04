@@ -2,63 +2,63 @@
 :root {
   --bar-h: 52px;
   --tl-h: clamp(232px, 36dvh, 330px);
-  --ed-gap: #d4dae4;
-  --ed-backdrop: #e9edf3;
-  --tl-ground: #f6f8fb;
-  --tl-track: #eceff5;
-  --tl-track-2: #e4e8f0;
-  --tl-tick: #8493aa;
-  --tl-text: #41516b;
-  --tl-wave: #2b8f7c;
-  --tl-wave-dim: #9fc9bd;
-  --tl-cue: #d9e4fc;
-  --tl-cue-line: #a9c0ef;
-  --tl-cue-ink: #24467f;
-  --tl-text-item: #e5e0f5;
-  --tl-text-line: #bdb0e0;
-  --tl-text-ink: #4f3f7a;
-  --tl-music: #dbeee2;
-  --tl-music-line: #9fd0b4;
-  --tl-music-ink: #27604a;
-  --tl-clip-fallback: #d9e4fc;
+  --ed-gap: #ddd6cf;
+  --ed-backdrop: #f5efe9;
+  --tl-ground: #faf6f1;
+  --tl-track: #f3ede7;
+  --tl-track-2: #eee6de;
+  --tl-tick: #887e77;
+  --tl-text: #594d46;
+  --tl-wave: #258e6a;
+  --tl-wave-dim: #a0d1ba;
+  --tl-cue: #cddfff;
+  --tl-cue-line: #99b8f2;
+  --tl-cue-ink: #173b8b;
+  --tl-text-item: #e8dffc;
+  --tl-text-line: #c4b4e5;
+  --tl-text-ink: #583a84;
+  --tl-music: #d4f0dc;
+  --tl-music-line: #a0d2b1;
+  --tl-music-ink: #115531;
+  --tl-clip-fallback: #cddfff;
   --tl-splice: #ffffff;
-  --tl-playhead: #d4283f;
-  --tl-select: #2355d8;
-  --tl-snap: #d98a1f;
+  --tl-playhead: #db2b33;
+  --tl-select: #1e5ae2;
+  --tl-snap: #dd881b;
   --pill: #0b1220cc;
   --pill-ink: #ffffff;
-  --cut: #b3263a;
-  --cut-wash: #fbe9eb;
+  --cut: #c51d28;
+  --cut-wash: #ffe6e3;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --ed-gap: #05080d;
-    --ed-backdrop: #0a0e14;
-    --tl-ground: #111720;
-    --tl-track: #182130;
-    --tl-track-2: #1d2738;
-    --tl-tick: #66758c;
-    --tl-text: #9fadc2;
-    --tl-wave: #55c3a8;
-    --tl-wave-dim: #2c5a50;
-    --tl-cue: #22365f;
-    --tl-cue-line: #3f5f9f;
-    --tl-cue-ink: #cbd9f7;
-    --tl-text-item: #2f2a4a;
-    --tl-text-line: #5a4f8a;
-    --tl-text-ink: #d8cff2;
-    --tl-music: #1b3a2e;
-    --tl-music-line: #356b55;
-    --tl-music-ink: #b9e4d0;
-    --tl-clip-fallback: #22365f;
-    --tl-splice: #0a0e14;
-    --tl-playhead: #ff5a6e;
-    --tl-select: #7fa2ff;
-    --tl-snap: #f2b35a;
+    --ed-gap: #050302;
+    --ed-backdrop: #0f0a07;
+    --tl-ground: #18130f;
+    --tl-track: #231d19;
+    --tl-track-2: #2a241f;
+    --tl-tick: #817972;
+    --tl-text: #bcb6af;
+    --tl-wave: #5fc199;
+    --tl-wave-dim: #2a5745;
+    --tl-cue: #213459;
+    --tl-cue-line: #3a5c9b;
+    --tl-cue-ink: #c2d8ff;
+    --tl-text-item: #382b4d;
+    --tl-text-line: #604b83;
+    --tl-text-ink: #dcd1f4;
+    --tl-music: #173523;
+    --tl-music-line: #336144;
+    --tl-music-ink: #b3ddc0;
+    --tl-clip-fallback: #213459;
+    --tl-splice: #0f0a07;
+    --tl-playhead: #fa686a;
+    --tl-select: #669bff;
+    --tl-snap: #f7ac4d;
     --pill: #05080dd9;
     --pill-ink: #eef2f8;
-    --cut: #ff8c98;
-    --cut-wash: #3a1a20;
+    --cut: #ff847d;
+    --cut-wash: #4a2321;
   }
 }
 
@@ -124,7 +124,9 @@ body[data-mode="edit"] .scrub-speech span { top: 29px; height: 7px; }
 #media-bin-mount, #inspector-mount { flex: 1 1 0; min-height: 0; overflow: auto; }
 
 @media (min-width: 1180px) and (min-height: 640px) {
-  body[data-mode="edit"] { height: 100dvh; overflow: hidden; display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr); background: var(--ed-backdrop); }
+  /* One column that never grows past the window. Without it the workspace's fr
+     columns size this auto column to their content and the page runs ~200 px wide. */
+  body[data-mode="edit"] { height: 100dvh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar-h) minmax(0, 1fr); background: var(--ed-backdrop); }
   body[data-mode="edit"] .workspace { max-width: none; width: 100%; height: 100%; min-height: 0; margin: 0; display: grid; gap: 1px; background: var(--ed-gap); grid-template-columns: minmax(260px, 23fr) minmax(0, 54fr) minmax(290px, 23fr); grid-template-rows: minmax(0, 1fr) var(--tl-h); }
   body[data-mode="edit"] .ed-left { grid-area: 1 / 1; }
   body[data-mode="edit"] .monitor { grid-area: 1 / 2; }
@@ -234,6 +236,8 @@ body:not(.has-story) .mon-badge { display: none; }
 .is-karaoke .pv-word.is-said { color: var(--cap-high, #ffd60a); }
 .is-pop .pv-line { font-size: calc(var(--cap-size) * 1.42 * var(--cap-scale, 1)); font-weight: 800; -webkit-text-stroke: .12em #000; paint-order: stroke fill; }
 .is-pop .pv-word.is-now { color: var(--cap-high, #ffd60a); }
+/* A punch word keeps its accent while the spoken-word highlight moves on, as in the render. */
+.pv-caption .pv-word.is-punch { color: var(--cap-punch, #3ce88c); font-size: 1.15em; }
 .pv-text { position: absolute; left: 5%; right: 5%; text-align: center; font-family: "Avenir Next", Avenir, -apple-system, "Segoe UI", sans-serif; translate: 0 -50%; }
 .pv-text[hidden] { display: none; }
 .pv-text.at-top { top: 20%; }
@@ -279,12 +283,12 @@ body:not(.has-story) .mon-badge { display: none; }
 .tl-content { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
 .tl-clips, .tl-items, .tl-joins { position: absolute; inset: 0; pointer-events: none; }
 .tl-clip, .tl-item { position: absolute; left: 0; top: 0; pointer-events: auto; contain: layout style; }
-.tl-clip-body { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; padding: 3px 5px; border-radius: 4px; overflow: hidden; cursor: grab; touch-action: pan-x; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .28); }
+.tl-clip-body { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; padding: 3px 5px; border-radius: 6px; overflow: hidden; cursor: grab; touch-action: pan-x; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .28); }
 .tl-clip-body:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .tl-clip-label { min-width: 0; padding: 0 5px; border-radius: 3px; background: var(--pill); color: var(--pill-ink); font-size: 10px; font-weight: 600; line-height: 16px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
 .tl-clip-badge { flex: none; padding: 0 5px; border-radius: 3px; background: var(--blue); color: var(--on-blue); font-size: 10px; font-weight: 700; line-height: 16px; font-variant-numeric: tabular-nums; }
 .tl-clip.is-tight .tl-clip-label, .tl-clip.is-tight .tl-clip-badge { display: none; }
-.tl-clip:hover .tl-clip-body { box-shadow: inset 0 0 0 1px var(--blue-line-2); }
+.tl-clip:hover .tl-clip-body { box-shadow: inset 0 0 0 1px var(--blue); }
 .tl-clip.is-selected { z-index: 2; }
 .tl-clip.is-selected .tl-clip-body { box-shadow: inset 0 0 0 2px var(--tl-select); }
 .tl-edge { position: absolute; top: 0; bottom: 0; width: 13px; z-index: 3; cursor: ew-resize; touch-action: none; display: grid; place-items: center; outline: none; }

@@ -1,23 +1,17 @@
-"""Plain-language decisions for one sentence, and the local-caption gate.
+"""Plain-language decisions for one sentence, and the caption gate.
 
-File checks live in ``local_transcriber_ready``. ``explain_decisions`` only
-reads the intent, the brief, and the inventory.
+Whether Meta can transcribe lives in ``transcriber_ready``. ``explain_decisions``
+only reads the intent, the brief, and the inventory.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import os
 from dataclasses import replace
 from pathlib import Path
 
 from vedit.agent.model import Decision, Intent, Inventory
 from vedit.agent.policy import contract_for
-from vedit.captions import find_whisper_model
 from vedit.ir import Brief
-from vedit.media import find_whisper_cli
-
-_MIN_MODEL_BYTES = 2_000_000
 
 
 def explain_decisions(
@@ -67,55 +61,12 @@ def drop_captions(brief: Brief) -> tuple[Brief, bool]:
     return replace(brief, ops=kept), True
 
 
-def local_transcriber_ready() -> bool:
-    """True only when a local transcriber can run without downloading a model."""
-    if find_whisper_cli() and find_whisper_model() is not None:
-        return True
-    return _faster_whisper_local()
+def transcriber_ready() -> bool:
+    """True when Meta Voice Transcribe can hear the clip: a Meta key is set and Meta calls are allowed."""
+    from vedit import meta
 
-
-def _faster_whisper_local() -> bool:
-    named = os.environ.get("VEDIT_FASTER_WHISPER_MODEL", "").strip()
-    if named:
-        path = Path(named).expanduser()
-        if _real_model_file(path) or (path.is_dir() and _real_model_file(path / "model.bin")):
-            return importlib.util.find_spec("faster_whisper") is not None
-    if importlib.util.find_spec("faster_whisper") is None:
-        return False
-    model = named or "base.en"
-    if "/" in model or model.startswith("."):
-        path = Path(model).expanduser()
-        return _real_model_file(path) or (path.is_dir() and _real_model_file(path / "model.bin"))
-    repo = f"Systran/faster-whisper-{model}"
-    folder = "models--" + repo.replace("/", "--")
-    roots: list[Path] = []
-    hub_cache = os.environ.get("HUGGINGFACE_HUB_CACHE")
-    if hub_cache:
-        roots.append(Path(hub_cache).expanduser())
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home:
-        roots.append(Path(hf_home).expanduser() / "hub")
-    roots.append(Path.home() / ".cache" / "huggingface" / "hub")
-    for root in roots:
-        snapshots = root / folder / "snapshots"
-        if not snapshots.is_dir():
-            continue
-        for snapshot in snapshots.iterdir():
-            if snapshot.is_dir() and _real_model_file(snapshot / "model.bin"):
-                return True
-    return False
-
-
-def _real_model_file(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    name = path.name.lower()
-    if "stub" in name or "for-tests" in name:
-        return False
-    try:
-        return path.stat().st_size >= _MIN_MODEL_BYTES
-    except OSError:
-        return False
+    status = meta.capabilities()
+    return bool(status.get("available") and (status.get("features") or {}).get("transcribe"))
 
 
 def _has_op(ops: list[dict[str, object]], name: str) -> bool:

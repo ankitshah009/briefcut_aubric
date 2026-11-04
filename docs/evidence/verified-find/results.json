@@ -1,0 +1,816 @@
+{
+ "source": "examples/demo/workshop.mp4",
+ "duration": 40.021,
+ "budget_usd": 0.15,
+ "models": {
+  "find": "muse-spark-1.3-contributor",
+  "verify": "sam-3.1"
+ },
+ "runs": [
+  {
+   "query": "the wooden bowl",
+   "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "usage": {
+     "estimated_max_usd": 0.0033134,
+     "cached": true,
+     "input_tokens": 11040,
+     "output_tokens": 1090,
+     "total_tokens": 12130,
+     "cost_usd": 0.001322,
+     "charged_this_call_usd": 0
+    },
+    "moments": [
+     {
+      "start": 0.0,
+      "end": 8.0,
+      "reason": "An empty wooden bowl sits centered on dark planks.",
+      "label": "An empty wooden bowl sits centered on dark planks.",
+      "source": "meta",
+      "score": 0.9
+     },
+     {
+      "start": 16.0,
+      "end": 40.021,
+      "reason": "The wooden bowl stays centered while a tool touches its edge.",
+      "label": "The wooden bowl stays centered while a tool touches its edge",
+      "source": "meta",
+      "score": 0.85
+     }
+    ]
+   },
+   "verified": {
+    "query": "the wooden bowl",
+    "kind": "visual",
+    "phrase": "wooden bowl",
+    "status": "verified",
+    "reason": "SAM 3.1 looked for “wooden bowl” in 2 moments Muse Spark found: 2 verified (coverage 100%, 100%).",
+    "moments": [
+     {
+      "start": 0.0,
+      "end": 8.0,
+      "reason": "An empty wooden bowl sits centered on dark planks.",
+      "label": "An empty wooden bowl sits centered on dark planks.",
+      "source": "meta",
+      "score": 0.9,
+      "evidence": {
+       "phrase": "wooden bowl",
+       "window": [
+        2.5,
+        5.5
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 45,
+       "measured": "mask",
+       "object_id": 0,
+       "peak_area": 0.2323,
+       "confidence": 0.969,
+       "thumbnail_frame": 44,
+       "thumbnail_time": 5.433
+      },
+      "verified": true,
+      "coverage": 1.0,
+      "thumbnail": "thumbs/wooden-bowl-2500.jpg",
+      "verification": "SAM masked “wooden bowl” in 45 of 45 sampled frames."
+     },
+     {
+      "start": 16.0,
+      "end": 40.021,
+      "reason": "The wooden bowl stays centered while a tool touches its edge.",
+      "label": "The wooden bowl stays centered while a tool touches its edge",
+      "source": "meta",
+      "score": 0.85,
+      "evidence": {
+       "phrase": "wooden bowl",
+       "window": [
+        26.511,
+        29.511
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 45,
+       "measured": "mask",
+       "object_id": 0,
+       "peak_area": 0.2287,
+       "confidence": 0.977,
+       "thumbnail_frame": 44,
+       "thumbnail_time": 29.444
+      },
+      "verified": true,
+      "coverage": 1.0,
+      "thumbnail": "thumbs/wooden-bowl-26511.jpg",
+      "verification": "SAM masked “wooden bowl” in 45 of 45 sampled frames."
+     }
+    ],
+    "dropped": [],
+    "spend": [
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 0,
+      "window": [
+       2.5,
+       5.5
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     },
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 1,
+      "window": [
+       26.511,
+       29.511
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     }
+    ],
+    "spent_usd": 0.0,
+    "warnings": [],
+    "settings": {
+     "window_seconds": 3.0,
+     "max_frames": 46,
+     "min_area": 0.001,
+     "min_coverage": 0.2,
+     "min_confidence": 0.0,
+     "unseen": "flag",
+     "max_moments": 5,
+     "planned_usd": 0.02
+    },
+    "model": "sam-3.1",
+    "receipt": {
+     "name": "sam: “wooden bowl” is on screen in the found moments",
+     "passed": true,
+     "at": null,
+     "note": "SAM 3.1 looked for “wooden bowl” in 2 moments Muse Spark found: 2 verified (coverage 100%, 100%).",
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ]
+    }
+   }
+  },
+  {
+   "query": "the gouge",
+   "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "usage": {
+     "estimated_max_usd": 0.0033134,
+     "cached": true,
+     "input_tokens": 11040,
+     "output_tokens": 1612,
+     "total_tokens": 12652,
+     "cost_usd": 0.0014264,
+     "charged_this_call_usd": 0
+    },
+    "moments": [
+     {
+      "start": 16.0,
+      "end": 32.0,
+      "reason": "A gray gouge tool contacts the wooden bowl rim with shavings scattering.",
+      "label": "A gray gouge tool contacts the wooden bowl rim with shavings",
+      "source": "meta",
+      "score": 0.9
+     }
+    ]
+   },
+   "verified": {
+    "query": "the gouge",
+    "kind": "visual",
+    "phrase": "gouge",
+    "status": "verified",
+    "reason": "SAM 3.1 looked for “gouge” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+    "moments": [
+     {
+      "start": 16.0,
+      "end": 32.0,
+      "reason": "A gray gouge tool contacts the wooden bowl rim with shavings scattering.",
+      "label": "A gray gouge tool contacts the wooden bowl rim with shavings",
+      "source": "meta",
+      "score": 0.45,
+      "evidence": {
+       "phrase": "gouge",
+       "window": [
+        22.5,
+        25.5
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 0,
+       "measured": "mask",
+       "object_id": null,
+       "peak_area": 0.0,
+       "confidence": null,
+       "thumbnail_frame": 22,
+       "thumbnail_time": 23.967,
+       "spark_score": 0.9
+      },
+      "verified": false,
+      "coverage": 0.0,
+      "thumbnail": "thumbs/gouge-22500-unmasked.jpg",
+      "verification": "SAM saw no “gouge” in any of 45 sampled frames.",
+      "flagged": true
+     }
+    ],
+    "dropped": [],
+    "spend": [
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 0,
+      "window": [
+       22.5,
+       25.5
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     }
+    ],
+    "spent_usd": 0.0,
+    "warnings": [],
+    "settings": {
+     "window_seconds": 3.0,
+     "max_frames": 46,
+     "min_area": 0.001,
+     "min_coverage": 0.2,
+     "min_confidence": 0.0,
+     "unseen": "flag",
+     "max_moments": 5,
+     "planned_usd": 0.01
+    },
+    "model": "sam-3.1",
+    "receipt": {
+     "name": "sam: “gouge” is on screen in the found moments",
+     "passed": false,
+     "at": 16.0,
+     "note": "SAM 3.1 looked for “gouge” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ]
+    }
+   }
+  },
+  {
+   "query": "a dog",
+   "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "usage": {
+     "estimated_max_usd": 0.0033133,
+     "cached": true,
+     "input_tokens": 11039,
+     "output_tokens": 667,
+     "total_tokens": 11706,
+     "cost_usd": 0.0012373,
+     "charged_this_call_usd": 0
+    },
+    "moments": []
+   },
+   "verified": {
+    "query": "a dog",
+    "kind": "visual",
+    "phrase": "dog",
+    "status": "skipped",
+    "reason": "No moment found by looking at the footage, so SAM had nothing to check.",
+    "moments": [],
+    "dropped": [],
+    "spend": [],
+    "spent_usd": 0.0,
+    "warnings": [],
+    "settings": {
+     "window_seconds": 3.0,
+     "max_frames": 46,
+     "min_area": 0.001,
+     "min_coverage": 0.2,
+     "min_confidence": 0.0,
+     "unseen": "flag",
+     "max_moments": 5
+    },
+    "model": "sam-3.1",
+    "receipt": {
+     "name": "sam: “dog” is on screen in the found moments",
+     "passed": true,
+     "at": null,
+     "note": "Not checked: No moment found by looking at the footage, so SAM had nothing to check.",
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ]
+    }
+   }
+  },
+  {
+   "query": "the gouge",
+   "phrase_override": "tool",
+   "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "usage": {
+     "estimated_max_usd": 0.0033134,
+     "cached": true,
+     "input_tokens": 11040,
+     "output_tokens": 1612,
+     "total_tokens": 12652,
+     "cost_usd": 0.0014264,
+     "charged_this_call_usd": 0
+    },
+    "moments": [
+     {
+      "start": 16.0,
+      "end": 32.0,
+      "reason": "A gray gouge tool contacts the wooden bowl rim with shavings scattering.",
+      "label": "A gray gouge tool contacts the wooden bowl rim with shavings",
+      "source": "meta",
+      "score": 0.9
+     }
+    ]
+   },
+   "verified": {
+    "query": "the gouge",
+    "kind": "visual",
+    "phrase": "tool",
+    "status": "verified",
+    "reason": "SAM 3.1 looked for “tool” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+    "moments": [
+     {
+      "start": 16.0,
+      "end": 32.0,
+      "reason": "A gray gouge tool contacts the wooden bowl rim with shavings scattering.",
+      "label": "A gray gouge tool contacts the wooden bowl rim with shavings",
+      "source": "meta",
+      "score": 0.45,
+      "evidence": {
+       "phrase": "tool",
+       "window": [
+        22.5,
+        25.5
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 0,
+       "measured": "mask",
+       "object_id": null,
+       "peak_area": 0.0,
+       "confidence": null,
+       "thumbnail_frame": 22,
+       "thumbnail_time": 23.967,
+       "spark_score": 0.9
+      },
+      "verified": false,
+      "coverage": 0.0,
+      "thumbnail": "thumbs/tool-22500-unmasked.jpg",
+      "verification": "SAM saw no “tool” in any of 45 sampled frames.",
+      "flagged": true
+     }
+    ],
+    "dropped": [],
+    "spend": [
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 0,
+      "window": [
+       22.5,
+       25.5
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     }
+    ],
+    "spent_usd": 0.0,
+    "warnings": [],
+    "settings": {
+     "window_seconds": 3.0,
+     "max_frames": 46,
+     "min_area": 0.001,
+     "min_coverage": 0.2,
+     "min_confidence": 0.0,
+     "unseen": "flag",
+     "max_moments": 5,
+     "planned_usd": 0.01
+    },
+    "model": "sam-3.1",
+    "receipt": {
+     "name": "sam: “tool” is on screen in the found moments",
+     "passed": false,
+     "at": 16.0,
+     "note": "SAM 3.1 looked for “tool” in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ]
+    }
+   }
+  },
+  {
+   "query": "a dog",
+   "injected": true,
+   "spark": {
+    "model": null,
+    "moments": [
+     {
+      "start": 0.0,
+      "end": 8.0,
+      "reason": "Injected for the proof: a bowl moment offered as 'a dog'.",
+      "label": "An empty wooden bowl sits centered on dark planks.",
+      "source": "meta",
+      "score": 0.9
+     },
+     {
+      "start": 16.0,
+      "end": 40.021,
+      "reason": "Injected for the proof: a bowl moment offered as 'a dog'.",
+      "label": "The wooden bowl stays centered while a tool touches its edge",
+      "source": "meta",
+      "score": 0.85
+     }
+    ]
+   },
+   "verified": {
+    "query": "a dog",
+    "kind": "visual",
+    "phrase": "dog",
+    "status": "verified",
+    "reason": "SAM 3.1 looked for “dog” in 2 moments Muse Spark found: 0 verified, 2 never seen (coverage 0%, 0%). Moments SAM never saw are kept and flagged.",
+    "moments": [
+     {
+      "start": 0.0,
+      "end": 8.0,
+      "reason": "Injected for the proof: a bowl moment offered as 'a dog'.",
+      "label": "An empty wooden bowl sits centered on dark planks.",
+      "source": "meta",
+      "score": 0.45,
+      "evidence": {
+       "phrase": "dog",
+       "window": [
+        2.5,
+        5.5
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 0,
+       "measured": "mask",
+       "object_id": null,
+       "peak_area": 0.0,
+       "confidence": null,
+       "thumbnail_frame": 22,
+       "thumbnail_time": 3.967,
+       "spark_score": 0.9
+      },
+      "verified": false,
+      "coverage": 0.0,
+      "thumbnail": "thumbs/dog-2500-unmasked.jpg",
+      "verification": "SAM saw no “dog” in any of 45 sampled frames.",
+      "flagged": true
+     },
+     {
+      "start": 16.0,
+      "end": 40.021,
+      "reason": "Injected for the proof: a bowl moment offered as 'a dog'.",
+      "label": "The wooden bowl stays centered while a tool touches its edge",
+      "source": "meta",
+      "score": 0.425,
+      "evidence": {
+       "phrase": "dog",
+       "window": [
+        26.511,
+        29.511
+       ],
+       "sample_fps": 15.0,
+       "basis": "derived",
+       "by": "sam-3.1",
+       "inputs": [
+        "muse-spark"
+       ],
+       "sampled_frames": 45,
+       "masked_frames": 0,
+       "measured": "mask",
+       "object_id": null,
+       "peak_area": 0.0,
+       "confidence": null,
+       "thumbnail_frame": 22,
+       "thumbnail_time": 27.978,
+       "spark_score": 0.85
+      },
+      "verified": false,
+      "coverage": 0.0,
+      "thumbnail": "thumbs/dog-26511-unmasked.jpg",
+      "verification": "SAM saw no “dog” in any of 45 sampled frames.",
+      "flagged": true
+     }
+    ],
+    "dropped": [],
+    "spend": [
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 0,
+      "window": [
+       2.5,
+       5.5
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     },
+     {
+      "model": "sam-3.1",
+      "operation": "verify-find",
+      "moment": 1,
+      "window": [
+       26.511,
+       29.511
+      ],
+      "frames": null,
+      "cost_usd": 0.0,
+      "estimated_max_usd": null,
+      "cached": true
+     }
+    ],
+    "spent_usd": 0.0,
+    "warnings": [],
+    "settings": {
+     "window_seconds": 3.0,
+     "max_frames": 46,
+     "min_area": 0.001,
+     "min_coverage": 0.2,
+     "min_confidence": 0.0,
+     "unseen": "flag",
+     "max_moments": 5,
+     "planned_usd": 0.02
+    },
+    "model": "sam-3.1",
+    "receipt": {
+     "name": "sam: “dog” is on screen in the found moments",
+     "passed": false,
+     "at": 0.0,
+     "note": "SAM 3.1 looked for “dog” in 2 moments Muse Spark found: 0 verified, 2 never seen (coverage 0%, 0%). Moments SAM never saw are kept and flagged.",
+     "basis": "derived",
+     "by": "sam-3.1",
+     "inputs": [
+      "muse-spark"
+     ]
+    }
+   }
+  }
+ ],
+ "calls": [
+  {
+   "id": "21427a740bf344ea9a3698516adfce5e",
+   "started_at": 1793818017.891983,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “gouge”",
+   "status": "done",
+   "seconds": 6.04,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7da6cc5d9e475d1f4e88",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "d7b48226e058463780cbe24d226ab643",
+   "started_at": 1793817976.248959,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “tool”",
+   "status": "done",
+   "seconds": 4.88,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7d7b994278f2fbc24a37",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "5381090917e64259abcca61c7cbc791f",
+   "started_at": 1793817843.005169,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “dog”",
+   "status": "done",
+   "seconds": 5.09,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7cf6fcf8e33250644879",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "f825a6c750a741e2b7ab5324a7dbc26f",
+   "started_at": 1793817843.000289,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “dog”",
+   "status": "done",
+   "seconds": 4.96,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7cf67a66debb75394098",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "e244cd59f4574efda54895a1dd7978d0",
+   "started_at": 1793817831.127466,
+   "operation": "find",
+   "model": "muse-spark-1.3-contributor",
+   "purpose": "Find “a dog” in the footage",
+   "status": "done",
+   "seconds": 6.56,
+   "size": {
+    "input_tokens": 11039,
+    "output_tokens": 667
+   },
+   "reserved_usd": 0.0033133,
+   "cost_usd": 0.0012373,
+   "request_id": "resp_6aeb7ced3d320fe86f2e4df1",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "760831116a384ccbabbeebe3e1a727a7",
+   "started_at": 1793817814.121872,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “gouge”",
+   "status": "done",
+   "seconds": 5.46,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7cd9c21a47d7553146fa",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "c3a4359580504ff3b752941f636ed180",
+   "started_at": 1793817796.644471,
+   "operation": "find",
+   "model": "muse-spark-1.3-contributor",
+   "purpose": "Find “the gouge” in the footage",
+   "status": "done",
+   "seconds": 12.23,
+   "size": {
+    "input_tokens": 11040,
+    "output_tokens": 1612
+   },
+   "reserved_usd": 0.0033134,
+   "cost_usd": 0.0014264,
+   "request_id": "resp_6aeb7cd01db2bb4822174e90",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "bd272934da064234a9ba214011d04640",
+   "started_at": 1793817773.182878,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “wooden bowl”",
+   "status": "done",
+   "seconds": 8.43,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7cb072083ab0a1e943b6",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "f8f5a8a92f054091bd2c9579eedd4565",
+   "started_at": 1793817773.177241,
+   "operation": "tracking",
+   "model": "sam-3.1",
+   "purpose": "Cut out “wooden bowl”",
+   "status": "done",
+   "seconds": 6.89,
+   "size": {
+    "frames": 50,
+    "input_tokens": 0,
+    "output_tokens": 0
+   },
+   "reserved_usd": 0.01,
+   "cost_usd": 0.01,
+   "request_id": "resp_6aeb7cb052c498883bcb4281",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  },
+  {
+   "id": "02ac6617c9744de79647b98b4f69e329",
+   "started_at": 1793817756.825616,
+   "operation": "find",
+   "model": "muse-spark-1.3-contributor",
+   "purpose": "Find “the wooden bowl” in the footage",
+   "status": "done",
+   "seconds": 10.65,
+   "size": {
+    "input_tokens": 11040,
+    "output_tokens": 1090
+   },
+   "reserved_usd": 0.0033134,
+   "cost_usd": 0.001322,
+   "request_id": "resp_6aeb7ca70eff0caca67a486a",
+   "runs_on": "meta-api",
+   "runtime": null,
+   "weights": null,
+   "cost_kind": "actual"
+  }
+ ],
+ "totals": {
+  "calls": 10,
+  "running": 0,
+  "spent_usd": 0.0739857,
+  "held_usd": 0.0799401,
+  "api_calls": 10,
+  "local_calls": 0,
+  "budget_usd": 0.15,
+  "remaining_usd": 0.0700599
+ }
+}

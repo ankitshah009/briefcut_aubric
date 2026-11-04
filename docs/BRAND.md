@@ -1,11 +1,11 @@
-# Briefcut by Aubric.ai
+# Briefcut by Aubric, Inc.
 
 **Working product name:** Briefcut  
-**Attribution:** by Aubric.ai  
+**Attribution:** by Aubric, Inc.  
 **Checkout folder and repository slug:** `briefcut`  
 **Promise:** Turn your footage into a story worth watching.
 
-Briefcut is a video editor for shaping real footage: select moments, arrange the story, frame the subject, refine captions, add a deliberate effect, and export the finished cut. The name is the product. A brief is the readable list of decisions. The cut is what those decisions become. Say it as **brief-cut**. Use **Briefcut**, with one capital letter, in prose and app labels. Use **Briefcut by Aubric.ai** on the launch screen, README, product introduction, and demo closing frame.
+Briefcut is a video editor for shaping real footage: select moments, arrange the story, frame the subject, refine captions, add a deliberate effect, and export the finished cut. The name is the product. A brief is the readable list of decisions. The cut is what those decisions become. Say it as **brief-cut**. Use **Briefcut**, with one capital letter, in prose and app labels. Use **Briefcut by Aubric, Inc.** on the launch screen, README, product introduction, and demo closing frame.
 
 ## Product hierarchy
 
@@ -13,7 +13,7 @@ The story is the primary object. Footage, selected moments, captions, framing, e
 
 Use straightforward feature names such as **Story**, **Captions**, **Framing**, **Effects**, and **Export**. In the effects catalogue, name the visual result: **Floating frame**, **Perspective sway**, **Push-in reveal**. The effects use animated framing and perspective; they do not reconstruct unseen geometry. See [Spatial effects](SPATIAL_EFFECTS.md).
 
-Aubric.ai remains the parent company. Its public developer site describes publishability evaluation for advertising. That creates a plausible future connection between making a creative and evaluating it, but Briefcut's technical export verification is not an Aubric publishability evaluation. Do not claim that integration until it is implemented and verified. [Aubric developer overview](https://aubric.ai/developers)
+Aubric, Inc. remains the parent company. Its public developer site describes publishability evaluation for advertising. That creates a plausible future connection between making a creative and evaluating it, but Briefcut's technical export verification is not an Aubric publishability evaluation. Do not claim that integration until it is implemented and verified. [Aubric developer overview](https://aubric.ai/developers)
 
 ## Name check
 
@@ -63,6 +63,6 @@ The `gh repo rename --help` output was checked locally. Keep the owner unchanged
 
 Suggested repository description:
 
-> Briefcut by Aubric.ai: shape real footage into finished stories, with local rendering, editable plans, and curated visual effects.
+> Briefcut by Aubric, Inc.: shape real footage into finished stories, with local rendering, editable plans, and curated visual effects.
 
 Keep claims tied to current behavior: an exported file is verified technically; a Meta-assisted decision requires a real model run; a spatial effect is a visual treatment; a campaign archive is an export, not a published social post.

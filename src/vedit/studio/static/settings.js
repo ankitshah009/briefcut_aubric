@@ -218,6 +218,13 @@
     const enabled = check("bc-enabled", "Allow Meta calls", "Turn this off to pause every Meta call. Footage is sent only when you create a story and confirm the send.");
     const contributor = check("bc-contributor", "Contributor mode", "Muse Spark costs less, and in exchange Meta may use what you send to it to train its future models: your video, transcript, and brief. Leave this off unless you are comfortable with that. Tracking, cutouts, generated images, and transcription have no contributor mode.");
     form.enabled = enabled.input; form.contributor = contributor.input;
+    // Private mode: the steps that need only words run on Muse Glimmer 30B, Meta's open-weight model, here.
+    form.private = h("input", { type: "checkbox", id: "bc-private", "aria-describedby": "bc-private-note" });
+    form.privateNote = h("p", { class: "field-note", id: "bc-private-note", role: "status" });
+    const privateMode = h("label", { class: "check-field bc-check", for: "bc-private" }, form.private,
+      h("span", {}, "Private mode", h("small", { class: "fine-print" },
+        "Run director\u2019s notes, caption translation and script scenes on Muse Glimmer 30B, Meta\u2019s open-weight model, on this computer. No Meta key needed for those steps. Needs the local Glimmer server (",
+        h("code", { text: "uv run python -m vedit.open_weights serve" }), ").")));
     form.envNote = h("p", { class: "field-note", id: "bc-env-note", hidden: true });
     form.test = h("button", { type: "button", class: "button button-secondary", id: "bc-test", text: "Test connection", onclick: testConnection });
     form.testResult = h("p", { class: "field-note", id: "bc-test-result", role: "status" });
@@ -233,6 +240,7 @@
       h("section", { class: "bc-row" },
         h("h3", { text: "This computer" }),
         h("p", { class: "bc-why", id: "bc-setup-summary", text: "FFmpeg and your Meta API key." }),
+        h("p", { class: "field-note", id: "bc-blender-note", hidden: true, text: "Needs Blender for 3D title cards. Install Blender 4.2 or later from blender.org, then reload this page. Everything else works without it." }),
         h("button", { type: "button", class: "button button-secondary", id: "bc-open-setup", text: "Open setup", onclick: () => { view.dialog.close(); openSetup(); } })),
       h("section", { class: "bc-row" },
         h("h3", { text: "Meta" }),
@@ -252,7 +260,8 @@
         field("Folder", form.workspace, form.workspaceNote)),
       h("section", { class: "bc-row" },
         h("h3", { text: "Privacy" }),
-        h("p", { class: "bc-why", text: "Your footage is stored and rendered on this computer. It goes to Meta only when you create a story and confirm the send. Briefcut sends no analytics or usage data." })),
+        h("p", { class: "bc-why", text: "Your footage is stored and rendered on this computer. It goes to Meta only when you create a story and confirm the send. Briefcut sends no analytics or usage data." }),
+        privateMode, form.privateNote),
       h("section", { class: "bc-row" },
         h("h3", { text: "Help" }),
         h("p", { class: "bc-why", text: "Copies versions, tool checks, and the last error for a bug report. No home folder paths, keys, or transcript text." }),
@@ -276,13 +285,16 @@
     form.key.oninput = () => { if (!key.configured && form.key.value.trim() && state.meta_enabled_source !== "environment") form.enabled.checked = true; };
     form.enabled.checked = state.meta_enabled; form.enabled.disabled = state.meta_enabled_source === "environment";
     form.contributor.checked = state.meta_mode === "contributor"; form.contributor.disabled = state.meta_mode_source === "environment";
+    form.private.checked = state.private_model === "glimmer"; form.private.disabled = state.private_model_source === "environment";
+    paintPrivate(state);
     const fixed = [state.meta_enabled_source === "environment" ? "VEDIT_META_ENABLED" : "", state.meta_mode_source === "environment" ? "VEDIT_META_MODE" : ""].filter(Boolean);
     form.envNote.hidden = !fixed.length;
     form.envNote.textContent = fixed.length ? fixed.join(" and ") + " in the environment take" + (fixed.length === 1 ? "s" : "") + " priority over these switches." : "";
     form.budget.min = String(state.limits.budget_min); form.budget.max = String(state.limits.budget_max);
     form.budget.value = String(state.default_budget_usd);
     const page = $("language");
-    const options = page ? Array.from(page.options).map((option) => [option.value, option.textContent]) : [["en", "English"]];
+    /* The page's picker is built from the server's language list, so Settings offers exactly the same choices. */
+    const options = page && page.options.length ? Array.from(page.options).map((option) => [option.value, option.textContent]) : [["auto", "Detect automatically"]];
     if (!options.some(([value]) => value === state.default_language)) options.push([state.default_language, state.default_language]);
     form.language.replaceChildren(...options.map(([value, text]) => new Option(text, value)));
     form.language.value = state.default_language;
@@ -292,6 +304,22 @@
     form.workspaceNote.textContent = workspace.source === "environment" ? "Set by VEDIT_WORKSPACE in the environment, which takes priority." : workspace.restart_required ? "Restart Briefcut to use this folder. Until then, projects stay in " + workspace.current + "." : "A new folder applies the next time Briefcut starts. Existing projects stay where they are.";
     const data = setup.data;
     if (data) $("bc-setup-summary").textContent = data.items.map((item) => item.title + (item.ok ? " ready" : " missing")).join(" · ");
+    // Capabilities say motion_cards: false where Blender is missing; the Effects tab then hides the 3D title card.
+    const caps = window.BriefcutKit && window.BriefcutKit.caps ? window.BriefcutKit.caps() : {};
+    $("bc-blender-note").hidden = caps.motion_cards !== false;
+  }
+
+  /* What is running now comes from capabilities (meta.private); the box is the saved choice. */
+  function paintPrivate(state) {
+    const caps = window.BriefcutKit && window.BriefcutKit.caps ? window.BriefcutKit.caps() : {};
+    const live = caps.meta && caps.meta.private && typeof caps.meta.private === "object" ? caps.meta.private : null;
+    const note = settings.form.privateNote;
+    if (!note) return;
+    const where = live && live.runs_on ? live.runs_on : "this computer";
+    note.textContent = (state && state.private_model_source === "environment" ? "Set by VEDIT_PRIVATE_MODEL in the environment, which takes priority. " : "")
+      + (!live ? "Private mode status is not available in this build."
+        : live.enabled ? "On now. Muse Glimmer 30B runs on " + where + "." : "Off now. These steps run on the Meta Model API.");
+    note.title = live && live.model ? "Model: " + live.model : "";
   }
 
   async function openSettings() {
@@ -303,11 +331,12 @@
 
   function settingsPayload() {
     const form = settings.form;
-    const payload = { meta_enabled: form.enabled.checked, meta_mode: form.contributor.checked ? "contributor" : "standard", default_budget_usd: Number(form.budget.value), default_language: form.language.value };
+    const payload = { meta_enabled: form.enabled.checked, meta_mode: form.contributor.checked ? "contributor" : "standard", default_budget_usd: Number(form.budget.value), default_language: form.language.value, private_model: form.private.checked ? "glimmer" : "" };
     const state = settings.current;
     if (form.key.value.trim()) payload.meta_api_key = form.key.value.trim();
     if (state && state.meta_enabled_source === "environment") delete payload.meta_enabled;
     if (state && state.meta_mode_source === "environment") delete payload.meta_mode;
+    if (state && state.private_model_source === "environment") delete payload.private_model;
     if (!form.workspace.disabled && (!state || form.workspace.value.trim() !== (state.workspace.saved || state.workspace.current))) payload.workspace = form.workspace.value.trim();
     return payload;
   }
@@ -317,6 +346,7 @@
     paintSettings(state);
     await loadSetup(false);
     if (studio().loadCapabilities) await studio().loadCapabilities();
+    paintPrivate(state);
     applyDefaults(state);
     return state;
   }

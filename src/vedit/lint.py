@@ -1,7 +1,9 @@
 """Deterministic grading of a story plan, and pure patch application.
 
-``lint_plan`` grades a plan against the transcript, the target length, the
-source bounds and (when asked) caption coverage. Every check is a plain
+``lint_plan`` grades a plan against the transcript, the target length (a
+ceiling), the source bounds, a multi-clip project's clip edges, the brief's
+named ending and (when asked) caption coverage. A check with nothing to
+measure is left out, never passed. Every check is a plain
 ``{"name", "passed", "at", "note", "basis", "by"}`` record; ``at`` is a time on
 the OUTPUT timeline so a viewer can scrub straight to it. Checks that fail also
 propose structured patches against the plan, which ``apply_patches`` applies
@@ -20,6 +22,7 @@ This module does no I/O and never calls a provider.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from vedit.director import EDIT_FIELDS, describe_patch, read_edit, write_edit
@@ -44,6 +47,13 @@ BASES = ("observed", "derived", "inferred")
 SAM = "sam-3.1"
 SPARK = "muse-spark"
 HERO_HIDDEN = 0.65  # beyond this share of the word behind the subject, the word stops reading
+HERO_CONTRAST = 3.0  # the least contrast between the word and what is behind it: WCAG's floor for large text
+CLIP_SNAP = 1.0  # a moment that strays this far or less into a neighbouring clip is trimmed back to its own clip
+LENGTH_TOLERANCE = 0.05  # the target is a ceiling; a cut may run this share of it (at least 0.5 s) over
+WELL_UNDER = 0.7  # under this share of the target, the length check adds a note with the real numbers
+_PROTECTED_KINDS = ("hook", "opening", "closing")
+_ENDING_HINT = re.compile(r"\b(?:end|ends|ending|finish|finishes|finishing|close|closes|closing|wrap(?:s|ping)?\s+up)\s+(?:on|with)\b", re.IGNORECASE)
+_OPENING_HINT = re.compile(r"\b(?:open|opens|opening|start|starts|starting|begin|begins|beginning)\s+(?:on|with)\b", re.IGNORECASE)
 
 
 def _finite(value: Any) -> float | None:
@@ -128,14 +138,17 @@ def _check(name: str, passed: bool, at: float | None, note: str, *, by: str = "l
 
 
 def _sentence_check(plan: dict[str, Any], segments: list[dict[str, Any]], sentences: list[tuple[float, float]], duration: float,
-                    *, strict: bool = False, heard_by: str | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                    *, strict: bool = False, heard_by: str | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """Grade cuts against sentences. ``strict`` drops the move tolerances: a cut still
-    inside a sentence goes to the nearest boundary, however far that is."""
+    inside a sentence goes to the nearest boundary, however far that is.
+
+    With no transcript nothing can be measured, so there is no check: a pass would claim what nobody looked at.
+    """
     name = "auto: cuts land on sentence boundaries"
     inputs = [heard_by]
     extend_limit, shrink_limit = (math.inf, math.inf) if strict else (SNAP_EXTEND, SNAP_SHRINK)
     if not sentences:
-        return _check(name, True, None, "no transcript"), []
+        return None, []
     patches: list[dict[str, Any]] = []
     first_at: float | None = None
     offenders = 0
@@ -201,38 +214,117 @@ def _shortened_end(segment: dict[str, Any], excess: float) -> float:
     return segment["start"]
 
 
-def _duration_check(plan: dict[str, Any], segments: list[dict[str, Any]], target: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    name = "auto: duration matches the target"
+def _seconds(value: float) -> str:
+    """A length as a person writes it: 25, 13.6."""
+    return f"{value:.1f}".removesuffix(".0")
+
+
+def length_check_name(target: float) -> str:
+    return f"auto: length fits the target (≤ {_seconds(target)} s)"
+
+
+def _alive(segment: dict[str, Any]) -> bool:
+    return math.isfinite(segment["start"]) and math.isfinite(segment["end"]) and segment["end"] > segment["start"]
+
+
+def _bookend_range(plan: dict[str, Any], key: str) -> tuple[float, float, str] | None:
+    """The source range of the moment the planner placed first or last because the brief named it."""
+    bookends = plan.get("bookends") if isinstance(plan.get("bookends"), dict) else {}
+    record = bookends.get(key)
+    if not isinstance(record, dict):
+        return None
+    start, end = _finite(record.get("start")), _finite(record.get("end"))
+    if start is None or end is None or end <= start:
+        return None
+    return start, end, str(record.get("label") or "").strip()[:100]
+
+
+def _protected(plan: dict[str, Any], segments: list[dict[str, Any]]) -> set[int]:
+    """1-based moments the length fix may shorten but never drop: those holding the brief's named opening or ending."""
+    keep: set[int] = set()
+    for key in ("opening", "ending"):
+        found = _bookend_range(plan, key)
+        if found is None:
+            continue
+        for index, segment in enumerate(segments, 1):
+            if _alive(segment) and _overlap(segment["start"], segment["end"], found[0], found[1]) > _EPS:
+                keep.add(index)
+    return keep
+
+
+def _priority(segment: dict[str, Any], index: int) -> tuple[float, int]:
+    """Lowest first: the planner's score (0.5 when it gave none), raised for a hook, an opening or a closing. A later moment goes first among equals."""
+    score = _finite(segment.get("score"))
+    weight = score if score is not None and 0 <= score <= 1 else 0.5
+    if segment.get("kind") in _PROTECTED_KINDS:
+        weight += 0.25
+    return weight, -index
+
+
+def _duration_check(plan: dict[str, Any], segments: list[dict[str, Any]], target: float,
+                    *, asked: float | None = None, source: float | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The target is a ceiling: pass at or under it plus a small allowance.
+
+    A cut far under the target passes, with a separate note that states the
+    numbers. An overlong cut proposes trims from the moments that matter least,
+    never dropping one that holds the brief's named opening or ending.
+    """
+    name = length_check_name(target)
     resolved = _resolved(plan)
     if resolved:
         total = float(plan_timeline(plan)["duration"])
     else:
-        total = sum(max(0.0, s["end"] - s["start"]) for s in segments if math.isfinite(s["start"]) and math.isfinite(s["end"]))
-    low, high = 0.5 * target, target * 1.15 + 0.5
-    note = f"{total:.1f} s cut vs {target:.1f} s target"
-    if low - _EPS <= total <= high + _EPS:
-        return _check(name, True, None, note), []
+        total = sum(s["end"] - s["start"] for s in segments if _alive(s))
+    allowance = max(0.5, LENGTH_TOLERANCE * target)
+    footage = ""
+    if asked is not None and source is not None and asked > source + _EPS:
+        footage = f" You asked for {asked:.1f} s, but the footage runs {source:.1f} s."
+    if total <= target + allowance + _EPS:
+        if total <= target + _EPS:
+            note = f"{total:.1f} s cut, within the {target:.1f} s target."
+        else:
+            note = f"{total:.1f} s cut, {total - target:.1f} s over the {target:.1f} s target. The allowance is {allowance:.1f} s."
+        checks = [_check(name, True, None, note + footage)]
+        if target > 0 and total < WELL_UNDER * target - _EPS:
+            checks.append(dict(_check("auto: note: the cut is well under the target", True, None,
+                                      f"The cut runs {total:.1f} s, {total / target:.0%} of the {target:.1f} s target. "
+                                      "The target is a ceiling, so this is not a failure." + footage), advisory=True))
+        return checks, []
+    excess = total - target
     patches: list[dict[str, Any]] = []
-    if total > high:
-        excess = total - target
-        alive = sum(1 for s in segments if math.isfinite(s["start"]) and math.isfinite(s["end"]) and s["end"] > s["start"])
-        for index in range(len(segments), 0, -1):
-            if excess <= _EPS:
-                break
-            segment = segments[index - 1]
-            if not (math.isfinite(segment["start"]) and math.isfinite(segment["end"])) or segment["end"] <= segment["start"]:
-                continue
-            length = segment_output_seconds(resolved[index - 1]) if resolved else segment["end"] - segment["start"]
-            if length - excess >= MIN_SEGMENT:
-                new_end = _shortened_end(resolved[index - 1], excess) if resolved else segment["end"] - excess
-                patches.append(_patch("trim_end", index, new_end, f"The cut runs {total - target:.1f} s over the {target:.1f} s target; shorten moment {index}."))
-                excess = 0.0
-            elif alive > 1:
-                patches.append(_patch("remove", index, None, f"The cut runs {total - target:.1f} s over the {target:.1f} s target; drop moment {index}."))
-                excess -= length
-                alive -= 1
-        return _check(name, False, round(target, 3), note + " (over by " + f"{total - target:.1f} s)"), patches
-    return _check(name, False, None, note + " (under by " + f"{target - total:.1f} s; choose a longer moment)"), []
+    lengths = {index: (segment_output_seconds(resolved[index - 1]) if resolved else segment["end"] - segment["start"])
+               for index, segment in enumerate(segments, 1) if _alive(segment)}
+    alive = len(lengths)
+    keep = _protected(plan, segments)
+    reason = f"The cut runs {excess:.1f} s over the {target:.1f} s target"
+
+    def trim(index: int) -> None:
+        segment = segments[index - 1]
+        new_end = _shortened_end(resolved[index - 1], excess) if resolved else segment["end"] - excess
+        patches.append(_patch("trim_end", index, new_end, f"{reason}; shorten moment {index}, the lowest-ranked moment that can absorb it."))
+
+    # Least important first. One moment that can absorb the whole excess is shortened;
+    # otherwise the least important moment is dropped and the search repeats.
+    order = sorted((index for index in lengths if index not in keep), key=lambda index: _priority(segments[index - 1], index))
+    while excess > _EPS and order:
+        taker = next((index for index in order if lengths[index] - excess >= MIN_SEGMENT), None)
+        if taker is not None:
+            trim(taker)
+            excess = 0.0
+            break
+        if alive <= 1:
+            break
+        dropped = order.pop(0)
+        patches.append(_patch("remove", dropped, None, f"{reason}; drop moment {dropped}, the lowest-ranked moment left."))
+        excess -= lengths[dropped]
+        alive -= 1
+    if excess > _EPS:
+        # The brief's opening and ending may be shortened, never dropped.
+        taker = next((index for index in sorted(keep, key=lambda index: _priority(segments[index - 1], index)) if lengths[index] - excess >= MIN_SEGMENT), None)
+        if taker is not None:
+            trim(taker)
+    note = f"{total:.1f} s cut, {total - target:.1f} s over the {target:.1f} s target. The allowance is {allowance:.1f} s."
+    return [_check(name, False, round(target, 3), note + footage)], patches
 
 
 def _bounds_check(plan: dict[str, Any], segments: list[dict[str, Any]], duration: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -284,12 +376,15 @@ def _bounds_check(plan: dict[str, Any], segments: list[dict[str, Any]], duration
 
 
 def _caption_check(plan: dict[str, Any], segments: list[dict[str, Any]], captions: Any, speech: Any,
-                   *, captioned_by: str | None = None, heard_by: str | None = None) -> dict[str, Any]:
+                   *, captioned_by: str | None = None, heard_by: str | None = None) -> dict[str, Any] | None:
+    """Caption coverage of the transcribed speech in the cut.
+
+    ``captions`` None means captions were not requested; ``speech`` None means no
+    transcript was made. Either way nothing can be measured, so there is no check.
+    """
     name = "auto: captions cover the speech"
-    if captions is None:
-        return _check(name, True, None, "not requested")
-    if speech is None:
-        return _check(name, True, None, "no transcript to compare with")
+    if captions is None or speech is None:
+        return None
     inputs = [captioned_by, heard_by]
     cues = _ranges(captions)
     bands = _ranges(speech)
@@ -308,7 +403,7 @@ def _caption_check(plan: dict[str, Any], segments: list[dict[str, Any]], caption
                     spoken.append((output_time(plan, index, lo), output_time(plan, index, hi)))
     total = sum(hi - lo for lo, hi in spoken)
     if total <= _EPS:
-        return _check(name, True, None, "no speech selected", inputs=inputs)
+        return _check(name, True, None, "Captions were requested. The transcript holds no speech in this cut, so there was nothing to caption.", inputs=inputs)
     covered = 0.0
     for lo, hi in spoken:
         covered += sum(_overlap(lo, hi, cue[0], cue[1]) for cue in cues)
@@ -360,7 +455,9 @@ def hero_word_check(hero: Any, stats: Any, *, duration: float, min_coverage: flo
     starts as the word is said, the matte has a frame for every frame of the
     window, SAM masked the subject in most of them, and the subject covers no
     more than ``max_hidden`` of the word. A word the subject does not touch
-    passes with a note: it reads, but it is not behind anything.
+    passes with a note: it reads, but it is not behind anything. When the
+    matte report measured the background (``contrast_by_color``), the edit's
+    colour must reach ``HERO_CONTRAST`` against it.
     """
     name = "auto: hero word sits behind the subject"
     if not isinstance(hero, dict) or not hero.get("word"):
@@ -386,9 +483,16 @@ def hero_word_check(hero: Any, stats: Any, *, duration: float, min_coverage: flo
         problems.append(f"SAM masked the subject in only {coverage:.0%} of its {frames} frames")
     if hidden is not None and hidden > max_hidden:
         problems.append(f"the subject covers {hidden:.0%} of the word, too much to read")
+    # The contrast of the colour this edit draws, measured behind the word where the subject is not.
+    contrasts, color = stats.get("contrast_by_color"), str(hero.get("color") or "").upper()
+    ratio = _finite(contrasts.get(color)) if isinstance(contrasts, dict) else None
+    if ratio is not None and ratio < HERO_CONTRAST:
+        problems.append(f"the word's colour reads at only {ratio:.1f}:1 against what is behind it, under {HERO_CONTRAST:g}:1")
     note = f"\u201c{hero['word']}\u201d for {end - start:.2f} s from {start:.2f} s; SAM masked {coverage:.0%} of {frames} frames"
     if hidden is not None:
         note += f"; the subject covers {hidden:.0%} of the word" + (", so it is not behind anything" if hidden < 0.01 else "")
+    if ratio is not None:
+        note += f"; {color} reads at {ratio:.1f}:1 against the background"
     if problems:
         found = "; ".join(problems)
         note += ". " + found[:1].upper() + found[1:]
@@ -449,34 +553,168 @@ def subject_in_frame_check(points: Any, *, duration: float, aspect: str, source_
     return _check(name, passed, at, note, inputs=[tracked_by])
 
 
+def brief_bookends(goal: Any) -> dict[str, bool]:
+    """Whether an English brief names how the story opens or ends ("start with ...", "end on ...")."""
+    text = goal if isinstance(goal, str) else ""
+    return {"opening": bool(_OPENING_HINT.search(text)), "ending": bool(_ENDING_HINT.search(text))}
+
+
+def _clip_spans(clips: Any) -> list[tuple[float, float, str]]:
+    """``(start, end, name)`` for each clip of a project on the source clock, in order."""
+    out: list[tuple[float, float, str]] = []
+    for item in clips or []:
+        if isinstance(item, dict):
+            start, end, name = _finite(item.get("start")), _finite(item.get("end")), str(item.get("name") or "")
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            start, end, name = _finite(item[0]), _finite(item[1]), ""
+        else:
+            continue
+        if start is not None and end is not None and end > start:
+            out.append((start, end, name))
+    return sorted(out)
+
+
+def _home_clip(start: float, end: float, spans: list[tuple[float, float, str]]) -> tuple[int, list[int]] | None:
+    """The clip a moment mostly plays, and every clip it touches, when it touches more than one."""
+    touched = [index for index, (low, high, _) in enumerate(spans) if _overlap(start, end, low, high) > _EPS]
+    if len(touched) < 2:
+        return None
+    home = max(touched, key=lambda index: (_overlap(start, end, spans[index][0], spans[index][1]), -index))
+    return home, touched
+
+
+def snap_to_clips(segments: list[dict[str, Any]], clips: Any, *, limit: float = CLIP_SNAP) -> list[dict[str, Any]]:
+    """Trim a moment that strays ``limit`` seconds or less into a neighbouring clip back to the clip it mostly plays.
+
+    A project joins its clips into one file, so a planner's range can open with
+    a few frames of the previous clip. A moment that crosses further is left as
+    it is; the clip check then fails and proposes the trim.
+    """
+    spans = _clip_spans(clips)
+    if len(spans) < 2:
+        return list(segments)
+    out: list[dict[str, Any]] = []
+    for segment in segments:
+        start = _finite(segment.get("start")) if isinstance(segment, dict) else None
+        end = _finite(segment.get("end")) if isinstance(segment, dict) else None
+        found = _home_clip(start, end, spans) if start is not None and end is not None and end > start else None
+        if found is None:
+            out.append(segment)
+            continue
+        low, high, _ = spans[found[0]]
+        new_start, new_end = max(start, low), min(end, high)
+        if new_start - start > limit + _EPS or end - new_end > limit + _EPS or new_end - new_start < MIN_SEGMENT - _EPS:
+            out.append(segment)
+            continue
+        item = dict(segment, start=round(new_start, 3), end=round(new_end, 3))
+        moved = []
+        if new_start > start + _EPS:
+            moved.append(f"start moved {new_start - start:.2f} s to {new_start:.2f} s")
+        if new_end < end - _EPS:
+            moved.append(f"end moved {end - new_end:.2f} s to {new_end:.2f} s")
+        _note(item, "kept inside one clip: " + ", ".join(moved))
+        out.append(item)
+    return out
+
+
+def _clip_check(plan: dict[str, Any], segments: list[dict[str, Any]], clips: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Each moment plays from one clip of a multi-clip project. No check for a single clip."""
+    spans = _clip_spans(clips)
+    if len(spans) < 2:
+        return None, []
+    name = "auto: each moment stays inside one clip"
+    problems: list[str] = []
+    patches: list[dict[str, Any]] = []
+    first_at: float | None = None
+    for index, segment in enumerate(segments, 1):
+        if not _alive(segment):
+            continue
+        start, end = segment["start"], segment["end"]
+        found = _home_clip(start, end, spans)
+        if found is None:
+            continue
+        home, touched = found
+        low, high, _ = spans[home]
+        others = ", ".join(f"{_overlap(start, end, spans[other][0], spans[other][1]):.2f} s of clip {other + 1}" for other in touched if other != home)
+        problems.append(f"moment {index} plays clip {home + 1} with {others}")
+        if first_at is None:
+            try:
+                first_at = output_time(plan, index, start)
+            except (ValueError, TypeError):
+                first_at = None
+        new_start, new_end = max(start, low), min(end, high)
+        if new_end - new_start < MIN_SEGMENT - _EPS:
+            continue
+        if new_start > start + _EPS:
+            patches.append(_patch("trim_start", index, new_start, f"Moment {index} opens with {new_start - start:.2f} s of clip {home}; start it at {new_start:.2f} s, where clip {home + 1} begins."))
+        if new_end < end - _EPS:
+            patches.append(_patch("trim_end", index, new_end, f"Moment {index} runs {end - new_end:.2f} s into clip {home + 2}; end it at {new_end:.2f} s, where clip {home + 1} ends."))
+    alive = sum(1 for segment in segments if _alive(segment))
+    if not problems:
+        return _check(name, True, None, f"{alive} moment{'s' if alive != 1 else ''}, each inside one of the {len(spans)} clips."), []
+    joined = "; ".join(problems)
+    return _check(name, False, first_at, joined[:1].upper() + joined[1:] + "."), patches
+
+
+def _ending_check(plan: dict[str, Any], segments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The brief named an ending and the planner placed a moment last for it: that moment still closes the cut."""
+    found = _bookend_range(plan, "ending")
+    if found is None:
+        return None
+    start, end, label = found
+    named = f"\u201c{label}\u201d" if label else f"the moment at {start:.2f} to {end:.2f} s"
+    name = "auto: the cut ends where the brief asked"
+    alive = [(index, segment) for index, segment in enumerate(segments, 1) if _alive(segment)]
+    if alive and _overlap(alive[-1][1]["start"], alive[-1][1]["end"], start, end) > _EPS:
+        return _check(name, True, None, f"The last moment is still {named}, which the planner placed last for the brief's ending.")
+    holding = next((index for index, segment in alive if _overlap(segment["start"], segment["end"], start, end) > _EPS), None)
+    where = f"It is now moment {holding} of {len(alive)}." if holding else "It is no longer in the cut."
+    at = None
+    if alive:
+        try:
+            at = output_time(plan, alive[-1][0], alive[-1][1]["start"])
+        except (ValueError, TypeError):
+            at = None
+    return _check(name, False, at, f"The brief names an ending, and the planner placed {named} last for it. {where}")
+
+
 def lint_plan(plan: dict[str, Any], *, target_duration: float, duration: float,
               sentences: list[dict[str, Any]] | None = None, captions: list[dict[str, Any]] | None = None,
               speech: list[dict[str, Any]] | None = None, strict: bool = False,
-              heard_by: str | None = None, captioned_by: str | None = None) -> dict[str, Any]:
+              heard_by: str | None = None, captioned_by: str | None = None, clips: Any = None) -> dict[str, Any]:
     """Grade a plan. ``sentences`` and ``speech`` are on the source clock; ``captions`` on the output clock.
 
     ``strict`` is for plans a model just patched: any cut left inside a sentence
     gets a patch to the nearest boundary, however far away it is. ``heard_by`` and
     ``captioned_by`` name the models that wrote the transcript and the captions,
     when the caller knows; they become the ``inputs`` of the checks that read them.
+    ``clips`` are a multi-clip project's ``{name, start, end}`` ranges on the source clock.
+
+    A check that has nothing to measure (no transcript, captions not requested,
+    one clip, no named ending) is left out rather than passed.
     """
     duration = float(duration)
     # The planner aims for min(target, source); a short clip cannot run longer.
-    target = min(float(target_duration), duration) if duration > 0 else float(target_duration)
+    asked = float(target_duration)
+    target = min(asked, duration) if duration > 0 else asked
     segments = _segments(plan)
     checks: list[dict[str, Any]] = []
     patches: list[dict[str, Any]] = []
     check, more = _sentence_check(plan, segments, _ranges(sentences), duration, strict=strict, heard_by=heard_by)
     checks.append(check)
     patches.extend(more)
-    check, more = _duration_check(plan, segments, target)
-    checks.append(check)
+    found, more = _duration_check(plan, segments, target, asked=asked, source=duration if duration > 0 else None)
+    checks.extend(found)
     patches.extend(more)
     check, more = _bounds_check(plan, segments, duration)
     checks.append(check)
     patches.extend(more)
+    check, more = _clip_check(plan, segments, clips)
+    checks.append(check)
+    patches.extend(more)
+    checks.append(_ending_check(plan, segments))
     checks.append(_caption_check(plan, segments, captions, speech, captioned_by=captioned_by, heard_by=heard_by))
-    return {"checks": checks, "patches": patches}
+    return {"checks": [item for item in checks if item is not None], "patches": patches}
 
 
 def _note(segment: dict[str, Any], text: str) -> None:

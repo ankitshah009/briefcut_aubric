@@ -49,8 +49,8 @@
     "cost_usd": 0.0,
     "local": true,
     "input_tokens": 326,
-    "output_tokens": 780,
-    "total_tokens": 1106
+    "output_tokens": 772,
+    "total_tokens": 1098
   },
   "runtime": "llama.cpp",
   "private": true,

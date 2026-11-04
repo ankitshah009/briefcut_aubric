@@ -3,7 +3,9 @@
 Run from the repository root, with the local server already started
 (``uv run python -m vedit.open_weights serve --draft``):
 
-    VEDIT_PRIVATE_MODEL=glimmer uv run python docs/evidence/open-weights/run_proof.py
+    VEDIT_PRIVATE_MODEL=glimmer uv run python docs/evidence/open-weights/run_proof.py run3
+
+It writes ``outputs-<label>.json`` and ``open-weights-calls-<label>.jsonl`` here.
 
 It calls the real ``vedit.meta`` functions that Studio calls (``patch_plan``,
 ``translate_cues``, ``script_prompts``) on inputs taken from earlier evidence
@@ -25,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 WORK = HERE / "work"
+LABEL = sys.argv[1] if len(sys.argv) > 1 else "latest"
 
 if os.environ.get("VEDIT_PRIVATE_MODEL", "").lower() != "glimmer":
     sys.exit("Set VEDIT_PRIVATE_MODEL=glimmer.")
@@ -83,5 +86,6 @@ for language in inputs["translate_to"]:
 
 run("script_prompts", lambda: meta.script_prompts(inputs["script_scenes"], aspect="9:16", work_dir=WORK))
 
-(HERE / "outputs.json").write_text(json.dumps(outputs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print("wrote", HERE / "outputs.json")
+(HERE / f"outputs-{LABEL}.json").write_text(json.dumps(outputs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+shutil.copyfile(WORK / open_weights.LOG_NAME, HERE / f"open-weights-calls-{LABEL}.jsonl")
+print("wrote", HERE / f"outputs-{LABEL}.json")

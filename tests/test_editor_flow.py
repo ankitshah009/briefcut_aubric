@@ -197,7 +197,8 @@ def test_verify_reports_the_picture_without_waiting_on_vmaf(
 
 STATIC = INDEX.parent
 # Briefcut is Meta-only. Nothing in Studio may offer local mode or a local model.
-_LOCAL_MODE = re.compile(r"whisper|speech model|setup/model|local mode|local edit|local captions|local analysis|local starting cut|provider-local|value=\"local\"|\"local\"", re.IGNORECASE)
+# `runs_on: "local"` is allowed: it tags calls to Muse Glimmer, Meta's open-weight model, run on this computer.
+_LOCAL_MODE = re.compile(r"whisper|speech model|setup/model|local mode|local edit|local captions|local analysis|local starting cut|choose a story with AI|signal analysis|not AI understanding|provider-local|value=\"local\"|provider\W{1,6}\"local\"", re.IGNORECASE)
 
 
 def test_no_studio_file_offers_whisper_or_local_mode() -> None:
@@ -242,7 +243,7 @@ def test_editor_core_loads_before_studio_binds_to_it() -> None:
 
 
 def test_sentences_change_the_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("vedit.agent.loop.local_transcriber_ready", lambda: False)
+    monkeypatch.setattr("vedit.agent.loop.transcriber_ready", lambda: False)
     clip = _gap_clip(tmp_path)
     sessions = {
         key: run_session(sentence, [str(clip)], root=tmp_path / key, render=False, analyze=True)
@@ -275,7 +276,7 @@ def test_sentences_change_the_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_editor_plan_and_render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("vedit.agent.loop.local_transcriber_ready", lambda: False)
+    monkeypatch.setattr("vedit.agent.loop.transcriber_ready", lambda: False)
     clip = _gap_clip(tmp_path / "src")
     source = probe(clip)
     studio = _load("vedit_studio_package_tests", "test_studio_package.py")

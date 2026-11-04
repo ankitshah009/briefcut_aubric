@@ -20,7 +20,17 @@ import numpy as np
 
 RATE = 44_100
 OUT = Path(__file__).resolve().parent.parent / "src" / "vedit" / "assets" / "music"
-FFMPEG = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
+
+
+def _ffmpeg() -> str:
+    """The same ffmpeg Briefcut renders with: VEDIT_FFMPEG, then ffmpeg-full, then PATH."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+    from vedit.media import resolve_ffmpeg
+
+    return resolve_ffmpeg()
+
+
+FFMPEG = _ffmpeg()
 A4 = 440.0
 _rng = np.random.default_rng(20261031)
 

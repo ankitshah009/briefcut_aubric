@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import shutil
 import struct
+import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from vedit.caption_styles import _EMOJI, Look, Stage, ass_color, ass_text, caption_font, font_face, safe_area
+from vedit.caption_styles import (_EMOJI, Look, Stage, ass_color, ass_text, caption_font, direction_mark, emoji_in, fallback_faces, font_face, is_rtl,
+                                  safe_area, safe_color, strip_emoji)
 from vedit.captions import format_ts, join_words, split_words
 from vedit.media import filter_value, has_filter, resolve_font
 
@@ -49,8 +51,8 @@ TEXT_STYLES = {
 }
 
 
-def _measure_stage(style: TextStyle, size: int, room: int, face: Any) -> Stage:
-    return Stage(Look(size=style.size, bold=True), size, room, face)
+def _measure_stage(style: TextStyle, size: int, room: int, face: Any, text: str = "") -> Stage:
+    return Stage(Look(size=style.size, bold=True), size, room, face, fallback_faces(text, face) if text else ())
 
 
 def _greedy(words: list[str], stage: Stage, room: float) -> list[list[str]]:
@@ -96,8 +98,11 @@ def layout_text(text: str, style: TextStyle, *, width: int, height: int, scale: 
     side, _top, _bottom = safe_area(width, height)
     size = max(8, round(min(width, height) * style.size * scale))
     room = max(size, width - 2 * side - round(2 * size * style.padding))
-    stage = _measure_stage(style, size, room, face)
+    text = strip_emoji(text)
+    stage = _measure_stage(style, size, room, face, text)
     words = [piece for word in split_words(text, run=2) for piece in _pieces(word, stage)]
+    if not words:
+        return [], size
     fitted = max(8, round(size * MIN_FIT))
     chosen, lines = size, _greedy(words, stage, room)
     for trial in range(size, fitted - 1, -max(1, size // 32)):
@@ -119,10 +124,17 @@ def _tag(color: str) -> str:
     return f"&H{color[5:7]}{color[3:5]}{color[1:3]}&".upper()
 
 
-def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: int, reserve: tuple[int, int] = (0, 0)) -> tuple[int, int, int]:
-    """ASS alignment and the point it refers to, inside the safe area and clear of a logo."""
+def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: int, reserve: tuple[int, int] = (0, 0),
+            rtl: bool = False) -> tuple[int, int, int]:
+    """ASS alignment and the point it refers to, inside the safe area and clear of a logo.
+
+    A lower third starts where its reading starts: at the left for most scripts,
+    at the right for Arabic or Hebrew.
+    """
     side, top, bottom = safe_area(width, height)
     top, bottom = max(top, reserve[0]), max(bottom, reserve[1])
+    if style.left and rtl:
+        return (9, width - side - pad, top + pad) if position == "top" else (3, width - side - pad, height - bottom - pad)
     if style.left:
         # A lower third belongs low in the frame, whatever the default position says.
         return (7, side + pad, top + pad) if position == "top" else (1, side + pad, height - bottom - pad)
@@ -136,8 +148,10 @@ def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: in
 def text_event(item: dict[str, Any], *, width: int, height: int, end_limit: float | None, face: Any, reserve: tuple[int, int] = (0, 0)) -> str | None:
     """One ``Dialogue`` line for an ``edit.texts`` item, or None when nothing is left to draw."""
     style = TEXT_STYLES.get(str(item.get("style", "label")), TEXT_STYLES["label"])
-    lines, size = layout_text(str(item["text"]), style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face)
-    body = "\\N".join(ass_text(line) for line in lines).strip()
+    text = strip_emoji(str(item["text"]))
+    lines, size = layout_text(text, style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face)
+    mark = direction_mark(text)
+    body = "\\N".join(mark + ass_text(line) for line in lines).strip()
     if not body.replace("\\N", "").strip():
         return None
     start = max(0.0, float(item.get("start", 0.0)))
@@ -146,9 +160,9 @@ def text_event(item: dict[str, Any], *, width: int, height: int, end_limit: floa
         end = min(end, end_limit)
     if end <= start:
         return None
-    color = str(item.get("color", "#FFFFFF"))
+    color = safe_color(item.get("color"))  # sliced into tags, so only #RRGGBB reaches them
     pad = round(size * style.padding)
-    alignment, x, y = _anchor(style, str(item.get("position", "center")), width=width, height=height, pad=pad, reserve=reserve)
+    alignment, x, y = _anchor(style, str(item.get("position", "center")), width=width, height=height, pad=pad, reserve=reserve, rtl=is_rtl(text))
     fade = float(item.get("fade", DEFAULT_FADE))
     tags = [f"\\an{alignment}", f"\\pos({x},{y})", f"\\fs{size}"]
     if fade > 0:
@@ -210,12 +224,17 @@ def drawtext_filters(items: list[dict[str, Any]], *, work_dir: Path, width: int,
     character, so no string can break the filter. This path has no font fallback
     and no right-to-left shaping.
     """
-    font = filter_value(resolve_font())
-    _family, face, _file = caption_font()
     filters: list[str] = []
     for index, item in enumerate(items, 1):
         style = TEXT_STYLES.get(str(item.get("style", "label")), TEXT_STYLES["label"])
-        lines, size = layout_text(str(item["text"]), style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face)
+        text = strip_emoji(str(item["text"]))
+        # drawtext has no fallback, so each text gets one font that holds all of its letters.
+        chosen = resolve_font(text)
+        face = font_face(str(chosen))
+        font = filter_value(chosen)
+        lines, size = layout_text(text, style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face)
+        if not lines:
+            continue
         path = work_dir / f"text_{index:02d}.txt"
         path.write_text("\n".join(lines), encoding="utf-8")
         start = max(0.0, float(item.get("start", 0.0)))
@@ -233,7 +252,7 @@ def drawtext_filters(items: list[dict[str, Any]], *, work_dir: Path, width: int,
             vertical = f"y={y}-text_h"
         box = f":box=1:boxcolor=0x101014@0.7:boxborderw={pad}" if style.box else f":borderw={max(1, size // 20)}:bordercolor=black@0.6"
         filters.append(f"drawtext=fontfile={font}:textfile={filter_value(path)}:expansion=none:fontsize={size}"
-                       f":fontcolor={str(item.get('color', '#FFFFFF')).replace('#', '0x')}:text_align=center:{where}:{vertical}"
+                       f":fontcolor={safe_color(item.get('color')).replace('#', '0x')}:text_align=center:{where}:{vertical}"
                        f":alpha='max(0,{alpha})'{box}:enable='between(t,{start:.3f},{end:.3f})'")
     return filters
 
@@ -281,9 +300,18 @@ def image_filter(path: str | Path, *, tag: str, x: str, y: str, width: int, opac
 
 
 def text_warnings(items: list[dict[str, Any]]) -> list[str]:
-    if any(has_emoji(str(item.get("text", ""))) for item in items):
-        return ["Emoji in on-screen text cannot be drawn by the local renderer, so they were left out of the text."]
-    return []
+    """One plain warning per text item that loses emoji, naming the text and the emoji."""
+    warnings: list[str] = []
+    for item in items:
+        text = str(item.get("text", ""))
+        found = emoji_in([text])
+        if found:
+            words = strip_emoji(text)
+            shown = words if len(words) <= 40 else words[:39].rstrip() + "…"
+            what = f'The text "{shown}"' if shown else "A text item"
+            warnings.append(f"{what} had emoji ({' '.join(found[:6])}). The text renderer cannot draw color emoji, so they were left out"
+                            + (" and that text was skipped." if not shown else "; the words are unchanged."))
+    return warnings
 
 
 def text_engine() -> str:
@@ -298,13 +326,17 @@ def text_engine() -> str:
 # The layout here is pure: the compiler supplies the frame, the part of it that
 # survives the reframe, and the font.
 
+# Each list ends with Noto Sans Bold (Debian and Ubuntu fonts-noto-core), so a Linux box with only Noto
+# still draws a heavy word instead of falling back to the regular caption weight.
+_NOTO_BOLD = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
 HERO_FONT_FILES = {
     "heavy": ("/System/Library/Fonts/Supplemental/Arial Black.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-              "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+              "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", _NOTO_BOLD),
     "condensed": ("/System/Library/Fonts/Supplemental/Impact.ttf", "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf",
-                  "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf"),
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
+                  _NOTO_BOLD),
     "rounded": ("/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", _NOTO_BOLD),
 }
 # Where the word's centre sits and how wide it may grow, as shares of the visible picture.
 HERO_PLACES = {
@@ -314,17 +346,23 @@ HERO_PLACES = {
     "right": (0.7, 0.46, 0.54),
 }
 HERO_MAX_HEIGHT = 0.42  # the word's em, as a share of the visible height, so a short word is not a wall
+HERO_MARGIN = 0.06  # the least room above the word's capitals, as a share of the visible height
 HERO_POP = 0.18  # seconds the word takes to grow to full size
 HERO_FADE = 0.12
 
 
-def hero_font(font: str) -> tuple[str, Any, Path | None]:
-    """The family, metrics and file for a hero font, or the caption font when this machine lacks it."""
+def hero_font(font: str, text: str = "") -> tuple[str, Any, Path | None]:
+    """The family, metrics and file for a hero font, or the caption font when this machine lacks it.
+
+    With ``text``, a hero font that cannot draw its letters (Japanese in Arial Black)
+    gives way to the caption font, whose fallbacks can.
+    """
+    letters = {char for char in text if unicodedata.category(char)[0] in "LN"}
     for candidate in HERO_FONT_FILES.get(font, ()):
         path = Path(candidate)
         if path.is_file():
             face = font_face(str(path))
-            if face is not None and face.family:
+            if face is not None and face.family and all(face.advance(char) is not None for char in letters):
                 return face.family, face, path
     family, face, _chosen = caption_font()
     try:
@@ -366,29 +404,45 @@ def visible_rect(width: int, height: int, aspect: str | None, focus: tuple[float
 
 
 def hero_layout(word: str, *, side: str, width: int, height: int, visible: tuple[int, int, int, int] | None = None,
-                face: Any = None) -> dict[str, Any]:
-    """Where the hero word goes and how big: as wide as its side allows, inside the visible picture. Pure."""
+                face: Any = None, subject: tuple[float, float, float, float] | None = None) -> dict[str, Any]:
+    """Where the hero word goes and how big: as wide as its side allows, inside the visible picture. Pure.
+
+    ``subject`` is the subject's box as shares of the frame, when SAM has
+    measured it. ``top`` then sets the word on the subject's top edge, so its
+    lower part goes behind the subject, the look this effect is known for,
+    and shrinks it rather than let it leave the frame. ``height`` is the em;
+    capitals fill about the middle 70 % of it.
+    """
     left, top, keep_w, keep_h = visible or (0, 0, width, height)
     across, down, share = HERO_PLACES.get(side, HERO_PLACES["center"])
     text = word.upper()
-    stage = Stage(Look(size=0.1, bold=False), 100, keep_w, face)
+    stage = Stage(Look(size=0.1, bold=False), 100, keep_w, face, fallback_faces(text, face))
     ems = max(0.3, stage.measure(text, size=1))
     em = _ass_em(face) if face is not None else 0.8
-    room = keep_w * share
-    size = min(room / (ems * em), keep_h * HERO_MAX_HEIGHT / em)
-    size = max(8, int(size))
-    drawn = ems * em * size
+    tallest = keep_h * HERO_MAX_HEIGHT
+    y = top + keep_h * down
+    if side == "top" and subject is not None:
+        edge = min(max(subject[1] * height, top), top + keep_h)
+        # Capitals span y +/- 0.35 em, and the subject's edge crosses them 60 % of the way down, at y + 0.07 em.
+        # Their top, 0.42 em above that edge, must stay on the picture.
+        tallest = min(tallest, max(keep_h * 0.12, (edge - top - keep_h * HERO_MARGIN) / 0.42))
+    size = max(8, int(min(keep_w * share / (ems * em), tallest / em)))
+    drawn, tall = ems * em * size, em * size
+    if side == "top" and subject is not None:
+        y = max(top + keep_h * HERO_MARGIN + 0.35 * tall, min(subject[1] * height, top + keep_h) - 0.07 * tall)
     x = left + keep_w * across
     # Keep the whole word on the visible picture even when its side is narrow.
     x = min(max(x, left + drawn / 2 + keep_w * 0.02), left + keep_w - drawn / 2 - keep_w * 0.02) if drawn < keep_w * 0.96 else left + keep_w / 2
-    return {"text": text, "size": size, "x": round(x), "y": round(top + keep_h * down), "width": round(drawn),
-            "height": round(em * size), "visible": [left, top, keep_w, keep_h]}
+    return {"text": text, "size": size, "x": round(x), "y": round(y), "width": round(drawn),
+            "height": round(tall), "visible": [left, top, keep_w, keep_h]}
 
 
 def render_hero_ass(word: str, *, start: float, end: float, side: str, color: str, family: str, face: Any,
-                    width: int, height: int, visible: tuple[int, int, int, int] | None = None) -> tuple[str, dict[str, Any]]:
+                    width: int, height: int, visible: tuple[int, int, int, int] | None = None,
+                    subject: tuple[float, float, float, float] | None = None) -> tuple[str, dict[str, Any]]:
     """The ASS file for one hero word, and the layout it used. Times are already on the output clock."""
-    layout = hero_layout(word, side=side, width=width, height=height, visible=visible, face=face)
+    color = safe_color(color)
+    layout = hero_layout(word, side=side, width=width, height=height, visible=visible, face=face, subject=subject)
     size = layout["size"]
     shadow = max(2, round(size * 0.035))
     fade = round(min(HERO_FADE, (end - start) / 4) * 1000)

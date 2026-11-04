@@ -95,7 +95,7 @@ def test_studio_index() -> None:
         assert status == 200
         text = raw.decode("utf-8", "replace")
         assert "Briefcut" in text
-        assert "Aubric.ai" in text
+        assert "Aubric, Inc." in text
 
 
 class _AssetRefs(HTMLParser):

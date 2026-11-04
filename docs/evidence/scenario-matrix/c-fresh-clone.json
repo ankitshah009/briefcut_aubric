@@ -1,0 +1,300 @@
+{
+  "run": "C",
+  "title": "Fresh-clone judge path, README quickstart followed literally",
+  "clone": "git clone --no-local of HEAD 7b1cc73, then rsync of the 11:17 PST working tree (excluding .venv, .git, .env.local, vedit-sessions)",
+  "steps": [
+    {
+      "step": "bash scripts/install.sh",
+      "done": "--dry-run only",
+      "result": "Plan: 'uv tool install --force --reinstall --python 3.13 vedit[mcp,sam] @ <checkout>'. Skipped, as the README allows when uv and FFmpeg exist. The README says the script installs uv and FFmpeg; it does not say it also force-reinstalls a global briefcut uv tool."
+    },
+    {
+      "step": "uv sync",
+      "result": "uv sync exit=0 seconds=5",
+      "note": "Warm uv cache on this Mac. A cold machine downloads CPython 3.13 and the wheels."
+    },
+    {
+      "step": "uv run vedit doctor",
+      "result": "doctor exit=1 seconds=2",
+      "meta_row": "NO  meta                       no Meta API key. Create one at https://dev.meta.ai, then paste it in Studio Settings or set MODEL_API_KEY [required]",
+      "note": "The README says every [required] row must pass at this step, but the key is only added in the next step, so the required meta row always fails here. doctor also never reads .env.local, so rerunning it after pasting the key still fails unless the shell loads the file."
+    },
+    {
+      "step": "cp .env.example .env.local (key left in the shell environment)",
+      "result": "Studio reported meta.configured=false and mode=standard.",
+      "studio_doctor_meta_row": "NO  meta                       no Meta API key. Create one at https://dev.meta.ai, then paste it in Studio Settings or set MODEL_API_KEY [required]",
+      "cause": "scripts/studio.sh sources .env.local with set -a, so its empty MODEL_API_KEY= and VEDIT_META_MODE=standard overwrite the shell. .env.example says 'A variable already set in your shell wins over this file.' That holds for the Python loader, not for scripts/studio.sh."
+    },
+    {
+      "step": "uv run vedit meta check (key in env)",
+      "result": "Meta credentials work. 9 models visible. Exit 0, no spend. Without the key in the env it exits 1; it does not read .env.local itself, so the README's set -a line is required."
+    },
+    {
+      "step": "bash scripts/studio.sh --port 8799 (no .env.local, key in env)",
+      "result": "Studio up; /api/capabilities meta.available=true, mode contributor. Port 8799 instead of 8765 to avoid other agents' Studios; --open skipped (headless)."
+    },
+    {
+      "step": "First project via HTTP: POST /api/upload, POST /api/campaigns, poll, POST /render, poll, GET /meta-calls, GET artifact report",
+      "result": "complete, 5 of 5 checks"
+    }
+  ],
+  "first_project": {
+    "clip": "workshop.mp4",
+    "goal": "Make a 25-second vertical story: open with the finished bowl, then show how it is made. Trim the pauses, add a title card, fade out at the end.",
+    "job_id": "cc5df62c5fcc49e6a62848fbf3832bac",
+    "plan_seconds": 53.4,
+    "render_seconds": 7.1,
+    "wall_seconds": 60.6,
+    "plan": {
+      "status": "planned",
+      "error": null,
+      "title": "Oak Bowl: Finished First, Then How It's Made",
+      "duration": 18.936,
+      "decisions": [
+        "Found no pauses longer than 0.6 s inside the selected moments",
+        "Title card \u2018Oak Bowl: Finished First, Then How It's Made\u2019 for 2.5 s",
+        "Fade out 0.5 s"
+      ],
+      "warnings": [],
+      "segments": [
+        {
+          "start": 0.2,
+          "end": 3.5,
+          "label": "Finished bowl opening"
+        },
+        {
+          "start": 8.406,
+          "end": 11.34,
+          "label": "Raw oak blank"
+        },
+        {
+          "start": 16.2,
+          "end": 19.18,
+          "label": "Lathe shaping"
+        },
+        {
+          "start": 24.2,
+          "end": 28.3,
+          "label": "Sanding smooth"
+        },
+        {
+          "start": 32.2,
+          "end": 34.86,
+          "label": "Oiling color"
+        },
+        {
+          "start": 35.978,
+          "end": 38.94,
+          "label": "Ready to use close"
+        }
+      ]
+    },
+    "receipts": {
+      "status": "complete",
+      "error": null,
+      "passed": 5,
+      "total": 5,
+      "proof": {
+        "duration": 18.933333,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv",
+        "color_primaries": "bt709",
+        "color_transfer": "bt709",
+        "size_bytes": 3898836
+      },
+      "checks": [
+        {
+          "name": "auto: cuts land on sentence boundaries",
+          "passed": true,
+          "at": null,
+          "note": "every cut sits on a sentence boundary",
+          "basis": "derived",
+          "by": "lint",
+          "inputs": [
+            "meta-voice-transcribe"
+          ]
+        },
+        {
+          "name": "auto: duration matches the target",
+          "passed": true,
+          "at": null,
+          "note": "18.9 s cut vs 25.0 s target",
+          "basis": "derived",
+          "by": "lint"
+        },
+        {
+          "name": "auto: moments inside the source and in order",
+          "passed": true,
+          "at": null,
+          "note": "6 moments inside the source, no overlaps",
+          "basis": "derived",
+          "by": "lint"
+        },
+        {
+          "name": "auto: captions cover the speech",
+          "passed": true,
+          "at": null,
+          "note": "100% of 17.2 s of speech has a caption",
+          "basis": "derived",
+          "by": "lint",
+          "inputs": [
+            "meta-voice-transcribe"
+          ]
+        },
+        {
+          "name": "auto: requested edits applied",
+          "passed": true,
+          "at": null,
+          "note": "Applied: Found no pauses longer than 0.6 s inside the selected moments; Title card \u2018Oak Bowl: Finished First, Then How It's Made\u2019 for 2.5 s; Fade out 0.5 s.",
+          "basis": "derived",
+          "by": "brief-parser"
+        }
+      ],
+      "warnings": [
+        "The source is 1280x720, so this 1080x1920 export is upscaled and gains no detail."
+      ]
+    },
+    "meta_calls": {
+      "ok": true,
+      "status": "complete",
+      "calls": [
+        {
+          "id": "86f4cfba011e4cb7a7873b4ccdc4801b",
+          "started_at": 1793820372.300649,
+          "operation": "story",
+          "model": "muse-spark-1.3-contributor",
+          "purpose": "Plan the story",
+          "status": "done",
+          "seconds": 18.83,
+          "size": {
+            "input_tokens": 11697,
+            "output_tokens": 3650
+          },
+          "reserved_usd": 0.0033847,
+          "cost_usd": 0.0018997,
+          "request_id": "resp_6aeb86e6c9d866ef27554982",
+          "runs_on": "meta-api",
+          "runtime": null,
+          "weights": null,
+          "cost_kind": "actual"
+        },
+        {
+          "id": "336438ff926349ff9cc4018ead2c1399",
+          "started_at": 1793820345.4035158,
+          "operation": "transcribe",
+          "model": "muse-voice-transcribe-1.0",
+          "purpose": "Transcribe speech for captions",
+          "status": "done",
+          "seconds": 9.18,
+          "size": {
+            "audio_seconds": 40.0
+          },
+          "reserved_usd": 0.00205,
+          "cost_usd": 0.002,
+          "request_id": null,
+          "runs_on": "meta-api",
+          "runtime": null,
+          "weights": null,
+          "cost_kind": "actual"
+        }
+      ],
+      "totals": {
+        "calls": 2,
+        "running": 0,
+        "spent_usd": 0.0038997,
+        "held_usd": 0.0054347,
+        "api_calls": 2,
+        "local_calls": 0,
+        "budget_usd": 0.15,
+        "remaining_usd": 0.1445653
+      }
+    },
+    "http_log": [
+      {
+        "method": "GET",
+        "path": "/api/health",
+        "status": 200,
+        "seconds": 0.01
+      },
+      {
+        "method": "GET",
+        "path": "/api/capabilities",
+        "status": 200,
+        "seconds": 0.0
+      },
+      {
+        "method": "POST",
+        "path": "/api/upload",
+        "status": 201,
+        "seconds": 0.09
+      },
+      {
+        "method": "POST",
+        "path": "/api/campaigns",
+        "status": 202,
+        "seconds": 0.01
+      },
+      {
+        "method": "GET",
+        "path": "/api/campaigns/cc5df62c5fcc49e6a62848fbf3832bac",
+        "status": 200,
+        "seconds": 0.0
+      },
+      {
+        "method": "GET",
+        "path": "/api/campaigns/cc5df62c5fcc49e6a62848fbf3832bac",
+        "status": 200,
+        "seconds": 0.01
+      },
+      {
+        "polls": 61
+      },
+      {
+        "method": "GET",
+        "path": "/api/campaigns/cc5df62c5fcc49e6a62848fbf3832bac/meta-calls",
+        "status": 200,
+        "seconds": 0.0
+      },
+      {
+        "method": "GET",
+        "path": "/api/campaigns/cc5df62c5fcc49e6a62848fbf3832bac/artifact",
+        "status": 200,
+        "seconds": 0.0
+      }
+    ],
+    "own_ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1080,
+          "height": 1920,
+          "pix_fmt": "yuv420p",
+          "color_transfer": "bt709",
+          "duration": "18.933333"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "duration": "18.933333"
+        }
+      ],
+      "format": {
+        "duration": "18.933333",
+        "size": "3898836"
+      }
+    },
+    "contact_sheet": "c1-v1.jpg",
+    "observations": [
+      "The README's own example brief asks for 25 seconds. The cut is 18.9 s and the check 'duration matches the target' passes, because lint.py:212 accepts anything from 50% to 115% + 0.5 s of the target.",
+      "Captions match the speech; the title card shows; the order follows the brief (contact sheet c1-v1.jpg)."
+    ]
+  }
+}

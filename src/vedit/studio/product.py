@@ -75,10 +75,11 @@ def _read(handler: Any, path: str, query: str) -> None:
 
 
 def _serve_thumbnail(handler: Any, target: Path) -> None:
-    from vedit.studio.server import _media_type
+    from vedit.studio.server import _displays_inline, _media_type
 
     ctype = _media_type(target)
-    if not ctype.startswith("image/"):
+    # Same rule as asset files: a picture shows in place, but SVG can run script, so it never does.
+    if not ctype.startswith("image/") or not _displays_inline(ctype):
         ctype = "application/octet-stream"
     handler._serve_path(target, send_body=True, content_type=ctype)
 

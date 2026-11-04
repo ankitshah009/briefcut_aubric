@@ -1,0 +1,725 @@
+{
+  "recorded_at": "2026-11-04T11:13:37-0800",
+  "machine": {
+    "cpu": "Apple M5 Max",
+    "memory_bytes": 137438953472,
+    "os": "Darwin 27.0.0"
+  },
+  "server": {
+    "enabled": true,
+    "ready": true,
+    "url": "http://127.0.0.1:8091",
+    "model": "meta-models/Muse-Glimmer-30B",
+    "model_name": "Muse Glimmer 30B",
+    "license": "Apache-2.0",
+    "weights_repo": "meta-models/Muse-Glimmer-30B-GGUF",
+    "gguf": {
+      "file": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
+      "path": "/Users/ankit_aubric/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
+      "sha256": "ac7023d6a4c704eb9af54ab53e476a66b7f5b6c0ef2fc4a8dde5253c291a6c38",
+      "official_sha256": "ac7023d6a4c704eb9af54ab53e476a66b7f5b6c0ef2fc4a8dde5253c291a6c38",
+      "sha256_matches_official": true,
+      "size_bytes": 19653960832
+    },
+    "runtime": {
+      "name": "llama.cpp llama-server",
+      "build": "b11669-620d2225c",
+      "build_number": 11669,
+      "supported": true,
+      "url": "http://127.0.0.1:8091"
+    },
+    "served_as": "muse-glimmer-30b",
+    "slots": 2,
+    "where": "this machine (loopback only)",
+    "reason": "Muse Glimmer 30B is running on this machine with llama.cpp b11669-620d2225c."
+  },
+  "runs": [
+    {
+      "kind": "patch_plan",
+      "seconds": 95.45,
+      "evidence": "docs/evidence/20261031T083945Z.json",
+      "note": "Hold the finished bowl a beat longer before the first cut, then tighten the sanding moment.",
+      "meta_api_applied_patches": [
+        {
+          "op": "trim_end",
+          "segment": 1,
+          "path": null,
+          "value": null,
+          "after": {
+            "start": 0.0,
+            "end": 5.58
+          },
+          "reason": "hold the finished bowl a beat longer before the first cut"
+        },
+        {
+          "op": "trim_end",
+          "segment": 4,
+          "path": null,
+          "value": null,
+          "after": {
+            "start": 24.0,
+            "end": 28.0
+          },
+          "reason": "tighten the sanding moment"
+        }
+      ],
+      "result": {
+        "patches": [
+          {
+            "op": "trim_end",
+            "segment": 1,
+            "seconds": 5.0,
+            "reason": "Hold the finished bowl a beat longer before the first cut",
+            "source": "director"
+          },
+          {
+            "op": "trim_end",
+            "segment": 4,
+            "seconds": 28.0,
+            "reason": "Tighten the sanding moment",
+            "source": "director"
+          }
+        ],
+        "summary": "The patches extend the opening finished bowl hold and shorten the sanding moment.",
+        "warnings": [],
+        "provider": "meta",
+        "model": "meta-models/Muse-Glimmer-30B",
+        "usage": {
+          "estimated_max_usd": 0.0,
+          "cached": false,
+          "cost_usd": 0.0,
+          "local": true,
+          "input_tokens": 1553,
+          "output_tokens": 1747,
+          "total_tokens": 3300
+        },
+        "runtime": "llama.cpp",
+        "private": true
+      },
+      "applied": [
+        {
+          "op": "trim_end",
+          "segment": 1,
+          "before": {
+            "start": 0.0,
+            "end": 4.585
+          },
+          "after": {
+            "start": 0.0,
+            "end": 5.0
+          },
+          "reason": "Hold the finished bowl a beat longer before the first cut",
+          "source": "director",
+          "skipped": null,
+          "seconds": 5.0,
+          "summary": "Moment 1 ends at 5.0 s."
+        },
+        {
+          "op": "trim_end",
+          "segment": 4,
+          "before": {
+            "start": 24.0,
+            "end": 29.0
+          },
+          "after": {
+            "start": 24.0,
+            "end": 28.0
+          },
+          "reason": "Tighten the sanding moment",
+          "source": "director",
+          "skipped": null,
+          "seconds": 28.0,
+          "summary": "Moment 4 ends at 28.0 s."
+        }
+      ],
+      "segments_before": [
+        [
+          0.0,
+          4.585,
+          1.0
+        ],
+        [
+          8.0,
+          12.0,
+          1.0
+        ],
+        [
+          16.0,
+          20.0,
+          1.0
+        ],
+        [
+          24.0,
+          29.0,
+          1.0
+        ],
+        [
+          32.0,
+          35.978,
+          1.0
+        ]
+      ],
+      "segments_after": [
+        [
+          0.0,
+          5.0,
+          1.0
+        ],
+        [
+          8.0,
+          12.0,
+          1.0
+        ],
+        [
+          16.0,
+          20.0,
+          1.0
+        ],
+        [
+          24.0,
+          28.0,
+          1.0
+        ],
+        [
+          32.0,
+          35.978,
+          1.0
+        ]
+      ],
+      "edit_after": null
+    },
+    {
+      "kind": "patch_plan",
+      "seconds": 57.95,
+      "evidence": "docs/evidence/20261031T100101Z-note.json",
+      "note": "warmer, bigger captions, slow down the oil moment",
+      "meta_api_applied_patches": [
+        {
+          "op": "set_edit",
+          "segment": null,
+          "path": "look.preset",
+          "value": "warm",
+          "after": "warm",
+          "reason": "director asked for warmer look"
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "path": "captions.scale",
+          "value": 1.2,
+          "after": 1.2,
+          "reason": "director asked for bigger captions"
+        },
+        {
+          "op": "set_speed",
+          "segment": 6,
+          "path": null,
+          "value": 0.8,
+          "after": {
+            "start": 32.377,
+            "end": 35.252,
+            "speed": 0.8
+          },
+          "reason": "director asked to slow down the oil moment"
+        }
+      ],
+      "result": {
+        "patches": [
+          {
+            "op": "set_edit",
+            "segment": null,
+            "seconds": null,
+            "path": "look.preset",
+            "value": "warm",
+            "reason": "warmer",
+            "source": "director"
+          },
+          {
+            "op": "set_edit",
+            "segment": null,
+            "seconds": null,
+            "path": "captions.scale",
+            "value": 1.25,
+            "reason": "bigger captions",
+            "source": "director"
+          },
+          {
+            "op": "set_speed",
+            "segment": 6,
+            "seconds": null,
+            "value": 0.8,
+            "reason": "slow down the oil moment",
+            "source": "director"
+          }
+        ],
+        "summary": "The patches warm the look preset, increase captions.scale, and slow down segment 6 Oil finish.",
+        "warnings": [],
+        "provider": "meta",
+        "model": "meta-models/Muse-Glimmer-30B",
+        "usage": {
+          "estimated_max_usd": 0.0,
+          "cached": false,
+          "cost_usd": 0.0,
+          "local": true,
+          "input_tokens": 1603,
+          "output_tokens": 1201,
+          "total_tokens": 2804
+        },
+        "runtime": "llama.cpp",
+        "private": true
+      },
+      "applied": [
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": "none",
+          "after": "warm",
+          "reason": "warmer",
+          "source": "director",
+          "skipped": null,
+          "path": "look.preset",
+          "value": "warm",
+          "summary": "Look: Warm (was Original)."
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": 1.0,
+          "after": 1.25,
+          "reason": "bigger captions",
+          "source": "director",
+          "skipped": null,
+          "path": "captions.scale",
+          "value": 1.25,
+          "summary": "Caption size: 1.25× (was 1×)."
+        },
+        {
+          "op": "set_speed",
+          "segment": 6,
+          "before": {
+            "start": 32.377,
+            "end": 35.252,
+            "speed": 1.0
+          },
+          "after": {
+            "start": 32.377,
+            "end": 35.252,
+            "speed": 0.8
+          },
+          "reason": "slow down the oil moment",
+          "source": "director",
+          "skipped": null,
+          "value": 0.8,
+          "summary": "Moment 6 plays slower (0.8×)."
+        }
+      ],
+      "segments_before": [
+        [
+          0.383,
+          3.73,
+          1.0
+        ],
+        [
+          8.406,
+          11.45,
+          1.0
+        ],
+        [
+          16.378,
+          19.205,
+          1.0
+        ],
+        [
+          20.19,
+          23.045,
+          1.0
+        ],
+        [
+          24.383,
+          28.195,
+          1.0
+        ],
+        [
+          32.377,
+          35.252,
+          1.0
+        ],
+        [
+          35.978,
+          39.24,
+          1.0
+        ]
+      ],
+      "segments_after": [
+        [
+          0.383,
+          3.73,
+          1.0
+        ],
+        [
+          8.406,
+          11.45,
+          1.0
+        ],
+        [
+          16.378,
+          19.205,
+          1.0
+        ],
+        [
+          20.19,
+          23.045,
+          1.0
+        ],
+        [
+          24.383,
+          28.195,
+          1.0
+        ],
+        [
+          32.377,
+          35.252,
+          0.8
+        ],
+        [
+          35.978,
+          39.24,
+          1.0
+        ]
+      ],
+      "edit_after": {
+        "template": "none",
+        "look": {
+          "preset": "warm",
+          "intensity": 1.0,
+          "brightness": 0.0,
+          "contrast": 0.0,
+          "saturation": 0.0,
+          "temperature": 0.0,
+          "vignette": 0.0,
+          "sharpen": 0.0
+        },
+        "transition": {
+          "type": "none",
+          "seconds": 0.35
+        },
+        "captions": {
+          "style": "boxed",
+          "position": "bottom",
+          "scale": 1.25,
+          "color": "#FFFFFF",
+          "highlight": "#FFD60A",
+          "language": null,
+          "edits": {},
+          "emphasize": false,
+          "emphasis": [],
+          "emphasis_color": "#3CE88C"
+        },
+        "trim_pauses": false,
+        "remove_fillers": false,
+        "removed": [],
+        "audio": {
+          "enhance_voice": false,
+          "denoise": false,
+          "keep_loudness": false,
+          "mute_source": false
+        },
+        "music": null,
+        "zoom": {
+          "mode": "none",
+          "strength": 0.5
+        },
+        "stabilize": false,
+        "denoise_picture": false,
+        "texts": [],
+        "logo": null,
+        "overlays": [],
+        "fade": {
+          "in": 0.0,
+          "out": 0.0
+        },
+        "cutout": {
+          "mode": "none",
+          "subject": "",
+          "color": "#101418",
+          "asset": null,
+          "blur": 0.6
+        },
+        "hero_word": null,
+        "motion_card": null,
+        "export": {
+          "quality": "1080p",
+          "fps": 30,
+          "format": "mp4"
+        }
+      }
+    },
+    {
+      "kind": "translate_cues",
+      "seconds": 31.27,
+      "language": "es",
+      "result": {
+        "lines": [
+          {
+            "index": 1,
+            "text": "Este es el cuenco de roble terminado, aceitado y listo para la mesa."
+          },
+          {
+            "index": 2,
+            "text": "Empezó como un bloque en bruto de un árbol caído."
+          },
+          {
+            "index": 3,
+            "text": "Aquí está el bloque de roble en bruto, todavía húmedo y pesado."
+          },
+          {
+            "index": 4,
+            "text": "La veta me indica dónde quiere estar el cuenco."
+          },
+          {
+            "index": 5,
+            "text": "En el torno la forma aparece con cortes largos y constantes."
+          },
+          {
+            "index": 6,
+            "text": "Mantengo el grosor de la pared uniforme desde el borde hasta la base."
+          },
+          {
+            "index": 7,
+            "text": "El lijado va de grueso a fino, con el torno girando despacio."
+          },
+          {
+            "index": 8,
+            "text": "Aquí es donde la veta empieza a brillar."
+          },
+          {
+            "index": 9,
+            "text": "Una capa de aceite apto para alimentos realza el color."
+          },
+          {
+            "index": 10,
+            "text": "24 horas después, el cuenco está listo para usar."
+          }
+        ],
+        "provider": "meta",
+        "model": "meta-models/Muse-Glimmer-30B",
+        "usage": {
+          "estimated_max_usd": 0.0,
+          "cached": false,
+          "cost_usd": 0.0,
+          "local": true,
+          "input_tokens": 326,
+          "output_tokens": 772,
+          "total_tokens": 1098
+        },
+        "runtime": "llama.cpp",
+        "private": true,
+        "warnings": [],
+        "language": "es",
+        "cues": [
+          {
+            "start": 0.0,
+            "end": 5.0,
+            "text": "Este es el cuenco de roble terminado, aceitado y listo para la mesa."
+          },
+          {
+            "start": 5.0,
+            "end": 8.0,
+            "text": "Empezó como un bloque en bruto de un árbol caído."
+          },
+          {
+            "start": 8.0,
+            "end": 12.0,
+            "text": "Aquí está el bloque de roble en bruto, todavía húmedo y pesado."
+          },
+          {
+            "start": 12.0,
+            "end": 16.0,
+            "text": "La veta me indica dónde quiere estar el cuenco."
+          },
+          {
+            "start": 16.0,
+            "end": 20.0,
+            "text": "En el torno la forma aparece con cortes largos y constantes."
+          },
+          {
+            "start": 20.0,
+            "end": 24.0,
+            "text": "Mantengo el grosor de la pared uniforme desde el borde hasta la base."
+          },
+          {
+            "start": 24.0,
+            "end": 29.0,
+            "text": "El lijado va de grueso a fino, con el torno girando despacio."
+          },
+          {
+            "start": 29.0,
+            "end": 32.0,
+            "text": "Aquí es donde la veta empieza a brillar."
+          },
+          {
+            "start": 32.0,
+            "end": 36.0,
+            "text": "Una capa de aceite apto para alimentos realza el color."
+          },
+          {
+            "start": 36.0,
+            "end": 40.0,
+            "text": "24 horas después, el cuenco está listo para usar."
+          }
+        ]
+      }
+    },
+    {
+      "kind": "translate_cues",
+      "seconds": 38.79,
+      "language": "hi",
+      "result": {
+        "lines": [
+          {
+            "index": 1,
+            "text": "यह तैयार ओक बाउल है, तेल लगाया गया और टेबल के लिए तैयार।"
+          },
+          {
+            "index": 2,
+            "text": "यह एक गिरे हुए पेड़ से निकले खुरदरे ब्लैंक से शुरू हुआ था।"
+          },
+          {
+            "index": 3,
+            "text": "यह कच्चा ओक ब्लैंक है, अभी भी गीला और भारी।"
+          },
+          {
+            "index": 4,
+            "text": "दाने मुझे बताते हैं कि बाउल कहाँ बनना चाहता है।"
+          },
+          {
+            "index": 5,
+            "text": "लेथ पर लंबी, स्थिर कटों में आकार उभरता है।"
+          },
+          {
+            "index": 6,
+            "text": "मैं किनारे से आधार तक दीवार की मोटाई समान रखता हूँ।"
+          },
+          {
+            "index": 7,
+            "text": "सैंडिंग मोटे से बारीक तक होती है, लेथ धीरे-धीरे घूमते हुए।"
+          },
+          {
+            "index": 8,
+            "text": "यहीं से दाने चमकने लगते हैं।"
+          },
+          {
+            "index": 9,
+            "text": "खाने के लिए सुरक्षित तेल की एक परत रंग को उभारती है।"
+          },
+          {
+            "index": 10,
+            "text": "24 घंटे बाद, बाउल इस्तेमाल के लिए तैयार है।"
+          }
+        ],
+        "provider": "meta",
+        "model": "meta-models/Muse-Glimmer-30B",
+        "usage": {
+          "estimated_max_usd": 0.0,
+          "cached": false,
+          "cost_usd": 0.0,
+          "local": true,
+          "input_tokens": 326,
+          "output_tokens": 840,
+          "total_tokens": 1166
+        },
+        "runtime": "llama.cpp",
+        "private": true,
+        "warnings": [],
+        "language": "hi",
+        "cues": [
+          {
+            "start": 0.0,
+            "end": 5.0,
+            "text": "यह तैयार ओक बाउल है, तेल लगाया गया और टेबल के लिए तैयार।"
+          },
+          {
+            "start": 5.0,
+            "end": 8.0,
+            "text": "यह एक गिरे हुए पेड़ से निकले खुरदरे ब्लैंक से शुरू हुआ था।"
+          },
+          {
+            "start": 8.0,
+            "end": 12.0,
+            "text": "यह कच्चा ओक ब्लैंक है, अभी भी गीला और भारी।"
+          },
+          {
+            "start": 12.0,
+            "end": 16.0,
+            "text": "दाने मुझे बताते हैं कि बाउल कहाँ बनना चाहता है।"
+          },
+          {
+            "start": 16.0,
+            "end": 20.0,
+            "text": "लेथ पर लंबी, स्थिर कटों में आकार उभरता है।"
+          },
+          {
+            "start": 20.0,
+            "end": 24.0,
+            "text": "मैं किनारे से आधार तक दीवार की मोटाई समान रखता हूँ।"
+          },
+          {
+            "start": 24.0,
+            "end": 29.0,
+            "text": "सैंडिंग मोटे से बारीक तक होती है, लेथ धीरे-धीरे घूमते हुए।"
+          },
+          {
+            "start": 29.0,
+            "end": 32.0,
+            "text": "यहीं से दाने चमकने लगते हैं।"
+          },
+          {
+            "start": 32.0,
+            "end": 36.0,
+            "text": "खाने के लिए सुरक्षित तेल की एक परत रंग को उभारती है।"
+          },
+          {
+            "start": 36.0,
+            "end": 40.0,
+            "text": "24 घंटे बाद, बाउल इस्तेमाल के लिए तैयार है।"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "script_prompts",
+      "seconds": 49.82,
+      "result": {
+        "style": "Medium: painterly digital illustration with soft charcoal underdrawing. Palette: muted workshop earth tones of warm oak brown, wet slate grey, and soft amber with desaturated teal accents. Light: diffused natural daylight from a large north window, gentle rim light on wood grain, soft shadows. Lens: 50mm equivalent, shallow depth of field, centered composition for 9:16 vertical frame.",
+        "scenes": [
+          {
+            "title": "Fallen Oak Wet Blank",
+            "prompt": "Medium: painterly digital illustration with soft charcoal underdrawing. Palette: muted workshop earth tones of warm oak brown, wet slate grey, and soft amber with desaturated teal accents. Light: diffused natural daylight from a large north window, gentle rim light on wood grain, soft shadows. Lens: 50mm equivalent, shallow depth of field, centered composition for 9:16 vertical frame. 9:16 vertical frame, a bearded artisan in a worn canvas apron and rolled sleeves kneels in a sunlit workshop beside a large rough wet oak log blank with bark still attached, water droplets on the wood surface, sawdust on the floor, tools hanging on the wall behind, the artisan’s hands resting on the blank, subject clear of edges, consistent character design, painterly digital illustration, muted earth palette, diffused daylight No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+          },
+          {
+            "title": "Lathe Shaping Bowl",
+            "prompt": "Medium: painterly digital illustration with soft charcoal underdrawing. Palette: muted workshop earth tones of warm oak brown, wet slate grey, and soft amber with desaturated teal accents. Light: diffused natural daylight from a large north window, gentle rim light on wood grain, soft shadows. Lens: 50mm equivalent, shallow depth of field, centered composition for 9:16 vertical frame. 9:16 vertical frame, the same bearded artisan in canvas apron standing at a wooden lathe in the same sunlit workshop, hands guiding a gouge as long steady shavings curl from a spinning oak bowl blank, wood chips in the air, the workshop interior consistent with previous scene, subject centered and clear of edges, painterly digital illustration, muted earth palette, diffused daylight No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+          },
+          {
+            "title": "Oiled Grain Glowing",
+            "prompt": "Medium: painterly digital illustration with soft charcoal underdrawing. Palette: muted workshop earth tones of warm oak brown, wet slate grey, and soft amber with desaturated teal accents. Light: diffused natural daylight from a large north window, gentle rim light on wood grain, soft shadows. Lens: 50mm equivalent, shallow depth of field, centered composition for 9:16 vertical frame. 9:16 vertical frame, the same bearded artisan in canvas apron holding a finished shallow oak bowl up to the north window light in the same workshop, applying food safe oil with a cloth, the grain glowing warm amber with soft highlights, a workbench with tools and shavings behind, subject centered and clear of edges, painterly digital illustration, muted earth palette, diffused daylight No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+          }
+        ],
+        "provider": "meta",
+        "model": "meta-models/Muse-Glimmer-30B",
+        "usage": {
+          "estimated_max_usd": 0.0,
+          "cached": false,
+          "cost_usd": 0.0,
+          "local": true,
+          "input_tokens": 274,
+          "output_tokens": 914,
+          "total_tokens": 1188
+        },
+        "runtime": "llama.cpp",
+        "private": true,
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import math
 import re
+import unicodedata
 from typing import Any
 
 MAX_TEXTS = 24
@@ -87,7 +88,8 @@ CUTOUT_MODES = (
     ("image", "New background", "Put the subject on an image you choose or generate."),
 )
 EXPORT_QUALITIES = ("720p", "1080p", "4k")
-EXPORT_FPS = (24, 30, 60)
+# "source" keeps the footage's own rate, snapped to the nearest standard one and capped at 60.
+EXPORT_FPS = ("source", 24, 30, 60)
 EXPORT_FORMATS = ("mp4", "mov", "webm", "gif")
 # A hero word: one or two spoken words, huge, behind the subject for a moment.
 HERO_SIDES = ("center", "top", "left", "right")
@@ -103,6 +105,58 @@ HERO_MAX_CHARS = 18
 HERO_MAX_WORDS = 2
 # Letters and digits in any script, joined by spaces, apostrophes or hyphens, with one closing mark.
 HERO_WORD = re.compile(r"^[^\W_]+(?:['’\- ][^\W_]+)*[!?.]?$")
+
+
+def hero_word_ok(word: str) -> bool:
+    """True for a hero word in any script. Combining marks (Hindi and Thai vowel signs, Arabic vowels) are allowed
+    right after a letter, digit or another mark; a mark anywhere else is refused. The rest must match HERO_WORD."""
+    kept: list[str] = []
+    for char in word:
+        if unicodedata.category(char).startswith("M"):
+            if not kept or not (kept[-1].isalnum() or kept[-1] == "\u0000"):
+                return False
+            kept.append("\u0000")  # stands in for the mark, so a following mark still sees a mark before it
+            continue
+        kept.append(char)
+    return bool(HERO_WORD.fullmatch("".join(char for char in kept if char != "\u0000")))
+# A 3D motion card: words in a closed set of materials, rendered by Briefcut's own Blender template.
+MOTION_CARD_KINDS = (
+    ("intro_title", "Intro title", "The title over the opening seconds."),
+    ("end_card", "End card", "A closing line over the last seconds."),
+    ("lower_third", "Lower third", "A name or a place, low in the frame."),
+)
+MOTION_CARD_STYLES = (
+    ("brushed_metal", "Brushed metal", "Bevelled steel letters with a clear coat."),
+    ("warm_wood", "Warm wood", "Oiled hardwood letters with long grain."),
+    ("soft_clay", "Soft clay", "Rounded, matte letters with soft light."),
+    ("neon_glass", "Neon glass", "Clear glass letters traced by a lit tube."),
+    ("paper_cut", "Paper cut", "Stacked paper sheets in the palette's colors."),
+)
+MOTION_CARD_CAMERAS = (
+    ("dolly_in", "Dolly in", "The camera glides toward the words."),
+    ("orbit", "Orbit", "The camera swings around the words."),
+    ("rise", "Rise", "The camera rises from below to meet the words."),
+    ("push_tilt", "Push and tilt", "A push in that levels off as it lands."),
+)
+# Each palette is (primary, accent, shadow): the letters, the subtitle and rim light, and the deepest tone.
+MOTION_CARD_PALETTES = {
+    "oak": ("#C98B55", "#F3DDBB", "#3A2414"),
+    "walnut": ("#8A5A3B", "#E8C9A0", "#24160E"),
+    "steel": ("#D7DCE2", "#8FB8FF", "#10141B"),
+    "gold": ("#E2B35A", "#FFF1C9", "#3B2A0C"),
+    "ember": ("#FF7A3D", "#FFD2A6", "#2B0F08"),
+    "ocean": ("#4FB3E8", "#D4F1FF", "#0A2233"),
+    "mint": ("#62D6A6", "#EFFFF6", "#0C2B21"),
+    "rose": ("#F07AA0", "#FFE1EA", "#2E0E19"),
+    "violet": ("#9B7CFF", "#E6DDFF", "#160F33"),
+    "mono": ("#F2F2F2", "#B8B8B8", "#111111"),
+}
+MOTION_CARD_MIN_SECONDS = 1.5
+MOTION_CARD_MAX_SECONDS = 4.0
+MOTION_CARD_MAX_CHARS = 28
+MOTION_CARD_MAX_WORDS = 5
+MOTION_CARD_SUBTITLE_CHARS = 48
+MOTION_CARD_ASPECTS = ("9:16", "16:9", "1:1", "4:5")
 
 _DEFAULT: dict[str, Any] = {
     "template": "none",
@@ -124,7 +178,8 @@ _DEFAULT: dict[str, Any] = {
     "fade": {"in": 0.0, "out": 0.0},
     "cutout": {"mode": "none", "subject": "", "color": "#101418", "asset": None, "blur": 0.6},
     "hero_word": None,
-    "export": {"quality": "1080p", "fps": 30, "format": "mp4"},
+    "motion_card": None,
+    "export": {"quality": "1080p", "fps": "source", "format": "mp4"},
 }
 
 TEMPLATES = (
@@ -191,6 +246,10 @@ def catalogue() -> dict[str, Any]:
         "text_positions": list(TEXT_POSITIONS),
         "overlay_positions": list(OVERLAY_POSITIONS),
         "cutout_modes": _rows(CUTOUT_MODES),
+        "motion_card": {"kinds": _rows(MOTION_CARD_KINDS), "styles": _rows(MOTION_CARD_STYLES), "cameras": _rows(MOTION_CARD_CAMERAS),
+                        "palettes": {name: list(colors) for name, colors in MOTION_CARD_PALETTES.items()},
+                        "min_seconds": MOTION_CARD_MIN_SECONDS, "max_seconds": MOTION_CARD_MAX_SECONDS,
+                        "max_chars": MOTION_CARD_MAX_CHARS, "subtitle_chars": MOTION_CARD_SUBTITLE_CHARS},
         "hero_word": {"sides": list(HERO_SIDES), "fonts": _rows(HERO_FONTS), "colors": list(HERO_COLORS),
                       "min_seconds": HERO_MIN_SECONDS, "max_seconds": HERO_MAX_SECONDS, "max_chars": HERO_MAX_CHARS, "max_words": HERO_MAX_WORDS},
         "templates":[{"id": row["id"], "name": row["name"], "description": row["description"], "edit": row["edit"]} for row in TEMPLATES],
@@ -437,7 +496,7 @@ def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None 
     mode = _choice(cutout.get("mode"), "Cutout", _ids(CUTOUT_MODES))
     subject = _text(cutout.get("subject", ""), "Cutout subject", 150)
     if mode != "none" and not subject:
-        raise EditError("Name the subject to cut out, such as “the wooden bowl”.")
+        raise EditError("Name the subject to cut out, such as “the person on the left”.")
     image = cutout.get("asset")
     if mode == "image":
         image = _asset(image, "Cutout background", assets, ("image",))
@@ -455,6 +514,7 @@ def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None 
         "format": _choice(export.get("format"), "Export format", EXPORT_FORMATS),
     }
     clean["hero_word"] = validate_hero_word(raw.get("hero_word"), duration=duration)
+    clean["motion_card"] = validate_motion_card(raw.get("motion_card"), duration=duration, assets=assets)
     return clean
 
 
@@ -473,7 +533,7 @@ def validate_hero_word(value: Any, *, duration: float) -> dict[str, Any] | None:
         raise EditError("The hero word is empty.")
     if len(word.split()) > HERO_MAX_WORDS:
         raise EditError(f"The hero word can be at most {HERO_MAX_WORDS} words.")
-    if not HERO_WORD.fullmatch(word):
+    if not hero_word_ok(word):
         raise EditError("The hero word can hold only letters, digits, spaces, apostrophes and hyphens.")
     start = _number(item.get("start"), "Hero word start", 0.0, max(0.0, duration))
     end = _number(item.get("end"), "Hero word end", 0.0, max(0.0, duration))
@@ -485,13 +545,85 @@ def validate_hero_word(value: Any, *, duration: float) -> dict[str, Any] | None:
     color = _color(item.get("color", HERO_COLORS[0]), "Hero word color")
     if color not in HERO_COLORS:
         raise EditError("The hero word color is not one of the available choices.")
-    return {
+    clean = {
         "word": word, "start": start, "end": end, "subject": subject,
         "side": _choice(item.get("side", "center"), "Hero word side", HERO_SIDES),
         "font": _choice(item.get("font", "heavy"), "Hero word font", _ids(HERO_FONTS)),
         "color": color,
         "reason": _text(item.get("reason", ""), "Hero word reason", 300),
     }
+    # Where SAM measured the subject during the window, as shares of the frame, so the word can sit on its edge.
+    box = item.get("subject_box")
+    if box is not None:
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            raise EditError("The hero word's subject box is four numbers between 0 and 1.")
+        box = [_number(value, "Hero word subject box", 0.0, 1.0) for value in box]
+        if not (box[0] < box[2] and box[1] < box[3]):
+            raise EditError("The hero word's subject box must have a size.")
+        clean["subject_box"] = box
+    return clean
+
+
+def _card_text(value: Any, name: str, limit: int) -> str:
+    """Words for a motion card: printable letters, digits, punctuation and spaces, nothing else.
+
+    The text is only ever set as a text body in Blender, so code-looking input such
+    as ``__import__('os')`` stays words on screen. Emoji, symbols the fonts lack, and
+    control characters are refused rather than drawn as boxes.
+    """
+    text = _text(value, name, limit)
+    for char in text:
+        category = unicodedata.category(char)
+        if category[0] == "M":
+            raise EditError(f"{name} cannot hold vowel signs or other combining marks: Blender's text cannot place them. Use a title without them.")
+        if not (category[0] in "LNP" or char == " " or char in "&+#%$€£¥@/=~°"):
+            raise EditError(f"{name} can hold letters, digits, punctuation and spaces only.")
+    return text
+
+
+def validate_motion_card(value: Any, *, duration: float | None = None, assets: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """``edit.motion_card``: a 3D title card as closed choices and short words.
+
+    Returns None for no card. ``duration`` is the finished story's length; a card
+    never lasts longer than the story, and ``start`` (seconds on the output clock,
+    for lower thirds) must leave room for the card. The card overlays the picture
+    and never changes timing. ``backdrop`` is an image asset, like an overlay.
+    """
+    if value is None:
+        return None
+    item = _object(value, "Motion card")
+    text = _card_text(item.get("text"), "Motion card text", MOTION_CARD_MAX_CHARS)
+    if not text:
+        raise EditError("The motion card needs a few words.")
+    if len(text.split()) > MOTION_CARD_MAX_WORDS:
+        raise EditError(f"A motion card holds at most {MOTION_CARD_MAX_WORDS} words; move the rest to the subtitle.")
+    subtitle = _card_text(item.get("subtitle", ""), "Motion card subtitle", MOTION_CARD_SUBTITLE_CHARS)
+    palette = _choice(item.get("palette", "steel"), "Motion card palette", tuple(MOTION_CARD_PALETTES))
+    seconds = _number(item.get("duration", 3.0), "Motion card length", MOTION_CARD_MIN_SECONDS, MOTION_CARD_MAX_SECONDS)
+    if duration is not None and seconds > duration + 1e-6:
+        raise EditError(f"The motion card lasts {seconds:g} s, longer than this {duration:g} s story.")
+    kind = _choice(item.get("kind", "intro_title"), "Motion card kind", _ids(MOTION_CARD_KINDS))
+    clean: dict[str, Any] = {
+        "kind": kind, "text": text, "subtitle": subtitle,
+        "style": _choice(item.get("style", "brushed_metal"), "Motion card style", _ids(MOTION_CARD_STYLES)),
+        "palette": palette,
+        "camera": _choice(item.get("camera", "dolly_in"), "Motion card camera", _ids(MOTION_CARD_CAMERAS)),
+        "duration": seconds,
+        "reason": _text(item.get("reason", ""), "Motion card reason", 300),
+    }
+    aspect = item.get("aspect")
+    if aspect is not None:
+        clean["aspect"] = _choice(aspect, "Motion card aspect", MOTION_CARD_ASPECTS)
+    start = item.get("start")
+    if start is not None:
+        limit = max(0.0, (duration if duration is not None else 86_400.0) - seconds)
+        clean["start"] = _number(start, "Motion card start", 0.0, limit)
+    backdrop = item.get("backdrop")
+    if backdrop is not None:
+        if kind == "lower_third":
+            raise EditError("A lower third sits over the footage, so it cannot have a backdrop.")
+        clean["backdrop"] = _asset(backdrop, "Motion card backdrop", assets, ("image",))
+    return clean
 
 
 def asset_ids(edit: dict[str, Any]) -> list[str]:
@@ -500,6 +632,9 @@ def asset_ids(edit: dict[str, Any]) -> list[str]:
     for holder in (edit.get("music"), edit.get("logo"), edit.get("cutout")):
         if isinstance(holder, dict) and isinstance(holder.get("asset"), str):
             found.append(holder["asset"])
+    card = edit.get("motion_card")
+    if isinstance(card, dict) and isinstance(card.get("backdrop"), str):
+        found.append(card["backdrop"])
     for item in edit.get("overlays") or []:
         if isinstance(item, dict) and isinstance(item.get("asset"), str):
             found.append(item["asset"])

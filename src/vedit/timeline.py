@@ -199,32 +199,61 @@ def map_interval(spans: Iterable[Span], start: float, end: float) -> list[tuple[
     return pieces
 
 
-def _split_text(text: str, weights: list[float]) -> list[str]:
-    """Share a cue's words among pieces of play time without losing any."""
-    words = text.split()
-    total = sum(weights)
-    if total <= 0 or len(weights) < 2:
-        return [text]
-    parts: list[str] = []
-    used = 0
-    spent = 0.0
-    for index, weight in enumerate(weights):
-        spent += weight
-        upto = len(words) if index == len(weights) - 1 else round(len(words) * spent / total)
-        parts.append(" ".join(words[used:upto]))
-        used = max(used, upto)
-    return parts
+def _surviving_text(text: str, start: float, end: float, spans: list[Span], segments: list[int]) -> list[str]:
+    """For each segment, the part of a wordless line that plays in it.
+
+    The line's words are spread over its source time by character count, as
+    captions estimate them, and a word stays where its middle is kept. So a line
+    whose head was cut shows only its tail, and a sliver shorter than half a word
+    shows nothing. Moments keep their own words even when the story plays them
+    out of source order. Only text is decided here; timing is the spans'.
+    Words that stay side by side keep the line's own spacing, so Thai keeps the
+    space between its phrases and a line kept whole reads exactly as heard.
+    """
+    from vedit.captions import join_words, split_words  # captions builds on this clock, so it is read only when needed
+
+    words = split_words(text)
+    # split_words cuts the line into pieces of itself, in order, so each one is found where it sits.
+    offsets: list[tuple[int, int]] = []
+    at = 0
+    for word in words:
+        found = text.find(word, at)
+        offsets.append((found, found + len(word)))
+        at = found + len(word)
+    total = sum(len(word) for word in words) or 1
+    placed: dict[int, list[int]] = {segment: [] for segment in segments}
+    spent = 0
+    for index, word in enumerate(words):
+        middle = start + (end - start) * (spent + len(word) / 2) / total
+        spent += len(word)
+        owner = next((span.segment for span in spans if span.source_start <= middle < span.source_end), None)
+        if owner in placed:
+            placed[owner].append(index)
+
+    def written(indices: list[int]) -> str:
+        runs: list[tuple[int, int]] = []  # first and last word of each stretch of neighbours
+        for index in indices:
+            if runs and index == runs[-1][1] + 1:
+                runs[-1] = (runs[-1][0], index)
+            else:
+                runs.append((index, index))
+        return join_words(" ".join(text[offsets[first][0]:offsets[last][1]].split()) for first, last in runs)
+
+    return [written(placed[segment]) for segment in segments]
 
 
 def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str, Any]]:
     """Move source-clock cues onto the output clock.
 
     A cue with ``words`` keeps only the words that survive the edit, so a removed
-    filler also leaves the caption. A cue with no words keeps its text whole
-    unless the edit splits it across two moments, then the words are shared by
-    play time. Cues that were entirely cut are dropped. Each result names the
+    filler also leaves the caption. A cue with no words (Meta's lines) keeps the
+    words whose estimated time survives: whole when the edit keeps it, only its
+    tail when the head was cut, and shared between moments when the edit splits
+    it. Cues that were entirely cut are dropped. Each result names the
     ``segment`` it plays in, which output time alone cannot say inside a transition.
     """
+    from vedit.captions import join_words
+
     moved: list[dict[str, Any]] = []
     for cue in cues:
         start, end = _finite(cue.get("start")), _finite(cue.get("end"))
@@ -251,7 +280,7 @@ def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str
             for segment, segment_words in placed.items():
                 if segment_words:
                     moved.append({"start": segment_words[0]["start"], "end": segment_words[-1]["end"],
-                                  "text": " ".join(item["text"].strip() for item in segment_words if item["text"].strip()),
+                                  "text": join_words(item["text"] for item in segment_words),
                                   "words": segment_words, "segment": segment})
             continue
         pieces = map_interval(spans, start, end)
@@ -261,7 +290,7 @@ def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str
         for segment, begin, finish in pieces:
             group = groups.setdefault(segment, [begin, finish])
             group[0], group[1] = min(group[0], begin), max(group[1], finish)
-        shares = _split_text(text, [hi - lo for lo, hi in groups.values()])
+        shares = _surviving_text(text, start, end, spans, list(groups))
         for (segment, (lo, hi)), share in zip(groups.items(), shares):
             if share:
                 moved.append({"start": round(lo, 3), "end": round(hi, 3), "text": share, "segment": segment})

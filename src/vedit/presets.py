@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 
 from vedit.ir import Canvas
-from vedit.media import has_encoder
+from vedit.media import STANDARD_RATES, has_encoder
 
 BROADCAST_COLOR = (
     "-pix_fmt",
@@ -119,15 +119,36 @@ EXPORT_SIZES = {"720p": 720, "1080p": 1080, "4k": 2160}
 # Match the Studio export promise: GIFs support a short side up to 540 pixels.
 GIF_SIZE = 540
 GIF_FPS = 15
-_EXPORT_NAME = re.compile(r"export_(\d{3,4})x(\d{3,4})_(\d{2})_(mp4|mov|webm|gif)")
+# The rate is a whole number, a broadcast rate such as 29.97, or ``source``: the footage's own, set when the render knows it.
+_EXPORT_NAME = re.compile(r"export_(\d{3,4})x(\d{3,4})_(\d{1,3}(?:\.\d{1,3})?|source)_(mp4|mov|webm|gif)")
+MATCH_SOURCE = "source"
 _VP9 = ("-crf", "31", "-b:v", "0", "-row-mt", "1", "-cpu-used", "4", "-pix_fmt", "yuv420p",
         "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv")
 
 
-def _export_preset(width: int, height: int, fps: int, container: str) -> ExportPreset:
-    name = f"export_{width}x{height}_{fps}_{container}"
+def _rate_name(fps: float) -> str:
+    """30, 29.97, 23.976, or ``source`` for 0."""
+    if not fps:
+        return MATCH_SOURCE
+    return str(round(fps)) if abs(fps - round(fps)) < 1e-6 else f"{fps:.3f}".rstrip("0")
+
+
+def _rate_value(text: str) -> float:
+    """The exact rate a name means: 29.97 is 30000/1001, and ``source`` is 0 until the footage is known."""
+    if text == MATCH_SOURCE:
+        return 0.0
+    value = float(text)
+    for exact in STANDARD_RATES:
+        if abs(value - exact) < 0.0015:
+            return exact
+    return value
+
+
+def _export_preset(width: int, height: int, fps: float, container: str) -> ExportPreset:
+    rate = _rate_name(fps)
+    name = f"export_{width}x{height}_{rate}_{container}"
     canvas = Canvas(width=width, height=height, fps=float(fps))
-    description = f"{width}x{height} at {fps} fps, {container.upper()}"
+    description = f"{width}x{height} at {'the source frame rate' if rate == MATCH_SOURCE else rate + ' fps'}, {container.upper()}"
     if container == "webm":
         return ExportPreset(name, canvas, "libvpx-vp9", "libopus", 31, "128k", _VP9, description, container="webm")
     if container == "gif":
@@ -135,11 +156,12 @@ def _export_preset(width: int, height: int, fps: int, container: str) -> ExportP
     return ExportPreset(name, canvas, "libx264", "aac", 18, "192k", ("-profile:v", "high", *BROADCAST_COLOR), description, container=container)
 
 
-def export_preset_name(base: str, *, quality: str | None = None, fps: int | None = None, format: str | None = None) -> str:
+def export_preset_name(base: str, *, quality: str | None = None, fps: float | str | None = None, format: str | None = None) -> str:
     """The preset for an ``edit.export`` choice on a base preset's aspect.
 
     The name carries the settings, so ``vedit.analyze encode --preset`` resolves
-    it like any other. Nothing to change returns ``base``.
+    it like any other. Nothing to change returns ``base``. ``fps="source"`` names
+    a preset at rate 0, which the compiler sets to the footage's standard rate.
     """
     preset = get_preset(base)
     if quality is None and fps is None and format is None:
@@ -149,12 +171,12 @@ def export_preset_name(base: str, *, quality: str | None = None, fps: int | None
         raise KeyError(f"preset '{base}' has no picture to export")
     container = format or preset.container
     short = EXPORT_SIZES[quality] if quality else min(width, height)
-    rate = int(fps or preset.canvas.fps)
+    rate = 0.0 if fps == MATCH_SOURCE else float(fps or preset.canvas.fps)
     if container == "gif":
-        short, rate = min(short, GIF_SIZE), min(rate, GIF_FPS)
+        short, rate = min(short, GIF_SIZE), min(rate or GIF_FPS, GIF_FPS)
     # H.264 and VP9 both need even dimensions.
     scale = short / min(width, height)
-    return f"export_{round(width * scale / 2) * 2}x{round(height * scale / 2) * 2}_{rate}_{container}"
+    return f"export_{round(width * scale / 2) * 2}x{round(height * scale / 2) * 2}_{_rate_name(rate)}_{container}"
 
 
 def verification(preset: ExportPreset) -> dict[str, bool]:
@@ -166,7 +188,7 @@ def get_preset(name: str) -> ExportPreset:
     key = name.strip().lower().replace("-", "_")
     built = _EXPORT_NAME.fullmatch(key)
     if built:
-        return _export_preset(int(built[1]), int(built[2]), int(built[3]), built[4])
+        return _export_preset(int(built[1]), int(built[2]), _rate_value(built[3]), built[4])
     aliases = {
         "youtube": "youtube_1080p",
         "yt": "youtube_1080p",

@@ -1,0 +1,106 @@
+{
+  "status": 200,
+  "seconds": 42.9,
+  "searched": [
+    "transcript",
+    "footage"
+  ],
+  "warnings": [],
+  "verification": {
+    "status": "verified",
+    "phrase": "wooden bowl",
+    "receipt": {
+      "name": "sam: \u201cwooden bowl\u201d is on screen in the found moments",
+      "passed": true,
+      "at": null,
+      "note": "SAM 3.1 looked for \u201cwooden bowl\u201d in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+      "basis": "derived",
+      "by": "sam-3.1",
+      "inputs": [
+        "muse-spark"
+      ]
+    },
+    "spend": [
+      {
+        "model": "sam-3.1",
+        "operation": "verify-find",
+        "moment": 0,
+        "window": [
+          18.511,
+          21.511
+        ],
+        "frames": 50,
+        "cost_usd": 0.01,
+        "estimated_max_usd": 0.01,
+        "cached": false
+      }
+    ],
+    "spent_usd": 0.01,
+    "reason": "SAM 3.1 looked for \u201cwooden bowl\u201d in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+    "kind": "visual",
+    "model": "sam-3.1"
+  },
+  "dropped": 0,
+  "moments": [
+    {
+      "start": 0.383,
+      "end": 3.58,
+      "label": "This is the finished oak bowl, oiled and ready for the tabl\u2026",
+      "source": "both",
+      "sources": null,
+      "found_by": null,
+      "verified": true,
+      "coverage": 1.0,
+      "flagged": false,
+      "thumbnail": "wooden-bowl-18511.jpg",
+      "thumbnail_url": "/api/campaigns/4895f70caaf44029aed8e62c865e241b/find-thumbnail?name=wooden-bowl-18511.jpg",
+      "score": 1.0,
+      "why": null
+    },
+    {
+      "start": 12.263,
+      "end": 14.78,
+      "label": "The grain tells me where the bowl wants to be.",
+      "source": "transcript",
+      "sources": null,
+      "found_by": null,
+      "verified": null,
+      "coverage": null,
+      "flagged": false,
+      "thumbnail": null,
+      "thumbnail_url": null,
+      "score": 0.375,
+      "why": null
+    },
+    {
+      "start": 35.979,
+      "end": 39.18,
+      "label": "24 hours later, the bowl is ready to use.",
+      "source": "transcript",
+      "sources": null,
+      "found_by": null,
+      "verified": null,
+      "coverage": null,
+      "flagged": false,
+      "thumbnail": null,
+      "thumbnail_url": null,
+      "score": 0.375,
+      "why": null
+    }
+  ],
+  "thumbnail_fetches": [
+    {
+      "url": "/api/campaigns/4895f70caaf44029aed8e62c865e241b/find-thumbnail?name=wooden-bowl-18511.jpg",
+      "status": 200,
+      "bytes": 40964,
+      "jpeg": true
+    }
+  ],
+  "thumbnail_traversal_probe": {
+    "status": 404,
+    "body": {
+      "ok": false,
+      "error": "Thumbnail not found."
+    }
+  }
+}

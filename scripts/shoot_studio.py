@@ -11,7 +11,19 @@ js_after = sys.argv[6] if len(sys.argv) > 6 else ""
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]
 profile = tempfile.mkdtemp(prefix="shoot-")
-chrome = subprocess.Popen(["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", f"--remote-debugging-port={port}", f"--user-data-dir={profile}", f"--window-size={width},1200", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def chrome_binary() -> str:
+    """CHROME, then the macOS app, then a Chrome or Chromium on PATH (Linux)."""
+    candidates = [os.environ.get("CHROME", ""), "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+    candidates += [shutil.which(name) or "" for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome")]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    sys.exit("No Chrome found. Install Chrome or Chromium, or set CHROME to its executable.")
+
+
+chrome = subprocess.Popen([chrome_binary(), "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", f"--remote-debugging-port={port}", f"--user-data-dir={profile}", f"--window-size={width},1200", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     for _ in range(100):
         try:

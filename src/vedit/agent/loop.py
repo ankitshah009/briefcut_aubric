@@ -11,7 +11,7 @@ from typing import Any
 
 from vedit.agent.critique import critique_output
 from vedit.agent.decide import decide
-from vedit.agent.explain import drop_captions, explain_decisions, local_transcriber_ready
+from vedit.agent.explain import drop_captions, explain_decisions, transcriber_ready
 from vedit.agent.intent import parse_intent
 from vedit.agent.inventory import inventory_paths
 from vedit.agent.model import Critique, Decision, Finding, Inventory, Intent, Session
@@ -253,7 +253,7 @@ def _settle_captions(
     decision: Decision,
     inventory: Inventory,
 ) -> tuple[Decision, bool, dict[str, Any]]:
-    skipped = bool(intent.captions) and not local_transcriber_ready()
+    skipped = bool(intent.captions) and not transcriber_ready()
     if skipped:
         brief, _dropped = drop_captions(decision.brief)
         decision = Decision(rationale=decision.rationale, risks=decision.risks, brief=brief)

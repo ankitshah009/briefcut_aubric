@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import math
 import sys
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,15 +28,19 @@ from vedit.media import (
     probe,
     resolve_ffmpeg,
     source_filters,
+    standard_rate,
+    with_borders,
 )
 from vedit.motion import MotionError, plan_pieces, zoom_filter
 from vedit.overlays import DEFAULT_FADE, corner, drawtext_filters, image_filter, logo_reserve, text_engine, text_warnings, write_text_ass
 from vedit.pipeline import Pipeline, Step
-from vedit.presets import ExportPreset, encode_args, export_preset_name, get_preset
-from vedit.sound import DUCK_THRESHOLD, duck_filter, voice_filters
+from vedit.settings import default_language
+from vedit.presets import MATCH_SOURCE, ExportPreset, encode_args, export_preset_name, get_preset
+from vedit.sound import duck_filter, voice_filters
 from vedit.timeline import MAX_SPEED, MIN_SPEED, Span, build_timeline, effective_transition, output_duration, segment_keeps, segment_speed
-from vedit.edit_spec import HERO_COLORS, HERO_FONTS, HERO_MAX_CHARS, HERO_MAX_SECONDS, HERO_MAX_WORDS, HERO_MIN_SECONDS, HERO_SIDES, HERO_WORD
+from vedit.edit_spec import HERO_COLORS, HERO_FONTS, HERO_MAX_CHARS, HERO_MAX_SECONDS, HERO_MAX_WORDS, HERO_MIN_SECONDS, HERO_SIDES, hero_word_ok
 from vedit.overlays import HERO_FONT_FILES, hero_font, render_hero_ass, visible_rect
+from vedit.edit_spec import EditError, validate_motion_card
 
 REQUIRED_HERO_FILTERS = ("alphamerge", "overlay", "scale", "lut", "setpts", "fps", "ass", "split", "setparams")
 HERO_ASPECTS = ("9:16", "16:9", "1:1", "4:5", "21:9")
@@ -123,6 +128,7 @@ class Compiler:
     images: int = 0
     source_size: tuple[int, int] | None = None
     text_reserve: tuple[int, int] = (0, 0)
+    clock_frames: int | None = None  # frames on the output clock select_ranges fixed
 
     @property
     def pipeline(self) -> Pipeline:
@@ -258,10 +264,17 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
         compiler.set_current(primary)
         compiler._pipeline.meta["primary"] = str(primary)
         if compiler.info is not None and compiler.info.has_video:
+            # Black bars are measured once per file; select_ranges crops them before any reframe.
+            compiler.info = with_borders(compiler.info)
             # select_ranges squares anamorphic pixels and truncates the tape
             # width to an even number before a cutout composites the matte.
             square_width = compiler.info.square_width
             compiler.source_size = (square_width - square_width % 2, compiler.info.display_height)
+    if not compiler.canvas.fps:
+        # A rate of 0 means "match the source": its own rate, snapped to a standard one, before any op counts frames.
+        footage = compiler.info.fps if compiler.info is not None and compiler.info.has_video else None
+        compiler.canvas = replace(compiler.canvas, fps=standard_rate(footage))
+        compiler._pipeline.meta["canvas"] = compiler.canvas.as_dict()
     for index, op in enumerate(brief.ops):
         name = str(op.get("op") or "").strip()
         handler = OPS.get(name)
@@ -614,6 +627,7 @@ def _select_ranges(c: Compiler, op: dict[str, Any]) -> None:
     c.info = None
     # The same rounded value plan_timeline reports, so later ops and the plan agree.
     c.duration = round(output_duration(spans), 3)
+    c.clock_frames = windows[-1][1]
 
 
 def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
@@ -628,7 +642,8 @@ def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
         c.duration = info.duration
     elif not c.has_audio:
         raise CompileError("cut_silence requires an audio track")
-    threshold = float(op.get("threshold_db", -32))
+    # Left out, the pause level is measured from this recording's own loudness at render.
+    threshold = None if op.get("threshold_db") is None else _finite_number(op["threshold_db"], "cut_silence threshold_db")
     min_silence = float(op.get("min_silence", 0.45))
     pad = float(op.get("pad", 0.12))
     out = c._next("cut_silence")
@@ -644,8 +659,7 @@ def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
         str(out),
         "--keeps",
         str(keeps),
-        "--threshold-db",
-        str(threshold),
+        *(["--threshold-db", str(threshold)] if threshold is not None else []),
         "--min-silence",
         str(min_silence),
         "--pad",
@@ -664,7 +678,7 @@ def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
             "cut_silence",
             argv,
             [str(out), str(keeps)],
-            f"drop silence < {threshold} dB (pad {pad}s) at render",
+            f"drop silence < {threshold if threshold is not None else 'the measured'} dB (pad {pad}s) at render",
         )
     )
     c.set_current(out)
@@ -927,7 +941,7 @@ def _captions(c: Compiler, op: dict[str, Any]) -> None:
         src = c.current
     else:
         raise CompileError("captions needs a current clip or source=")
-    language = str(op.get("language", "en"))
+    language = str(op.get("language") or default_language())
     srt = c.work_dir / "captions.srt"
     ass = c.work_dir / "captions.ass"
     argv = [
@@ -1071,7 +1085,8 @@ def _music(c: Compiler, op: dict[str, Any]) -> None:
     if fade > 0 and duration:
         # Equal-power, so the bed thins out instead of dropping away at the end.
         bed.append(f"afade=t=out:st={max(0.0, duration - min(fade, duration)):.6f}:d={min(fade, duration):.6f}:c=qsin")
-    parts = [f"[1:a]{_join(bed)}[mus]"]
+    # The track a player would play: a file can hold commentary or a silent track first.
+    parts = [f"[1:a:{track.audio_map}]{_join(bed)}[mus]"]
     if not with_source:
         parts.append("[mus]anull[mixed]")
         desc = f"{music.name} at {db:g} dB, on its own"
@@ -1427,7 +1442,7 @@ def _cutout(c: Compiler, op: dict[str, Any]) -> None:
         f"[0:v:0]{_join([video, rate, 'setsar=1', 'format=yuv444p'])},split[picture][tape]",
         f"[1:v:0]{rate},format=gray[raw]",
         f"[raw]scale={frame_width}:{frame_height}:flags=bicubic[sized]",
-        f"[picture]format=yuva444p[solid]",
+        "[picture]format=yuva444p[solid]",
     ]
     if mode == "blur":
         graph += _cutout_blur(blur)
@@ -1499,7 +1514,7 @@ def _hero_word(c: Compiler, op: dict[str, Any]) -> None:
     if not isinstance(word, str) or not word.strip():
         raise CompileError("hero_word requires a word")
     word = " ".join(word.split())
-    if len(word) > HERO_MAX_CHARS or len(word.split()) > HERO_MAX_WORDS or not HERO_WORD.fullmatch(word):
+    if len(word) > HERO_MAX_CHARS or len(word.split()) > HERO_MAX_WORDS or not hero_word_ok(word):
         raise CompileError(f"A hero word is at most {HERO_MAX_WORDS} words and {HERO_MAX_CHARS} letters, digits, spaces, apostrophes or hyphens.")
     side, font, color = op.get("side", "center"), op.get("font", "heavy"), str(op.get("color", HERO_COLORS[0])).upper()
     if side not in HERO_SIDES:
@@ -1518,6 +1533,13 @@ def _hero_word(c: Compiler, op: dict[str, Any]) -> None:
         focus = tuple(_finite_number(value, "hero word focus") for value in focus)
         if not all(0 <= value <= 1 for value in focus):
             raise CompileError("hero word focus is an [x, y] point in 0–1")
+    box = op.get("subject_box")
+    if box is not None:
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            raise CompileError("hero word subject_box is [x0, y0, x1, y1] in 0–1")
+        box = tuple(_finite_number(value, "hero word subject_box") for value in box)
+        if not (0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1):
+            raise CompileError("hero word subject_box is [x0, y0, x1, y1] in 0–1")
     if not op.get("matte"):
         raise CompileError("hero_word requires a matte")
     matte = c.resolve_source(op["matte"])
@@ -1528,15 +1550,17 @@ def _hero_word(c: Compiler, op: dict[str, Any]) -> None:
     fps = _finite_number(c.canvas.fps, "hero word frame rate")
     first, last = _hero_window(c, op, fps)
     frame_width, frame_height = c.source_size
-    family, face, font_file = hero_font(font)
+    family, face, font_file = hero_font(font, word)
     if font_file is None or str(font_file) not in HERO_FONT_FILES[font]:
-        c.warn(f"The {font} hero word font is not on this machine, so the word is drawn in {family}.")
+        installed = any(Path(candidate).is_file() for candidate in HERO_FONT_FILES[font])
+        c.warn(f"The {font} hero word font cannot draw these letters, so the word is drawn in {family}." if installed
+               else f"The {font} hero word font is not on this machine, so the word is drawn in {family}.")
     # Half a frame either side of the window, so neither layer can catch a neighbouring frame.
     shown, hidden = (first - 0.5) / fps, (last - 0.5) / fps
     out = c._next("hero_word")
     subtitle = out.with_suffix(".ass")
     text, layout = render_hero_ass(word, start=shown, end=hidden, side=side, color=color, family=family, face=face,
-                                   width=frame_width, height=frame_height, visible=visible_rect(frame_width, frame_height, aspect, focus))
+                                   width=frame_width, height=frame_height, visible=visible_rect(frame_width, frame_height, aspect, focus), subject=box)
     subtitle.write_text(text, encoding="utf-8")
     fonts = out.with_name(out.stem + "-fonts")
     fonts.mkdir(parents=True, exist_ok=True)
@@ -1779,6 +1803,9 @@ def _text(c: Compiler, op: dict[str, Any]) -> None:
         raise CompileError("text requires text")
     item: dict[str, Any] = {"text": body, "style": str(op.get("style", "label")), "position": str(op.get("position", "center")),
                             "color": str(op.get("color", "#FFFFFF"))}
+    if not COLOR.fullmatch(item["color"]):
+        # Refuse rather than quietly drawing white: a brief that names a colour should get that colour or an error.
+        raise CompileError(f"text color must be #RRGGBB, not {item['color'][:40]!r}")
     for key, fallback in (("start", 0.0), ("duration", c.duration or 3.0), ("scale", 1.0), ("fade", DEFAULT_FADE)):
         item[key] = _finite_number(op.get(key, fallback), f"text {key}")
     if item["start"] < 0 or item["duration"] <= 0 or item["scale"] <= 0 or item["fade"] < 0:
@@ -1790,7 +1817,12 @@ def _text(c: Compiler, op: dict[str, Any]) -> None:
     width, height = _frame_size(c)
     c.texts.append(item)
     if engine == "drawtext":
-        c.warn("This FFmpeg has no libass, so text uses a simpler renderer without font fallback.")
+        # Only reached without libass, so there is no ASS path to send right-to-left text to.
+        right_to_left = any(unicodedata.bidirectional(char) in ("R", "AL") for char in body)
+        if right_to_left and "text_shaping" not in filter_options("drawtext"):
+            c.warn("This FFmpeg has no libass, so text uses a simpler renderer with no right-to-left shaping: Arabic or Hebrew may read backwards. Install ffmpeg-full.")
+        else:
+            c.warn("This FFmpeg has no libass, so text uses a simpler renderer with no right-to-left shaping.")
         c.add_vf(*drawtext_filters([item], work_dir=c.work_dir, width=width, height=height, end_limit=c.duration))
         return
     for message in text_warnings([item]):
@@ -1867,9 +1899,20 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
         names = [names]
     explicit = Path(op["path"]) if op.get("path") else None
     choice = {key: op[key] for key in ("quality", "fps", "format") if op.get(key) is not None}
+    if choice.get("fps") == MATCH_SOURCE:
+        choice["fps"] = c.canvas.fps
+    # Picture and sound end on the same frame. select_ranges fixed this clock; when no
+    # later op changed the length, the export holds both streams to it exactly.
+    ending = None
+    # The plan's length rounds each cut to a frame, so the two agree within half a frame.
+    if c.clock_frames and c.canvas.fps and c.duration is not None and abs(c.duration - c.clock_frames / c.canvas.fps) <= 0.5 / c.canvas.fps + 0.001:
+        ending = c.clock_frames / c.canvas.fps
     first_dest: Path | None = None
     for i, name in enumerate(names):
         preset = get_preset(export_preset_name(str(name), **choice))
+        if preset.canvas.width and not preset.canvas.fps:
+            # A preset named for the source rate, given directly: the canvas already holds that rate.
+            preset = get_preset(export_preset_name(str(name), **{**choice, "fps": c.canvas.fps}))
         for encoder in (preset.video_codec, preset.audio_codec):
             if encoder in ("libvpx-vp9", "libopus") and not has_encoder(encoder):
                 raise CompileError(f"WebM export needs the {encoder} encoder. Install ffmpeg-full.")
@@ -1897,6 +1940,10 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
             # appears equal. Equal-size scale/pad is a no-op.
             mode = str(op.get("reframe", "fill" if preset.canvas.height > preset.canvas.width else "fit"))
             vf_bits.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
+            if ending is not None:
+                vf_bits += ["tpad=stop=-1:stop_mode=clone", f"trim=end={ending:.6f}"]
+        if ending is not None and has_video and has_audio and preset.audio_codec:
+            af_bits += [f"apad=whole_dur={ending:.6f}", f"atrim=end={ending:.6f}"]
         if has_video and preset.video_codec and preset.container != "gif":
             # A full-range source has to be converted, not just relabelled, or its
             # blacks and whites are crushed on playback. FFmpeg 9 carries frame color
@@ -1925,6 +1972,83 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
             c.set_current(dest)
             src_w, src_h = preset.canvas.width or src_w, preset.canvas.height or src_h
     _flush_thumbs(c)
+
+
+
+REQUIRED_CARD_FILTERS = ("movie", "setpts", "scale", "format", "overlay")
+
+
+def card_filter(path: str | Path, *, tag: str, start: float, end: float, width: int, height: int) -> str:
+    """Fuse a motion card (a video with alpha) into the chain, on the output clock.
+
+    The card's first frame is placed at ``start``; before it and after the card
+    ends the picture passes through untouched, so the clock never moves.
+    """
+    chain = [f"movie={filter_value(path)}", f"setpts=PTS-STARTPTS+{start:.6f}/TB",
+             f"scale={width}:{height}:flags=lanczos:in_color_matrix=bt709:in_range=limited:out_color_matrix=bt709:out_range=limited",
+             "format=yuva420p"]
+    return (f"null[{tag}m];{','.join(chain)}[{tag}o];"
+            f"[{tag}m][{tag}o]overlay=x=0:y=0:format=yuv420:eof_action=pass:enable='between(t,{start:.6f},{end:.6f})'")
+
+
+def _motion_card(c: Compiler, op: dict[str, Any]) -> None:
+    """A 3D motion card over the opening or closing seconds, rendered by Briefcut's Blender template.
+
+    ``card`` is ``edit.motion_card``. When the card for this frame size is not
+    cached yet, a Blender step joins the program before the export that reads
+    it; ``file`` instead names a card rendered earlier. Without Blender the card
+    is left out with a warning. Nothing here changes timing.
+    """
+    from vedit import blender_cards
+
+    if not c.has_video:
+        raise CompileError("A motion card needs a video stream.")
+    missing = [name for name in REQUIRED_CARD_FILTERS if not has_filter(name)]
+    if missing:
+        raise CompileError("Motion cards need FFmpeg filters: " + ", ".join(missing) + ". Install ffmpeg-full.")
+    width, height = _frame_size(c)
+    fps = _finite_number(c.canvas.fps, "motion card frame rate")
+    if op.get("file"):
+        path = c.resolve_source(op["file"])
+        if not path.is_file():
+            raise CompileError(f"The motion card file does not exist: {path}")
+        seconds = _finite_number(op.get("duration") or probe(path).duration, "motion card length")
+        label, default_start = path.name, 0.0
+    else:
+        try:
+            card = validate_motion_card(op.get("card"))
+        except EditError as exc:
+            raise CompileError(f"motion_card: {exc}") from None
+        if card is None:
+            raise CompileError("motion_card requires a card or a file")
+        if not blender_cards.blender_available():
+            c.warn("Blender is not installed on this machine, so the 3D motion card was left out.")
+            return
+        backdrop = c.resolve_source(op["backdrop"]) if op.get("backdrop") else None
+        try:
+            spec = blender_cards.render_spec(card, width=width, height=height, fps=fps, backdrop=backdrop)
+        except blender_cards.MotionCardError as exc:
+            raise CompileError(str(exc)) from None
+        path = blender_cards.card_path(spec)
+        if not path.is_file():
+            card_json = c._next("motion_card", ".json")
+            card_json.write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
+            argv = [sys.executable, "-m", "vedit.blender_cards", "render", "--card", str(card_json), "--width", str(width),
+                    "--height", str(height), "--fps", f"{fps:g}", "--out", str(path.parent.parent)]
+            if backdrop is not None:
+                argv += ["--backdrop", str(backdrop)]
+            c.pipeline.add(Step("motion_card", argv, [str(path)], f"render the 3D motion card “{card['text']}” in Blender (Eevee)"))
+        seconds, label = card["duration"], card["text"]
+        default_start = blender_cards.card_window(card, c.duration)[0] if c.duration is not None else 0.0
+    start = _finite_number(op.get("start", default_start), "motion card start")
+    if start < 0 or seconds <= 0:
+        raise CompileError("A motion card starts at or after 0 s and has a length.")
+    if c.duration is not None and start + seconds > c.duration + 0.5 / fps:
+        raise CompileError(f"The motion card runs to {start + seconds:.3f}s, past the {c.duration:.3f}s clip.")
+    c.images += 1
+    c.add_vf(_bt709(), card_filter(path, tag=f"card{c.images}", start=start, end=start + seconds, width=width, height=height))
+    c.pipeline.meta.setdefault("motion_cards", []).append({"path": str(path), "text": label, "start": round(start, 4),
+                                                           "end": round(start + seconds, 4)})
 
 
 OPS = {
@@ -1973,6 +2097,7 @@ OPS = {
     "spatial_effect": _spatial_effect,
     "cutout": _cutout,
     "hero_word": _hero_word,
+    "motion_card": _motion_card,
     "slideshow": _slideshow,
     "thumbnail": _thumbnail,
     "chromakey": _chromakey,

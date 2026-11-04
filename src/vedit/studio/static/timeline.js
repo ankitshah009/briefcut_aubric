@@ -1084,8 +1084,9 @@
       const busy = locked();
       undo.disabled = busy || !Editor.canUndo();
       redo.disabled = busy || !Editor.canRedo();
-      undo.title = Editor.canUndo() ? "Undo " + Editor.undoLabel() + " (Cmd+Z)" : "Nothing to undo";
-      redo.title = Editor.canRedo() ? "Redo " + Editor.redoLabel() + " (Shift+Cmd+Z)" : "Nothing to redo";
+      const mod = (window.BriefcutPlatform && window.BriefcutPlatform.mod) || "Ctrl";
+      undo.title = Editor.canUndo() ? "Undo " + Editor.undoLabel() + " (" + mod + "+Z)" : "Nothing to undo";
+      redo.title = Editor.canRedo() ? "Redo " + Editor.redoLabel() + " (Shift+" + mod + "+Z)" : "Nothing to redo";
     }
 
     /* ---------- Canvas ---------- */

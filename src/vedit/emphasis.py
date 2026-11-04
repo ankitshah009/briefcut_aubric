@@ -21,7 +21,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from vedit.captions import Cue, cue_key, split_words
+from vedit.captions import Cue, cue_key, edge_stripped, split_words
 from vedit.edit_spec import CUE_KEY, MAX_EMPHASIS, MAX_EMPHASIS_INDEX, MAX_EMPHASIS_PER_CUE, MAX_EMPHASIS_WORD
 
 MAX_SHARE = 0.4  # at most this share of lines carry a punch word
@@ -31,8 +31,7 @@ MAX_GOAL_CHARS = 2000
 WHY_CHARS = 160
 OPERATION = "emphasis"
 SCHEMA_VERSION = "v1"
-_EDGE = re.compile(r"^[^\w]+|[^\w]+$")
-_LANGUAGE = re.compile(r"[a-z]{2,3}(?:-[A-Za-z]{2,8})?\Z")
+_LANGUAGE = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}\Z")  # en, pt-BR, es-419, zh-Hant-TW
 
 # ask(work_dir, operation, *, name, schema, prompt, budget, check, purpose) -> dict, as meta._structured.
 Ask = Callable[..., dict[str, Any]]
@@ -43,7 +42,8 @@ class EmphasisError(ValueError):
 
 
 def _key(text: str) -> str:
-    return _EDGE.sub("", text).casefold()
+    """A word as compared: no edge punctuation, no case. Marks stay, so Hindi "का" and "की" stay different words."""
+    return edge_stripped(text).casefold()
 
 
 def _clean(value: Any, limit: int) -> str:
@@ -141,7 +141,8 @@ def validate_emphasis(raw: Any, lines: list[dict[str, Any]], *, share: float = M
             trimmed += 1
             continue
         taken.append(index)
-        kept.append({"cue_key": key, "word_index": index, "word": words[index], "why": _clean(pick.get("why", ""), WHY_CHARS)})
+        why = pick.get("why")
+        kept.append({"cue_key": key, "word_index": index, "word": words[index], "why": _clean(why, WHY_CHARS) if isinstance(why, str) else ""})
     if invalid and invalid * 2 > len(picks):
         raise MetaError("The model's picks did not match the caption text, so no word was emphasised. Retry.")
     if invalid:

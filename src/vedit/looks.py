@@ -573,7 +573,8 @@ def measure(path: str | Path, *, samples: int = 16, width: int = 96) -> dict[str
         raise ValueError(f"{source} has no picture to measure")
     frames = max(1, round(info.duration * (info.fps or 30.0)))
     every = max(1, frames // samples)
-    argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(source), "-map", "0:v:0", "-an",
+    # The footage, not cover art or a proxy stream that happens to come first.
+    argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(source), "-map", f"0:v:{info.video_map}", "-an",
             "-vf", f"select='not(mod(n\\,{every}))',scale={width}:-2:flags=area:in_color_matrix=bt709,format=rgb24",
             "-fps_mode", "passthrough", "-frames:v", str(samples + 1), "-f", "rawvideo", "-"]
     done = subprocess.run(argv, capture_output=True, timeout=600)

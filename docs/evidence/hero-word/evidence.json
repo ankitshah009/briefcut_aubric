@@ -1,0 +1,284 @@
+{
+  "schema": "briefcut.hero-word.v1",
+  "recorded_at": "2026-11-04T18:48:02Z",
+  "clip": "examples/demo/workshop.mp4",
+  "segment": [
+    0.0,
+    5.0
+  ],
+  "subject": "the wooden bowl",
+  "transcriber": "whisper.cpp ggml-base.en (local, no spend)",
+  "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "proposal": {
+      "word": "oak",
+      "start": 1.35,
+      "end": 3.35,
+      "side": "center",
+      "reason": "It names the natural material of the hero wooden bowl."
+    },
+    "checked": {
+      "word": "oak",
+      "start": 1.29,
+      "end": 3.29,
+      "side": "center",
+      "spoken": [
+        1.35,
+        1.59
+      ],
+      "adjusted": [],
+      "reason": "It names the natural material of the hero wooden bowl."
+    },
+    "usage": {
+      "estimated_max_usd": 0.0033425,
+      "cached": true,
+      "input_tokens": 428,
+      "output_tokens": 1959,
+      "total_tokens": 2387,
+      "cost_usd": 0.0004346,
+      "charged_this_call_usd": 0
+    }
+  },
+  "sam": {
+    "model": "sam-3.1",
+    "usage": {
+      "cached": true,
+      "charged_this_call_usd": 0
+    },
+    "object_id": 0,
+    "subject_box": [
+      0.2657,
+      0.2279,
+      0.7632,
+      0.784
+    ],
+    "matte": {
+      "frames": 60,
+      "masked_frames": 60,
+      "filled_frames": 0,
+      "empty_frames": 0,
+      "coverage": 1.0,
+      "flicker": 0.0078,
+      "mean_area": 0.2166,
+      "first_missing": null,
+      "window_frames": 60,
+      "subject_box": [
+        0.2657,
+        0.2279,
+        0.7632,
+        0.784
+      ]
+    }
+  },
+  "side_by_shape": {
+    "16:9": {
+      "chosen": "top",
+      "note": "Spark asked for center, where SAM's mask covers 82% of the word, so the word sits top instead, 20% behind the subject.",
+      "hidden_by_side": {
+        "center": 0.8203,
+        "top": 0.1999,
+        "left": 0.5355,
+        "right": 0.5906
+      }
+    },
+    "9:16": {
+      "chosen": "top",
+      "note": "Spark asked for center, where SAM's mask covers 100% of the word, so the word sits top instead, 28% behind the subject.",
+      "hidden_by_side": {
+        "center": 1.0,
+        "top": 0.2812,
+        "left": 1.0,
+        "right": 1.0
+      }
+    }
+  },
+  "edit_hero_word": {
+    "16:9": {
+      "word": "oak",
+      "start": 1.29,
+      "end": 3.29,
+      "subject": "the wooden bowl",
+      "side": "top",
+      "font": "heavy",
+      "color": "#FFFFFF",
+      "reason": "It names the natural material of the hero wooden bowl.",
+      "subject_box": [
+        0.2657,
+        0.2279,
+        0.7632,
+        0.784
+      ]
+    },
+    "9:16": {
+      "word": "oak",
+      "start": 1.29,
+      "end": 3.29,
+      "subject": "the wooden bowl",
+      "side": "top",
+      "font": "heavy",
+      "color": "#FFFFFF",
+      "reason": "It names the natural material of the hero wooden bowl.",
+      "subject_box": [
+        0.2657,
+        0.2279,
+        0.7632,
+        0.784
+      ]
+    }
+  },
+  "renders": {
+    "16:9": {
+      "video": "render-16x9/video.mp4",
+      "ops": [
+        "select_ranges",
+        "hero_word",
+        "reframe",
+        "loudnorm",
+        "thumbnail",
+        "export"
+      ],
+      "warnings": [
+        "The source is 1280x720, so this 1920x1080 export is upscaled and gains no detail."
+      ],
+      "hero_layout": [
+        {
+          "word": "oak",
+          "first_frame": 39,
+          "last_frame": 99,
+          "side": "top",
+          "text": "OAK",
+          "size": 405,
+          "x": 640,
+          "y": 144,
+          "width": 702,
+          "height": 287,
+          "visible": [
+            0,
+            0,
+            1280,
+            720
+          ]
+        }
+      ],
+      "steps_ok": true,
+      "proof": {
+        "duration": 5.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv"
+      }
+    },
+    "9:16": {
+      "video": "render-9x16/video.mp4",
+      "ops": [
+        "select_ranges",
+        "hero_word",
+        "reframe",
+        "loudnorm",
+        "thumbnail",
+        "export"
+      ],
+      "warnings": [
+        "The source is 1280x720, so this 1080x1920 export is upscaled and gains no detail."
+      ],
+      "hero_layout": [
+        {
+          "word": "oak",
+          "first_frame": 39,
+          "last_frame": 99,
+          "side": "top",
+          "text": "OAK",
+          "size": 210,
+          "x": 640,
+          "y": 154,
+          "width": 364,
+          "height": 149,
+          "visible": [
+            438,
+            0,
+            405,
+            720
+          ]
+        }
+      ],
+      "steps_ok": true,
+      "proof": {
+        "duration": 5.0,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv"
+      }
+    }
+  },
+  "checks": {
+    "16:9": {
+      "name": "auto: hero word sits behind the subject",
+      "passed": true,
+      "at": 1.29,
+      "note": "“oak” for 2.00 s from 1.29 s; SAM masked 100% of 60 frames; the subject covers 20% of the word",
+      "basis": "derived",
+      "by": "lint",
+      "inputs": [
+        "sam-3.1",
+        "muse-spark"
+      ]
+    },
+    "9:16": {
+      "name": "auto: hero word sits behind the subject",
+      "passed": true,
+      "at": 1.29,
+      "note": "“oak” for 2.00 s from 1.29 s; SAM masked 100% of 60 frames; the subject covers 28% of the word",
+      "basis": "derived",
+      "by": "lint",
+      "inputs": [
+        "sam-3.1",
+        "muse-spark"
+      ]
+    }
+  },
+  "observed_mean_luma_difference_vs_plain_render": {
+    "before": 1.016,
+    "inside": 15.154,
+    "after": 1.045
+  },
+  "observed_hero_step_vs_its_input_tape": {
+    "frames": 150,
+    "window": [
+      39,
+      99
+    ],
+    "outside_min_psnr_db": 49.25,
+    "outside_mean_psnr_db": 50.9,
+    "inside_max_psnr_db": 35.62,
+    "inside_min_psnr_db": 16.53
+  },
+  "meta_calls": [
+    {
+      "operation": "hero_word",
+      "model": "muse-spark-1.3-contributor",
+      "status": "completed",
+      "request_id": "resp_6aeb7c4fa8962bb2fd184399",
+      "reserved_usd": 0.0033425,
+      "cost_usd": 0.0004346
+    },
+    {
+      "operation": "tracking",
+      "model": "sam-3.1",
+      "status": "completed",
+      "request_id": "resp_6aeb7c53bd65ab26e6804f56",
+      "reserved_usd": 0.0124,
+      "cost_usd": 0.012
+    }
+  ],
+  "spend_usd": 0.012435,
+  "budget_usd": 0.1,
+  "seconds": 46.2
+}

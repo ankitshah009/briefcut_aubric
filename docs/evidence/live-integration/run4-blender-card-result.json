@@ -1,0 +1,24 @@
+{
+  "path": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/live-int/home/cards/f9114ebe7fcc36416bfe/card.mov",
+  "poster": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/live-int/home/cards/f9114ebe7fcc36416bfe/poster.png",
+  "hash": "f9114ebe7fcc36416bfe",
+  "frames": 90,
+  "seconds": 3.0,
+  "width": 1080,
+  "height": 1920,
+  "codec": "prores_4444",
+  "pix_fmt": "yuva444p10le",
+  "blender": "Blender 5.2.3 LTS (hash e13b728c6880 built 2026-10-22 01:31:22)",
+  "engine": "BLENDER_EEVEE",
+  "blender_seconds": 37.05,
+  "render_seconds": 30.874,
+  "encode_seconds": 0.54,
+  "samples": 16,
+  "log": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/live-int/home/cards/f9114ebe7fcc36416bfe/blender.log",
+  "log_excerpt": [
+    "MOTION_CARD_DONE {\"frames\": 90, \"render_seconds\": 30.874}",
+    "Blender 5.2.3 LTS (hash e13b728c6880 built 2026-10-22 01:31:22)",
+    "Blender quit"
+  ],
+  "title_body": "Oak Bowl\nIn 24\nHours"
+}

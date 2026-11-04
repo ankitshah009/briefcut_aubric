@@ -1,0 +1,690 @@
+{
+  "run": "A4",
+  "title": "Multi-clip: wanrong-walk + flower + a 720x720 JPG still, to 16:9; then an agent's own over-long cut; then revise auto",
+  "path": "MCP stdio, the exact .mcp.json command, isolated VEDIT_WORKSPACE",
+  "command": [
+    "uv",
+    "run",
+    "--no-dev",
+    "--extra",
+    "mcp",
+    "--extra",
+    "sam",
+    "vedit",
+    "mcp"
+  ],
+  "started_at": "2026-11-04T11:28:44-0800",
+  "code": {
+    "head": "7b1cc73",
+    "working_tree_diff_sha256": "b24ad6208f61f8c9"
+  },
+  "job_id": "e515d3cdd4f247de8c8f9dcdeb4e428d",
+  "request": {
+    "clips": [
+      "wanrong-walk.mp4",
+      "flower.mp4",
+      "000024.jpg"
+    ],
+    "goal": "A 15-second widescreen montage: the archival street scene, then the flower opening, and end on the photo of the colonnade. Add a title card.",
+    "aspect": "16:9",
+    "target_duration": 15,
+    "budget_usd": 0.15,
+    "captions": true,
+    "steps": []
+  },
+  "meta_mode": "contributor",
+  "tools_listed": 21,
+  "plan": {
+    "title": "1924 Street to Bloom to Colonnade",
+    "caption": "From a 1924 street view to a blooming flower to a colonnade walk \u2014 a short visual passage through time. Title card to be added at start.",
+    "hashtags": [
+      "#archivefootage",
+      "#timelapse",
+      "#montage"
+    ],
+    "duration": 13.633,
+    "decisions": [
+      "Title card \u20181924 Street to Bloom to Colonnade\u2019 for 2.5 s"
+    ],
+    "warnings": [
+      "This clip's sound track is silent, so moments follow the picture."
+    ],
+    "provider": "meta",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 5.5,
+        "label": "Archival 1924 street scene",
+        "reason": "Shows black-and-white archival view with on-screen 1924 label, brick building and outdoor figures, establishing the historical opening.",
+        "kind": "scene"
+      },
+      {
+        "start": 15.2,
+        "end": 20.2,
+        "label": "Flower opening",
+        "reason": "Shows macro of small red bud unfolding into open bloom revealing yellow center among purple-edged green leaves.",
+        "kind": "scene"
+      },
+      {
+        "start": 20.5,
+        "end": 23.633,
+        "label": "Colonnade photo",
+        "reason": "Shows still photo of two masked adults in suits walking forward in a white arched colonnade hallway to close the sequence.",
+        "kind": "scene"
+      }
+    ]
+  },
+  "source": {
+    "name": "wanrong-walk.mp4 and 2 more",
+    "duration": 23.633333,
+    "width": 1920,
+    "height": 1080,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "wanrong-walk.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 15.633
+      },
+      {
+        "name": "flower.mp4",
+        "kind": "video",
+        "start": 15.633,
+        "end": 20.633
+      },
+      {
+        "name": "000024.jpg",
+        "kind": "photo",
+        "start": 20.633,
+        "end": 23.633
+      }
+    ],
+    "filmstrip": {
+      "columns": 10,
+      "rows": 2,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 12,
+      "seconds_per_tile": 2.0,
+      "url": "filmstrip"
+    },
+    "waveform": {
+      "url": "waveform",
+      "count": 237,
+      "seconds_per_peak": 0.0998
+    }
+  },
+  "plan_seconds": 36.8,
+  "render_seconds": 6.6,
+  "renders": [
+    {
+      "what": "first render",
+      "receipts": {
+        "revision": 1,
+        "passed": 5,
+        "total": 5,
+        "proof": {
+          "duration": 13.633333,
+          "width": 1920,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 1459422
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "13.6 s cut vs 15.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "3 moments inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Title card \u20181924 Street to Bloom to Colonnade\u2019 for 2.5 s.",
+            "basis": "derived",
+            "by": "brief-parser"
+          }
+        ],
+        "warnings": [
+          "This clip's sound track is silent, so moments follow the picture.",
+          "Meta heard no speech in these moments. This video has no captions."
+        ],
+        "patches": [],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 5,
+            "total": 5,
+            "duration": 13.633333
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 13.633333,
+        "size_bytes": 1459422,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      }
+    },
+    {
+      "what": "agent's own cut via briefcut_render(plan=...), segments [[0.0, 12.0], [15.633, 20.633], [20.633, 23.633]]",
+      "receipts": {
+        "revision": 2,
+        "passed": 4,
+        "total": 5,
+        "proof": {
+          "duration": 20.0,
+          "width": 1920,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 2072956
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": false,
+            "note": "20.0 s cut vs 15.0 s target (over by 5.0 s)",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "3 moments inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Title card \u20181924 Street to Bloom to Colonnade\u2019 for 2.5 s.",
+            "basis": "derived",
+            "by": "brief-parser"
+          }
+        ],
+        "warnings": [
+          "This clip's sound track is silent, so moments follow the picture.",
+          "Meta heard no speech in these moments. This video has no captions."
+        ],
+        "patches": [
+          {
+            "op": "remove",
+            "segment": 3,
+            "seconds": null,
+            "reason": "The cut runs 5.0 s over the 15.0 s target; drop moment 3.",
+            "source": "auto",
+            "summary": "Remove moment 3."
+          },
+          {
+            "op": "trim_end",
+            "segment": 2,
+            "seconds": 18.633,
+            "reason": "The cut runs 5.0 s over the 15.0 s target; shorten moment 2.",
+            "source": "auto",
+            "summary": "Moment 2 ends at 18.6 s."
+          }
+        ],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 5,
+            "total": 5,
+            "duration": 13.633333
+          },
+          {
+            "revision": 2,
+            "status": "verified",
+            "source": "approved",
+            "passed": 4,
+            "total": 5,
+            "duration": 20.0
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 20.0,
+        "size_bytes": 2072956,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      },
+      "error": null
+    },
+    {
+      "what": "briefcut_revise mode=auto",
+      "error": null,
+      "receipts": {
+        "revision": 3,
+        "passed": 5,
+        "total": 5,
+        "proof": {
+          "duration": 15.0,
+          "width": 1920,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 1477569
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "15.0 s cut vs 15.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "2 moments inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Title card \u20181924 Street to Bloom to Colonnade\u2019 for 2.5 s.",
+            "basis": "derived",
+            "by": "brief-parser"
+          }
+        ],
+        "warnings": [
+          "This clip's sound track is silent, so moments follow the picture.",
+          "Meta heard no speech in these moments. This video has no captions."
+        ],
+        "patches": [],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 5,
+            "total": 5,
+            "duration": 13.633333
+          },
+          {
+            "revision": 2,
+            "status": "verified",
+            "source": "approved",
+            "passed": 4,
+            "total": 5,
+            "duration": 20.0
+          },
+          {
+            "revision": 3,
+            "status": "verified",
+            "source": "auto",
+            "passed": 5,
+            "total": 5,
+            "duration": 15.0
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 15.0,
+        "size_bytes": 1477569,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      },
+      "seconds": 5.5
+    }
+  ],
+  "tool_log": [
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.24,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.12,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.13,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.13,
+      "error": false
+    },
+    {
+      "tool": "briefcut_create_story",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 36.8,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 6.55,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.2,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 6.53,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_revise",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 5.53,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    }
+  ],
+  "wall_seconds_total": 58.0,
+  "meta": {
+    "calls": [
+      {
+        "operation": "story",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Plan the story",
+        "status": "done",
+        "seconds": 12.07,
+        "reserved_usd": 0.0033254,
+        "cost_usd": 0.0010132,
+        "size": {
+          "input_tokens": 6478,
+          "output_tokens": 1827
+        },
+        "request_id": "resp_6aeb878e3fb67f51e42d45c3",
+        "runs_on": "meta-api"
+      }
+    ],
+    "totals": {
+      "calls": 1,
+      "running": 0,
+      "spent_usd": 0.0010132,
+      "held_usd": 0.0033254,
+      "api_calls": 1,
+      "local_calls": 0,
+      "budget_usd": 0.15,
+      "remaining_usd": 0.1466746
+    },
+    "spent_usd": 0.001013,
+    "reserved_usd": 0.003325
+  },
+  "contact_sheets": [
+    "a4-v1.jpg",
+    "a4-cut1.jpg",
+    "a4-v2.jpg",
+    "a4-v3.jpg"
+  ],
+  "findings": [
+    "v1 5 of 5, but Spark's ranges cross clip boundaries and nothing snaps them. 'Flower opening' is 15.2-20.2 on the combined clock while the flower clip is 15.633-20.633, so the moment opens with 0.43 s (13 frames) of the archival film (a4-cut1.jpg, frames 0.3-0.6). 'Colonnade photo' 20.5-23.633 opens with 0.13 s of flower. The 'moments inside the source' check passes because the combined file is one source.",
+    "v2 (agent's cut, 20.0 s against a 15 s target) failed the duration check, 4 of 5, with two auto patches. revise auto produced v3: 15.0 s, 5 of 5.",
+    "The auto patch removed moment 3, the colonnade photo the brief asked to end on. v3 has no colonnade, yet its title card still reads '1924 Street to Bloom to Colonnade', and all checks pass.",
+    "The still image went through briefcut_import_clip although that tool says it takes a video. It became a 3.0 s photo item with a blurred fit."
+  ]
+}

@@ -71,9 +71,10 @@ def test_doctor_has_no_whisper_row(meta_ready: None) -> None:
     assert "whisper-cli" not in names
 
 
-def test_cli_setup_points_to_the_key_page(no_meta: None, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_setup_points_to_the_key_page(no_meta: None, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     from vedit.cli import main
 
+    monkeypatch.setattr(settings, "load_checkout_env", lambda: [])  # this checkout may hold real secrets
     assert main(["setup"]) == 1
     out = capsys.readouterr().out
     assert "https://dev.meta.ai" in out and "whisper" not in out.lower() and "speech model" not in out.lower()

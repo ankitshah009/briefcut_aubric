@@ -1,0 +1,438 @@
+{
+  "run": "A3",
+  "title": "whitehouse-walk (720x720, 4.8 s, no audio stream) to 9:16, then find_moments",
+  "path": "MCP stdio, the exact .mcp.json command, isolated VEDIT_WORKSPACE",
+  "command": [
+    "uv",
+    "run",
+    "--no-dev",
+    "--extra",
+    "mcp",
+    "--extra",
+    "sam",
+    "vedit",
+    "mcp"
+  ],
+  "started_at": "2026-11-04T11:28:07-0800",
+  "code": {
+    "head": "7b1cc73",
+    "working_tree_diff_sha256": "2aa73b2c51d8245d"
+  },
+  "job_id": "d0699c12df8f40b9a05a72de9b9ef663",
+  "request": {
+    "clips": [
+      "whitehouse-walk.mp4"
+    ],
+    "goal": "A 4-second vertical clip of two people walking toward the camera down a white colonnade.",
+    "aspect": "9:16",
+    "target_duration": 4,
+    "budget_usd": 0.1,
+    "captions": true,
+    "steps": []
+  },
+  "meta_mode": "contributor",
+  "tools_listed": 21,
+  "plan": {
+    "title": "Walk Down the White Colonnade",
+    "caption": "Two people walking together toward the camera down a bright white colonnade.",
+    "hashtags": [
+      "#colonnade",
+      "#walk",
+      "#behindthescenes"
+    ],
+    "duration": 4.0,
+    "decisions": [],
+    "warnings": [
+      "This source has no audio. Captions cannot be generated."
+    ],
+    "provider": "meta",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 4.0,
+        "label": "two people walking toward camera",
+        "reason": "Shows two masked people in suits walking forward down a white colonnade with glass doors, arches and ceiling lights, with others following behind",
+        "kind": "scene"
+      }
+    ]
+  },
+  "source": {
+    "name": "whitehouse-walk.mp4",
+    "duration": 4.838167,
+    "width": 720,
+    "height": 720,
+    "has_audio": false,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "whitehouse-walk.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 4.838
+      }
+    ],
+    "filmstrip": {
+      "columns": 3,
+      "rows": 1,
+      "tile_width": 90,
+      "tile_height": 90,
+      "count": 3,
+      "seconds_per_tile": 2.0,
+      "url": "filmstrip"
+    },
+    "waveform": {
+      "url": "waveform",
+      "count": 0,
+      "seconds_per_peak": 0
+    }
+  },
+  "plan_seconds": 20.1,
+  "render_seconds": 2.5,
+  "renders": [
+    {
+      "what": "first render",
+      "receipts": {
+        "revision": 1,
+        "passed": 5,
+        "total": 5,
+        "proof": {
+          "duration": 4.0,
+          "width": 1080,
+          "height": 1920,
+          "fps": 30.0,
+          "has_audio": false,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 694329
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "4.0 s cut vs 4.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "1 moment inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "The brief asked for no specific edits.",
+            "basis": "derived",
+            "by": "brief-parser"
+          }
+        ],
+        "warnings": [
+          "This source has no audio. Captions cannot be generated.",
+          "The source is 720x720, so this 1080x1920 export is upscaled and gains no detail."
+        ],
+        "patches": [],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 5,
+            "total": 5,
+            "duration": 4.0
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 4.0,
+        "size_bytes": 694329,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1080,
+          "height": 1920,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": []
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      }
+    }
+  ],
+  "tool_log": [
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.21,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.11,
+      "error": false
+    },
+    {
+      "tool": "briefcut_create_story",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 20.08,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 2.52,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.17,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_find_moments",
+      "seconds": 31.55,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    }
+  ],
+  "find": [
+    {
+      "code": {
+        "head": "7b1cc73",
+        "working_tree_diff_sha256": "f8b79e63cbe82273"
+      },
+      "started_at": "2026-11-04T11:38:38-0800",
+      "query": "a man in a dark suit and purple tie",
+      "seconds": 31.6,
+      "searched": [
+        "footage"
+      ],
+      "warnings": [],
+      "verification": {
+        "status": "verified",
+        "phrase": "man in suit",
+        "receipt": {
+          "name": "sam: \u201cman in suit\u201d is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for \u201cman in suit\u201d in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "spend": [
+          {
+            "model": "sam-3.1",
+            "operation": "verify-find",
+            "moment": 0,
+            "window": [
+              0.919,
+              3.919
+            ],
+            "frames": 50,
+            "cost_usd": 0.01,
+            "estimated_max_usd": 0.01,
+            "cached": false
+          }
+        ],
+        "spent_usd": 0.01,
+        "reason": "SAM 3.1 looked for \u201cman in suit\u201d in 1 moments Muse Spark found: 1 verified (coverage 100%)."
+      },
+      "moments": [
+        {
+          "start": 0.0,
+          "end": 4.838,
+          "label": "A man in a dark suit and purple tie walks forward beside a w",
+          "reason": "A man in a dark suit and purple tie walks forward beside a woman.",
+          "score": 0.9,
+          "verified": true,
+          "coverage": 1.0,
+          "flagged": false,
+          "verification": "SAM masked \u201cman in suit\u201d in 45 of 45 sampled frames."
+        }
+      ]
+    }
+  ],
+  "wall_seconds_total": 55.8,
+  "meta": {
+    "calls": [
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "purpose": "Check \u201cman in suit\u201d in a found moment",
+        "status": "done",
+        "seconds": 9.66,
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01,
+        "size": {
+          "frames": 50,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        "request_id": "resp_6aeb89d1388f3395973a41f9",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Find \u201ca man in a dark suit and purple tie\u201d in the footage",
+        "status": "done",
+        "seconds": 5.8,
+        "reserved_usd": 0.0033221,
+        "cost_usd": 0.000268,
+        "size": {
+          "input_tokens": 1256,
+          "output_tokens": 712
+        },
+        "request_id": "resp_6aeb89c9e96b747ef9d74735",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "story",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Plan the story",
+        "status": "done",
+        "seconds": 5.91,
+        "reserved_usd": 0.0033238,
+        "cost_usd": 0.0003205,
+        "size": {
+          "input_tokens": 1225,
+          "output_tokens": 990
+        },
+        "request_id": "resp_6aeb87584badf5a1d52c42a8",
+        "runs_on": "meta-api"
+      }
+    ],
+    "totals": {
+      "calls": 3,
+      "running": 0,
+      "spent_usd": 0.0105885,
+      "held_usd": 0.0166459,
+      "api_calls": 3,
+      "local_calls": 0,
+      "budget_usd": 0.1,
+      "remaining_usd": 0.0833541
+    },
+    "spent_usd": 0.010589,
+    "reserved_usd": 0.016646
+  },
+  "contact_sheets": [
+    "a3-v1.jpg"
+  ],
+  "findings": [
+    "5 of 5. The center crop keeps both people in frame for the whole clip. The output has no audio stream, which the probe reports correctly.",
+    "find_moments 'a man in a dark suit and purple tie': SAM masked 'man in suit' in 45 of 45 frames. Verify-find works when the subject is large."
+  ]
+}

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import Any
 
+from vedit import settings
 from vedit.agent.model import Decision, Intent, Inventory, SourceShot
 from vedit.agent.policy import PlatformContract, canvas_for, contract_for
 from vedit.errors import BriefError
@@ -18,6 +20,24 @@ _ASPECT_SIZE: dict[str, tuple[int, int]] = {
 }
 
 _SPEECH_PLATFORMS = frozenset({"youtube", "shorts", "podcast", "linkedin", "square"})
+
+
+SILENCE_BELOW_SPEECH_DB = 16.0
+SILENCE_DEFAULT_DB = -34.0
+
+
+def silence_threshold_db(loudness_i: float | None) -> float:
+    """Where a pause starts, relative to how loud this recording is.
+
+    A fixed line reads a quiet phone recording (speech near -40 dBFS) as all
+    silence, and a noisy room as none. Pauses sit 20 dB or more under speech and
+    quiet syllables about 10 dB under its average, so the line goes
+    ``SILENCE_BELOW_SPEECH_DB`` under the measured integrated loudness: -34 dBFS
+    for typical -18 LUFS speech. Unmeasured audio keeps that -34 dBFS.
+    """
+    if loudness_i is None or not math.isfinite(loudness_i):
+        return SILENCE_DEFAULT_DB
+    return float(min(-26.0, max(-50.0, round(loudness_i - SILENCE_BELOW_SPEECH_DB))))
 
 
 def decide(intent: Intent, inventory: Inventory) -> Decision:
@@ -80,11 +100,11 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         if cut:
             if shorts:
                 ops.append(
-                    {"op": "cut_silence", "threshold_db": -34, "min_silence": 0.28, "pad": 0.08}
+                    {"op": "cut_silence", "threshold_db": silence_threshold_db(primary.loudness_i), "min_silence": 0.28, "pad": 0.08}
                 )
             else:
                 ops.append(
-                    {"op": "cut_silence", "threshold_db": -34, "min_silence": 0.45, "pad": 0.12}
+                    {"op": "cut_silence", "threshold_db": silence_threshold_db(primary.loudness_i), "min_silence": 0.45, "pad": 0.12}
                 )
         if highpass:
             ops.append({"op": "highpass", "hz": 80})
@@ -93,7 +113,8 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         if reframe and aspect is not None:
             ops.append({"op": "reframe", "aspect": aspect, "mode": "fill"})
         if captions:
-            ops.append({"op": "captions", "burn": True, "language": "en", "style": style})
+            # The spoken language the user chose in Settings ("auto" lets Meta detect it), never a fixed "en".
+            ops.append({"op": "captions", "burn": True, "language": settings.default_language(), "style": style})
         if use_title and card is not None:
             ops.append({"op": "title", "text": card})
         if duck_music:
@@ -538,7 +559,7 @@ def _risks(
 ) -> tuple[str, ...]:
     risks: list[str] = []
     if intent.captions:
-        risks.append("Captions were requested, and whisper may be missing, so burn-in can fail.")
+        risks.append("Captions were requested. Meta Voice Transcribe hears them, so they need a Meta key.")
     if cut and primary.silence_ratio is None:
         risks.append(
             f"Silence ratio on {primary.name} ({_secs(primary.duration)}) is not measured yet, "

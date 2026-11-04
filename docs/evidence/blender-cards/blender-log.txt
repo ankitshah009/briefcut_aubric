@@ -1,0 +1,16 @@
+# Blender log excerpt for the live card 3f59d102579ca67e0ed0
+# command: blender -b --factory-startup --python-exit-code 1 --python src/vedit/assets/blender/motion_card.py -- spec.json frames/
+
+Blender 5.2.3 LTS (hash e13b728c6880 built 2026-10-22 01:31:22)
+
+00:01.069  render           | Saved: '<cache>/3f59d102579ca67e0ed0/frames/frame_0001.png'
+00:01.429  render           | Saved: '<cache>/3f59d102579ca67e0ed0/frames/frame_0002.png'
+00:01.674  render           | Saved: '<cache>/3f59d102579ca67e0ed0/frames/frame_0003.png'
+...
+00:23.649  render           | Saved: '<cache>/3f59d102579ca67e0ed0/frames/frame_0089.png'
+00:23.870  render           | Saved: '<cache>/3f59d102579ca67e0ed0/frames/frame_0090.png'
+
+MOTION_CARD_DONE {"frames": 90, "render_seconds": 23.49}
+
+# blender wall seconds 24.17, render loop seconds 23.49, encode seconds 0.4
+# machine: Apple M5 Max, 18 cores, load average about 36 at the time (other test suites were running)

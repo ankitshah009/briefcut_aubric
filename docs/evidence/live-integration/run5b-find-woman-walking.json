@@ -1,0 +1,75 @@
+{
+  "status": 200,
+  "seconds": 25.5,
+  "searched": [
+    "footage"
+  ],
+  "warnings": [],
+  "verification": {
+    "status": "verified",
+    "phrase": "woman",
+    "receipt": {
+      "name": "sam: \u201cwoman\u201d is on screen in the found moments",
+      "passed": true,
+      "at": null,
+      "note": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 1 verified (coverage 31%).",
+      "basis": "derived",
+      "by": "sam-3.1",
+      "inputs": [
+        "muse-spark"
+      ]
+    },
+    "spend": [
+      {
+        "model": "sam-3.1",
+        "operation": "verify-find",
+        "moment": 0,
+        "window": [
+          6.0,
+          9.0
+        ],
+        "frames": 50,
+        "cost_usd": 0.01,
+        "estimated_max_usd": 0.01,
+        "cached": false
+      }
+    ],
+    "spent_usd": 0.01,
+    "reason": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 1 verified (coverage 31%).",
+    "kind": "visual",
+    "model": "sam-3.1"
+  },
+  "dropped": 0,
+  "moments": [
+    {
+      "start": 0.0,
+      "end": 15.0,
+      "label": "A woman in a hat and patterned dress walks forward beside a ",
+      "source": "meta",
+      "sources": null,
+      "found_by": null,
+      "verified": true,
+      "coverage": 0.3111,
+      "flagged": false,
+      "thumbnail": "woman-6000.jpg",
+      "thumbnail_url": "/api/campaigns/d58a2cc491e0499ba880f4fde7dc7d9f/find-thumbnail?name=woman-6000.jpg",
+      "score": 0.9,
+      "why": null
+    }
+  ],
+  "thumbnail_fetches": [
+    {
+      "url": "/api/campaigns/d58a2cc491e0499ba880f4fde7dc7d9f/find-thumbnail?name=woman-6000.jpg",
+      "status": 200,
+      "bytes": 18576,
+      "jpeg": true
+    }
+  ],
+  "thumbnail_traversal_probe": {
+    "status": 404,
+    "body": {
+      "ok": false,
+      "error": "Thumbnail not found."
+    }
+  }
+}

@@ -57,7 +57,7 @@ def ffmpeg_install() -> dict[str, Any]:
         steps.append({"label": "Install FFmpeg with titles and captions. Homebrew's plain ffmpeg has neither.", "command": "brew install ffmpeg-full"})
         return {"steps": steps, "note": ""}
     commands = {
-        "apt": "sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core",
+        "apt": "sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-noto-core fonts-noto-cjk",
         "pacman": "sudo pacman -S --needed ffmpeg ttf-dejavu",
         "brew": "brew install ffmpeg-full",
     }
@@ -122,14 +122,16 @@ def run_doctor() -> list[Check]:
         checks.append(Check(f"filter:{filt}", ok, why if ok else f"missing — needed for {why}"))
 
     checks.append(Check("encoder:libx264", has_encoder("libx264"), "software H.264", required=True))
-    vt = has_encoder("h264_videotoolbox")
-    checks.append(
-        Check(
-            "encoder:h264_videotoolbox",
-            vt,
-            "Apple Silicon HW encode (auto on Darwin; --no-hw to force libx264)" if vt else "not available — software libx264",
+    if sys.platform == "darwin":
+        # Hardware encode is an Apple option; on Linux the line would only read as a missing part.
+        vt = has_encoder("h264_videotoolbox")
+        checks.append(
+            Check(
+                "encoder:h264_videotoolbox",
+                vt,
+                "Apple Silicon HW encode (auto on Darwin; --no-hw to force libx264)" if vt else "not available, so software libx264 is used",
+            )
         )
-    )
     checks.append(Check("encoder:aac", has_encoder("aac") or has_encoder("aac_at"), "AAC audio"))
 
     try:
@@ -144,6 +146,12 @@ def run_doctor() -> list[Check]:
     checks.append(Check("imagemagick", bool(magick), magick or "optional title fallback"))
     sox = which_optional("sox")
     checks.append(Check("sox", bool(sox), sox or "optional audio diagnostics"))
+    try:
+        from vedit import blender_cards
+
+        checks.append(Check(**blender_cards.doctor_check()))
+    except Exception:  # an optional renderer must never hide the other checks
+        checks.append(Check("blender", False, "Blender could not be checked, so 3D motion cards are hidden."))
     if sys.platform == "darwin":
         checks.append(Check("ffmpeg-full preferred", full, "VEDIT_FFMPEG can point at any build"))
     return checks
@@ -157,6 +165,9 @@ def meta_check() -> Check:
         status = meta.capabilities()
     except Exception:  # an unreadable config must not hide the other checks
         return Check("meta", False, "Meta settings could not be read. Open Settings in Studio and save your key again.", required=True)
+    if status.get("available") and status.get("last_problem"):
+        # The key is set, but Meta refused the last call with it (401, 402, a certificate). Settings alone are not proof.
+        return Check("meta", False, str(status.get("reason") or status["last_problem"]), required=True)
     if status.get("available"):
         return Check("meta", True, f"key configured, Meta calls allowed, mode {status.get('mode')}", required=True)
     if not status.get("configured"):

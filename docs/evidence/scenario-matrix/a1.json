@@ -1,0 +1,646 @@
+{
+  "run": "A1",
+  "title": "wanrong-walk (1920x1080 archival film boxed in black, silent track) to 9:16 with SAM subject, then revise auto, then find_moments",
+  "path": "MCP stdio, the exact .mcp.json command, isolated VEDIT_WORKSPACE",
+  "command": [
+    "uv",
+    "run",
+    "--no-dev",
+    "--extra",
+    "mcp",
+    "--extra",
+    "sam",
+    "vedit",
+    "mcp"
+  ],
+  "started_at": "2026-11-04T11:19:49-0800",
+  "code": {
+    "head": "7b1cc73",
+    "working_tree_diff_sha256": "ae37347dea3af61e"
+  },
+  "job_id": "16cc05fa3da5497aaae8c8289e38389d",
+  "request": {
+    "clips": [
+      "wanrong-walk.mp4"
+    ],
+    "goal": "Make a 10-second vertical teaser from this 1924 archival film. Open on the woman in the ornate headdress and keep her in frame. Fade out at the end.",
+    "aspect": "9:16",
+    "target_duration": 10,
+    "budget_usd": 0.25,
+    "captions": true,
+    "subject": "the woman in the ornate headdress",
+    "steps": [
+      {
+        "revise": "auto"
+      },
+      {
+        "find": "a woman wearing an ornate headdress in front of a brick building"
+      }
+    ]
+  },
+  "meta_mode": "contributor",
+  "tools_listed": 21,
+  "plan": {
+    "title": "1924 - Woman in Ornate Headdress",
+    "caption": "A moment from 1924 \u2014 a woman in an ornate headdress and patterned costume, captured in black-and-white outside a brick building. Vertical archival teaser.",
+    "hashtags": [
+      "#1924",
+      "#ArchivalFilm",
+      "#FilmHistory"
+    ],
+    "duration": 10.0,
+    "decisions": [
+      "Fade out 0.5 s"
+    ],
+    "warnings": [
+      "This clip's sound track is silent, so moments follow the picture."
+    ],
+    "provider": "meta",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 10.0,
+        "label": "Woman in headdress held in frame",
+        "reason": "Woman in large light ornate headdress and patterned costume visible at right near brick building with trees; she remains in frame while a foreground figure passes and she walks along the wall",
+        "kind": "scene"
+      }
+    ]
+  },
+  "source": {
+    "name": "wanrong-walk.mp4",
+    "duration": 15.625,
+    "width": 1920,
+    "height": 1080,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "wanrong-walk.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 15.625
+      }
+    ],
+    "filmstrip": {
+      "columns": 8,
+      "rows": 1,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 8,
+      "seconds_per_tile": 2.0,
+      "url": "filmstrip"
+    },
+    "waveform": {
+      "url": "waveform",
+      "count": 157,
+      "seconds_per_peak": 0.0998
+    }
+  },
+  "plan_seconds": 23.2,
+  "render_seconds": 28.2,
+  "renders": [
+    {
+      "what": "first render",
+      "receipts": {
+        "revision": 1,
+        "passed": 6,
+        "total": 6,
+        "proof": {
+          "duration": 10.0,
+          "width": 1080,
+          "height": 1920,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 1324769
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "10.0 s cut vs 10.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "1 moment inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Fade out 0.5 s.",
+            "basis": "derived",
+            "by": "brief-parser"
+          },
+          {
+            "name": "auto: subject stays in frame (SAM 3.1)",
+            "passed": true,
+            "note": "280 tracked boxes cover 100% of 10.0 s; longest gap 0.4 s; subject centre inside the 9:16 crop in 100% of boxes",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1"
+            ]
+          }
+        ],
+        "warnings": [
+          "This clip's sound track is silent, so moments follow the picture.",
+          "Meta heard no speech in these moments. This video has no captions."
+        ],
+        "patches": [],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 6,
+            "total": 6,
+            "duration": 10.0
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 10.0,
+        "size_bytes": 1324769,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1080,
+          "height": 1920,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      }
+    },
+    {
+      "what": "briefcut_revise mode=auto",
+      "error": "Error executing tool briefcut_revise: No automatic fixes to apply.",
+      "receipts": null,
+      "own_ffprobe": null,
+      "probe_agrees_with_ffprobe": null,
+      "seconds": 0.0
+    }
+  ],
+  "tool_log": [
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.15,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.09,
+      "error": false
+    },
+    {
+      "tool": "briefcut_create_story",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 23.17,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 28.24,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.04,
+      "error": true
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_revise",
+      "seconds": 0.0,
+      "error": true
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.2,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_revise",
+      "seconds": 0.0,
+      "error": true
+    },
+    {
+      "tool": "briefcut_find_moments",
+      "seconds": 28.92,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.18,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.01,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_find_moments",
+      "seconds": 10.67,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    }
+  ],
+  "find": [
+    {
+      "code": {
+        "head": "7b1cc73",
+        "working_tree_diff_sha256": "337985d6fa250e45"
+      },
+      "started_at": "2026-11-04T11:22:07-0800",
+      "query": "a woman wearing an ornate headdress in front of a brick building",
+      "seconds": 28.9,
+      "searched": [
+        "footage"
+      ],
+      "warnings": [],
+      "verification": {
+        "status": "verified",
+        "phrase": "woman",
+        "receipt": {
+          "name": "sam: \u201cwoman\u201d is on screen in the found moments",
+          "passed": false,
+          "at": 0.0,
+          "note": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged.",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "spend": [
+          {
+            "model": "sam-3.1",
+            "operation": "verify-find",
+            "moment": 0,
+            "window": [
+              6.3,
+              9.3
+            ],
+            "frames": 50,
+            "cost_usd": 0.01,
+            "estimated_max_usd": 0.01,
+            "cached": false
+          }
+        ],
+        "spent_usd": 0.01,
+        "reason": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 0 verified, 1 never seen (coverage 0%). Moments SAM never saw are kept and flagged."
+      },
+      "moments": [
+        {
+          "start": 0.0,
+          "end": 15.6,
+          "label": "A woman in an ornate headdress stands and walks in front of ",
+          "reason": "A woman in an ornate headdress stands and walks in front of a brick building.",
+          "score": 0.45,
+          "verified": false,
+          "coverage": 0.0,
+          "flagged": true,
+          "verification": "SAM saw no \u201cwoman\u201d in any of 45 sampled frames."
+        }
+      ]
+    },
+    {
+      "code": {
+        "head": "7b1cc73",
+        "working_tree_diff_sha256": "ef89f342c56bf993"
+      },
+      "started_at": "2026-11-04T11:39:53-0800",
+      "query": "a woman wearing an ornate headdress in front of a brick building",
+      "seconds": 10.7,
+      "searched": [
+        "footage"
+      ],
+      "warnings": [],
+      "verification": {
+        "status": "verified",
+        "phrase": "woman",
+        "receipt": {
+          "name": "sam: \u201cwoman\u201d is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 1 verified (coverage 42%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "spend": [
+          {
+            "model": "sam-3.1",
+            "operation": "verify-find",
+            "moment": 0,
+            "window": [
+              6.3,
+              9.3
+            ],
+            "frames": 50,
+            "cost_usd": 0.01,
+            "estimated_max_usd": 0.01,
+            "cached": false
+          }
+        ],
+        "spent_usd": 0.01,
+        "reason": "SAM 3.1 looked for \u201cwoman\u201d in 1 moments Muse Spark found: 1 verified (coverage 42%)."
+      },
+      "moments": [
+        {
+          "start": 0.0,
+          "end": 15.6,
+          "label": "A woman in an ornate headdress stands and walks in front of ",
+          "reason": "A woman in an ornate headdress stands and walks in front of a brick building.",
+          "score": 0.9,
+          "verified": true,
+          "coverage": 0.4222,
+          "flagged": false,
+          "verification": "SAM masked \u201cwoman\u201d in 19 of 45 sampled frames."
+        }
+      ]
+    }
+  ],
+  "wall_seconds_total": 94.7,
+  "meta": {
+    "calls": [
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "purpose": "Check \u201cwoman\u201d in a found moment",
+        "status": "done",
+        "seconds": 6.42,
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01,
+        "size": {
+          "frames": 50,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        "request_id": "resp_6aeb8a0f19be46016625414c",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "purpose": "Check \u201cwoman\u201d in a found moment",
+        "status": "done",
+        "seconds": 5.2,
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01,
+        "size": {
+          "frames": 50,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        "request_id": "resp_6aeb85f63e8513030ef24f7f",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Find \u201ca woman wearing an ornate headdress in front of a brick bui\u2026\u201d in the footage",
+        "status": "done",
+        "seconds": 8.64,
+        "reserved_usd": 0.0033227,
+        "cost_usd": 0.0006243,
+        "size": {
+          "input_tokens": 4319,
+          "output_tokens": 962
+        },
+        "request_id": "resp_6aeb85ee5c81d364a0fb4175",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "purpose": "Track \u201cthe woman in the ornate headdress\u201d",
+        "status": "done",
+        "seconds": 17.61,
+        "reserved_usd": 0.0604,
+        "cost_usd": 0.06,
+        "size": {
+          "frames": 300,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        "request_id": "resp_6aeb8574ebe983f42f94435b",
+        "runs_on": "meta-api"
+      },
+      {
+        "operation": "story",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Plan the story",
+        "status": "done",
+        "seconds": 10.03,
+        "reserved_usd": 0.0033256,
+        "cost_usd": 0.0007602,
+        "size": {
+          "input_tokens": 4300,
+          "output_tokens": 1651
+        },
+        "request_id": "resp_6aeb856903b03b5479bc40a7",
+        "runs_on": "meta-api"
+      }
+    ],
+    "totals": {
+      "calls": 5,
+      "running": 0,
+      "spent_usd": 0.0813845,
+      "held_usd": 0.0870483,
+      "api_calls": 5,
+      "local_calls": 0,
+      "budget_usd": 0.25,
+      "remaining_usd": 0.1629517
+    },
+    "spent_usd": 0.081384,
+    "reserved_usd": 0.087048
+  },
+  "contact_sheets": [
+    "a1-v1.jpg",
+    "a1-find-thumbnail-1122.jpg"
+  ],
+  "findings": [
+    "6 of 6 checks passed, but the delivered 1080x1920 frame is 79% black. cropdetect on the output finds the active picture at 726x596. The source picture is 468x334 inside 1920x1080 and no step detects or crops the border.",
+    "The silent track was detected locally and no Voice Transcribe call was made (see meta.calls). The receipt still says 'Meta heard no speech in these moments' and the caption check says 'not requested' although captions were requested.",
+    "revise mode=auto returned 'No automatic fixes to apply.' Correct: every check passed, so there were no patches.",
+    "find_moments at 11:22 (640x360 verify window): SAM saw 'woman' in 0 of 45 frames and flagged the moment, although SAM tracking had boxed her in 280 frames of the same clip. Rerun at 11:39 after verify_find.py changed in the working tree (960x540 window): 19 of 45 frames, verified.",
+    "Spark's pre-call token count excluded the video: 488 counted vs 4,300 billed for the story call, 459 vs 4,319 for find. The 16,384-token output allowance covered the gap here."
+  ]
+}

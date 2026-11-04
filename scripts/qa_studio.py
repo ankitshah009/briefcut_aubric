@@ -2,7 +2,7 @@
 """Exercise Studio through the installed gstack browser and verify real artifacts.
 
 Run against a fresh Studio process, while no other agent is using gstack browse:
-    .venv/bin/python scripts/qa_studio.py --clip examples/demo/talk.mp4
+    uv run python scripts/qa_studio.py --clip examples/demo/talk.mp4
 
 No browser installation, paid API calls, or mocked render results. The browser is
 shared by gstack, so this script creates a new tab and leaves its evidence there.

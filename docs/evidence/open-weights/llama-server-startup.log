@@ -2,27 +2,28 @@ $ llama-server --version
 version: 0.7.0 (build 11669, commit 620d2225c)
 built with AppleClang 21.0.0.21000334 for Darwin arm64
 
-$ uv run python -m vedit.open_weights serve --draft   (2026-11-04, 10:3x PST)
-/opt/homebrew/bin/llama-server -m /Users/ankit_aubric/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf -a muse-glimmer-30b -ngl 99 -c 131072 -np 2 --host 127.0.0.1 --port 8091 --jinja --temp 1.0 --top-p 0.95 --top-k 64 -md /Users/ankit_aubric/.vedit/models/open-weights/dflash-Muse-Glimmer-30B-Q4_K_M.gguf -ngld 99
-0.00.145.345 I srv  llama_server: initializing ...
-0.00.145.351 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
-0.00.145.758 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
-0.00.196.114 I spec common_specu: auto-detected speculative type 'draft-dflash' from the draft model metadata
-0.00.198.847 I srv    load_model: loading model '/Users/ankit_aubric/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf'
-0.01.086.052 E llama_init_from_model: failed to initialize the context: dflash requires ctx_other to be set (this warning is normal during memory fitting)
-0.01.135.155 W operator(): failed to measure the memory of the extra model, fitting without it: failed to create llama_context from model
-0.01.457.736 W load: setting token '<|message|>' (200023) attribute to USER_DEFINED (16), old attributes: 8
-0.01.459.728 W load: setting token '<|start|>' (200022) attribute to USER_DEFINED (16), old attributes: 8
-0.01.468.050 W load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect
-0.04.168.565 I cmn          init: llama threadpool init, n_threads = 6
-0.04.778.171 I common_speculative_init_result: loading draft model '/Users/ankit_aubric/.vedit/models/open-weights/dflash-Muse-Glimmer-30B-Q4_K_M.gguf'
-0.05.063.528 W load: setting token '<|message|>' (200023) attribute to USER_DEFINED (16), old attributes: 8
-0.05.064.195 W load: setting token '<|start|>' (200022) attribute to USER_DEFINED (16), old attributes: 8
-0.05.069.326 W load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect
-0.05.470.415 I srv    load_model: initializing, n_slots = 2, n_ctx_slot = 65536, kv_unified = 'false'
-0.05.470.666 I common_speculative_impl_draft_dflash: adding speculative implementation 'draft-dflash'
-0.05.470.668 I common_speculative_impl_draft_dflash: - n_max=3, n_min=0, p_min=0.00
-0.05.470.669 I common_speculative_impl_draft_dflash: - block_size=16, mask_token_id=201818, n_extract=5, sample_from_anchor=true
-0.05.758.122 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
-0.05.758.147 I srv  llama_server: model loaded
-0.05.758.148 I srv  llama_server: listening on http://127.0.0.1:8091
+$ uv run python -m vedit.open_weights serve --draft   (started 2026-11-04 10:37:22 PST)
+/opt/homebrew/bin/llama-server -m /Users/ankit_aubric/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf -a muse-glimmer-30b -ngl 99 -c 131072 -np 2 --host 127.0.0.1 --port 8091 --jinja --temp 1.0 --top-p 0.95 --top-k 64 --no-slots --no-webui --api-key-file /Users/ankit_aubric/.vedit/models/open-weights/llama-server.key -md /Users/ankit_aubric/.vedit/models/open-weights/dflash-Muse-Glimmer-30B-Q4_K_M.gguf -ngld 99
+0.00.089.253 I srv  llama_server: initializing ...
+0.00.089.262 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.089.369 I srv  init_listene: The UI is disabled
+0.00.089.371 I srv  init_listene: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.130.820 I spec common_specu: auto-detected speculative type 'draft-dflash' from the draft model metadata
+0.00.133.591 I srv    load_model: loading model '/Users/ankit_aubric/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf'
+0.00.756.416 E llama_init_from_model: failed to initialize the context: dflash requires ctx_other to be set (this warning is normal during memory fitting)
+0.00.789.396 W operator(): failed to measure the memory of the extra model, fitting without it: failed to create llama_context from model
+0.00.991.929 W load: setting token '<|message|>' (200023) attribute to USER_DEFINED (16), old attributes: 8
+0.00.992.542 W load: setting token '<|start|>' (200022) attribute to USER_DEFINED (16), old attributes: 8
+0.00.994.530 W load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.02.450.464 I cmn          init: llama threadpool init, n_threads = 6
+0.02.526.082 I common_speculative_init_result: loading draft model '/Users/ankit_aubric/.vedit/models/open-weights/dflash-Muse-Glimmer-30B-Q4_K_M.gguf'
+0.02.749.624 W load: setting token '<|message|>' (200023) attribute to USER_DEFINED (16), old attributes: 8
+0.02.750.087 W load: setting token '<|start|>' (200022) attribute to USER_DEFINED (16), old attributes: 8
+0.02.751.804 W load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.02.955.889 I srv    load_model: initializing, n_slots = 2, n_ctx_slot = 65536, kv_unified = 'false'
+0.02.955.909 I common_speculative_impl_draft_dflash: adding speculative implementation 'draft-dflash'
+0.02.955.910 I common_speculative_impl_draft_dflash: - n_max=3, n_min=0, p_min=0.00
+0.02.955.910 I common_speculative_impl_draft_dflash: - block_size=16, mask_token_id=201818, n_extract=5, sample_from_anchor=true
+0.03.002.267 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+0.03.002.282 I srv  llama_server: model loaded
+0.03.002.284 I srv  llama_server: listening on http://127.0.0.1:8091

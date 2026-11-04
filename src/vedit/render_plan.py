@@ -20,7 +20,7 @@ from vedit.edit_spec import asset_ids, default_edit
 from vedit.ir import Canvas
 from vedit.looks import is_neutral
 from vedit.motion import zoom_moves
-from vedit.presets import ExportPreset, export_preset_name, get_preset
+from vedit.presets import MATCH_SOURCE, ExportPreset, export_preset_name, get_preset
 from vedit.timeline import plan_timeline, segment_speed
 
 FOOTAGE = "footage"
@@ -165,6 +165,8 @@ def hero_word(ctx: RenderContext) -> list[dict[str, Any]]:
     focus = _hero_focus(ctx, start, end)
     if focus is not None:
         op["focus"] = focus
+    if settings.get("subject_box"):
+        op["subject_box"] = settings["subject_box"]
     return [op]
 
 
@@ -237,6 +239,28 @@ def captions(ctx: RenderContext) -> list[dict[str, Any]]:
     return []
 
 
+def motion_card(ctx: RenderContext) -> list[dict[str, Any]]:
+    """The 3D motion card over its window: the opening seconds, the closing seconds, or a lower third's start.
+
+    It lies under the captions, which are the accessibility layer and stay
+    readable while a title plays, and under the fades so a fade from black
+    takes the card with it. The compiler schedules Blender when
+    the card is not cached yet; the window is on the output clock and moves nothing.
+    """
+    from vedit.blender_cards import card_window
+
+    card = ctx.edit.get("motion_card")
+    if not card:
+        return []
+    start, _end = card_window(card, float(ctx.view["duration"]))
+    op: dict[str, Any] = {"op": "motion_card", "card": {key: value for key, value in card.items() if key != "backdrop"}, "start": start}
+    if card.get("backdrop"):
+        source = asset_path(ctx, card["backdrop"], "The motion card backdrop")
+        if source is not None:
+            op["backdrop"] = source
+    return [op]
+
+
 def fades(ctx: RenderContext) -> list[dict[str, Any]]:
     fade = ctx.edit["fade"]
     ops: list[dict[str, Any]] = []
@@ -276,9 +300,13 @@ def thumbnail(ctx: RenderContext) -> list[dict[str, Any]]:
 
 
 def export_choices(edit: dict[str, Any]) -> dict[str, Any]:
-    """Only what differs from the defaults, so an untouched edit keeps its preset's behaviour."""
+    """Only what differs from the defaults, so an untouched edit keeps its preset's behaviour.
+
+    A ``source`` rate always travels, even as the default: no fixed preset can say
+    it, so the compiler resolves it from the footage it reads.
+    """
     chosen, defaults = edit["export"], default_edit()["export"]
-    return {key: value for key, value in chosen.items() if value != defaults[key]}
+    return {key: value for key, value in chosen.items() if value != defaults[key] or value == MATCH_SOURCE}
 
 
 def delivery_preset(preset: str, edit: dict[str, Any]) -> ExportPreset:
@@ -293,7 +321,7 @@ def export(ctx: RenderContext) -> list[dict[str, Any]]:
 
 STAGES: tuple[Callable[[RenderContext], list[dict[str, Any]]], ...] = (
     reframe_center, assembly, cutout, hero_word, reframe_subject, stabilize, denoise, zoom, spatial_effect,
-    look, voice, texts, logo, overlays, captions, fades, music, loudness, thumbnail, export,
+    look, voice, texts, logo, overlays, motion_card, captions, fades, music, loudness, thumbnail, export,
 )
 
 

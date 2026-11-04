@@ -1,0 +1,93 @@
+{
+  "settings_before": {
+    "status": 200,
+    "private_model": ""
+  },
+  "settings_set": {
+    "status": 200,
+    "private_model": "glimmer",
+    "error": null
+  },
+  "capabilities_private": {
+    "enabled": true,
+    "model": "meta-models/Muse-Glimmer-30B",
+    "runs_on": "this Mac (llama.cpp)"
+  },
+  "totals_before": {
+    "calls": 12,
+    "running": 0,
+    "spent_usd": 0.1497286,
+    "held_usd": 0.4342213,
+    "api_calls": 12,
+    "local_calls": 0,
+    "budget_usd": 0.6,
+    "remaining_usd": 0.1657787
+  },
+  "revise_post": {
+    "status": 202,
+    "seconds": 0.0,
+    "error": null,
+    "job_status": "queued"
+  },
+  "wall_seconds": 70.4,
+  "job": {
+    "status": "complete",
+    "stage": "complete",
+    "message": "Your campaign is ready. The video passed export verification.",
+    "error": null,
+    "revision": 6,
+    "verified_revision": 6,
+    "note": "Hold the first shot longer",
+    "note_summary": "The first shot is slowed down to hold longer.",
+    "applied_patches": [
+      {
+        "op": "set_speed",
+        "segment": 1,
+        "before": {
+          "start": 0.2,
+          "end": 3.58,
+          "speed": 1.0
+        },
+        "after": {
+          "start": 0.2,
+          "end": 3.58,
+          "speed": 0.75
+        },
+        "reason": "Hold the first shot longer",
+        "source": "director",
+        "skipped": null,
+        "value": 0.75,
+        "summary": "Moment 1 plays slower (0.75\u00d7)."
+      }
+    ],
+    "revision_source": "note"
+  },
+  "totals_after": {
+    "calls": 13,
+    "running": 0,
+    "spent_usd": 0.1497286,
+    "held_usd": 0.4342213,
+    "api_calls": 12,
+    "local_calls": 1,
+    "budget_usd": 0.6,
+    "remaining_usd": 0.1657787
+  },
+  "new_calls": [
+    {
+      "operation": "patch",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "purpose": "Turn your note into edits: \u201cHold the first shot longer\u201d",
+      "status": "done",
+      "seconds": 56.98,
+      "cost_usd": 0.0,
+      "reserved_usd": 0.0,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf"
+    }
+  ],
+  "settings_reset": {
+    "status": 200,
+    "private_model": ""
+  }
+}

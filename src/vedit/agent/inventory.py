@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from vedit.agent.decide import silence_threshold_db
 from vedit.agent.model import Inventory, SourceShot
 from vedit.analyze import Range, detect_scenes, detect_silence, measure_loudness
 from vedit.errors import ProbeError
@@ -105,8 +106,17 @@ def _analyze(
     loudness_i: float | None = None
     if info.has_audio:
         try:
+            trace("loudness-enter")
+            loudness_i = float(measure_loudness(src)["input_i"])
+            trace("loudness-exit")
+        except Exception as exc:
+            trace("loudness-fail")
+            notes.append(_failure(name, "loudness analysis", exc))
+    if info.has_audio:
+        try:
             trace("silence-enter")
-            silence_ratio = _silence_ratio(detect_silence(src), info.duration)
+            # The same line the silence cut uses, relative to this recording's loudness.
+            silence_ratio = _silence_ratio(detect_silence(src, threshold_db=silence_threshold_db(loudness_i)), info.duration)
             trace("silence-exit")
         except Exception as exc:
             trace("silence-fail")
@@ -119,14 +129,6 @@ def _analyze(
         except Exception as exc:
             trace("scenes-fail")
             notes.append(_failure(name, "scene detection", exc))
-    if info.has_audio:
-        try:
-            trace("loudness-enter")
-            loudness_i = float(measure_loudness(src)["input_i"])
-            trace("loudness-exit")
-        except Exception as exc:
-            trace("loudness-fail")
-            notes.append(_failure(name, "loudness analysis", exc))
     return silence_ratio, scene_count, loudness_i
 
 

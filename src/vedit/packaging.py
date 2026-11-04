@@ -15,7 +15,7 @@ from typing import Any
 import vedit
 
 _README = (
-    "Briefcut by Aubric.ai opens a video editor window.\n"
+    "Briefcut by Aubric, Inc. opens a video editor window.\n"
     "\n"
     "1. Drag Briefcut to Applications and open it.\n"
     "2. This build is not notarized. If macOS says it cannot verify the app, run this once,\n"

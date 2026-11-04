@@ -71,10 +71,11 @@ def test_cues_with_words_lose_the_words_that_were_cut() -> None:
     assert moved[0]["start"] == pytest.approx(0.2) and moved[0]["end"] == pytest.approx(2.0)
 
 
-def test_cues_without_words_split_across_moments_keep_every_word() -> None:
+def test_cues_without_words_split_across_moments_keep_the_words_that_play() -> None:
     spans = build_timeline([{"start": 0, "end": 2}, {"start": 4, "end": 6}])
     moved = map_cues([{"start": 1, "end": 5, "text": "one two three four"}], spans)
-    assert " ".join(item["text"] for item in moved) == "one two three four"
+    # The middle half of the line was cut, so the words estimated there leave with it.
+    assert [item["text"] for item in moved] == ["one", "four"]
     assert map_cues([{"start": 2.5, "end": 3, "text": "gone"}], spans) == []
 
 

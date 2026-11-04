@@ -26,8 +26,12 @@ SENTENCES = [{"start": 0.0, "end": 4.0, "text": "Hello there."}, {"start": 4.5, 
 SPEECH = [{"start": 0.0, "end": 4.0}, {"start": 4.5, "end": 8.0}]
 BOXES = [{"time": t / 10, "x": 0.4, "y": 0.2, "width": 0.2, "height": 0.6} for t in range(0, 40)]
 CUTOUT = {"frames": 120, "coverage": 0.99, "flicker": 0.01, "filled_frames": 0, "empty_frames": 0, "first_missing": None}
-LINT_NAMES = ["auto: cuts land on sentence boundaries", "auto: duration matches the target",
+LENGTH_8 = "auto: length fits the target (\u2264 8 s)"
+LENGTH_4 = "auto: length fits the target (\u2264 4 s)"
+# With a transcript and captions, every lint check has something to measure. Without them, those checks are left out.
+LINT_NAMES = ["auto: cuts land on sentence boundaries", LENGTH_8,
               "auto: moments inside the source and in order", "auto: captions cover the speech"]
+MEASURED_NOTHING = [LENGTH_8, "auto: moments inside the source and in order"]
 
 
 def _named(checks: list[dict[str, Any]], name: str) -> dict[str, Any]:
@@ -42,9 +46,9 @@ def test_every_lint_check_is_derived_and_names_its_instrument() -> None:
         {"segments": [{"start": 1.0, "end": 6.0}]},  # mid-sentence, short: failing checks too
     ]
     for plan in plans:
-        for kwargs in ({}, {"sentences": SENTENCES, "captions": [{"start": 0.0, "end": 7.5}], "speech": SPEECH}):
+        for kwargs, names in (({}, MEASURED_NOTHING), ({"sentences": SENTENCES, "captions": [{"start": 0.0, "end": 7.5}], "speech": SPEECH}, LINT_NAMES)):
             result = lint_plan(plan, target_duration=8, duration=20, **kwargs)
-            assert [check["name"] for check in result["checks"]] == LINT_NAMES
+            assert [check["name"] for check in result["checks"] if not check.get("advisory")] == names
             for check in result["checks"]:
                 assert check["basis"] == "derived" and check["by"] == "lint", check
                 assert "inputs" not in check, "nobody said which model wrote the transcript, so none is named"
@@ -57,7 +61,7 @@ def test_lint_names_the_models_whose_data_it_measured_and_only_those() -> None:
     checks = result["checks"]
     assert _named(checks, "auto: cuts land on sentence boundaries")["inputs"] == ["local-whisper"]
     assert _named(checks, "auto: captions cover the speech")["inputs"] == ["meta-voice-transcribe", "local-whisper"]
-    assert "inputs" not in _named(checks, "auto: duration matches the target")
+    assert "inputs" not in _named(checks, LENGTH_8)
     assert "inputs" not in _named(checks, "auto: moments inside the source and in order")
     # The same model for both is named once.
     same = lint_plan(plan, target_duration=8, duration=20, sentences=SENTENCES, captions=[{"start": 0.0, "end": 7.5}], speech=SPEECH,
@@ -68,10 +72,9 @@ def test_lint_names_the_models_whose_data_it_measured_and_only_those() -> None:
 def test_a_check_that_read_nothing_names_no_input() -> None:
     plan = {"segments": [{"start": 0.0, "end": 4.0}]}
     result = lint_plan(plan, target_duration=4, duration=20, heard_by="local-whisper", captioned_by="local-whisper")
-    sentence = _named(result["checks"], "auto: cuts land on sentence boundaries")
-    caption = _named(result["checks"], "auto: captions cover the speech")
-    assert sentence["note"] == "no transcript" and "inputs" not in sentence
-    assert caption["note"] == "not requested" and "inputs" not in caption
+    # No transcript and no captions: those checks had nothing to measure, so they are left out, not passed.
+    assert [check["name"] for check in result["checks"]] == [LENGTH_4, "auto: moments inside the source and in order"]
+    assert all("inputs" not in check for check in result["checks"])
 
 
 def test_subject_builders_are_derived_from_sam_data() -> None:
@@ -107,9 +110,9 @@ def _grade(tmp_path: Path, plan: dict[str, Any], *, provider: str = "meta", revi
 
 
 def test_grading_labels_director_checks_as_muse_spark_opinions_and_the_rest_as_measured(tmp_path: Path) -> None:
-    graded = _grade(tmp_path, _plan(), review=_review())
+    graded = _grade(tmp_path, _plan(transcribed=True, transcribed_by="meta-voice-transcribe"), review=_review())
     checks = graded["checks"]
-    assert [check["name"] for check in checks] == LINT_NAMES + [
+    assert [check["name"] for check in checks] == [LINT_NAMES[0], LENGTH_4, *LINT_NAMES[2:]] + [
         "auto: requested edits applied", "auto: subject stays in frame (SAM 3.1)", "auto: subject cutout covers the subject",
         "director: hook inside 3 s", "director: pacing"], "names are quoted by evidence files and docs"
     assert graded["total"] == len(checks) and graded["passed"] == sum(1 for check in checks if check["passed"])
@@ -121,8 +124,9 @@ def test_grading_labels_director_checks_as_muse_spark_opinions_and_the_rest_as_m
     assert edits["basis"] == "derived" and edits["by"] == "brief-parser" and "inputs" not in edits
     assert _named(checks, "auto: subject stays in frame (SAM 3.1)")["inputs"] == ["sam-3.1"]
     assert _named(checks, "auto: subject cutout covers the subject")["inputs"] == ["sam-3.1"]
-    assert _named(checks, "auto: cuts land on sentence boundaries")["inputs"] == ["local-whisper"]
-    assert _named(checks, "auto: captions cover the speech")["inputs"] == ["meta-voice-transcribe", "local-whisper"]
+    # Meta Voice Transcribe heard the plan and the captions: one model, named once.
+    assert _named(checks, "auto: cuts land on sentence boundaries")["inputs"] == ["meta-voice-transcribe"]
+    assert _named(checks, "auto: captions cover the speech")["inputs"] == ["meta-voice-transcribe"]
     assert sum(check["basis"] == "derived" for check in checks) == 7 and sum(check["basis"] == "inferred" for check in checks) == 2
 
 
@@ -137,7 +141,16 @@ def test_a_review_without_a_provider_is_still_muse_spark_and_a_failed_review_add
 
 
 def test_inputs_follow_where_the_words_came_from_and_never_guess(tmp_path: Path) -> None:
-    # Local captions reuse the plan's transcript, which local Whisper wrote.
+    # A Meta-mode project captions with Meta whatever caption provider an old client sent.
+    (tmp_path / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:04,000\nHello there.\n", encoding="utf-8")
+    meta_mode = CampaignManager._grade(_plan(transcribed=True, transcribed_by="meta-voice-transcribe"), {"provider": "meta", "captions": True, "caption_provider": "local", "target_duration": 4},
+                                       20.0, tmp_path, None)
+    assert _named(meta_mode["checks"], "auto: captions cover the speech")["inputs"] == ["meta-voice-transcribe"]
+    # A plan saved before Briefcut went Meta-only names nobody; its transcript was local Whisper's.
+    legacy = _grade(tmp_path, _plan())
+    assert _named(legacy["checks"], "auto: cuts land on sentence boundaries")["inputs"] == ["local-whisper"]
+    assert _named(legacy["checks"], "auto: captions cover the speech")["inputs"] == ["meta-voice-transcribe", "local-whisper"]
+    # Old local captions reused the plan's transcript, which local Whisper wrote.
     local = _grade(tmp_path, _plan("local-analysis"), provider="local")
     assert _named(local["checks"], "auto: captions cover the speech")["inputs"] == ["local-whisper"]
     # A script's words are the writer's own; without Whisper nobody listened.
@@ -152,8 +165,8 @@ def test_inputs_follow_where_the_words_came_from_and_never_guess(tmp_path: Path)
     assert "inputs" not in _named(unknown["checks"], "auto: captions cover the speech")
     # Nothing listened during planning: no transcript to compare with, so no model is named.
     late = _grade(tmp_path, _plan("local-analysis", transcript=[], sentences=[]), provider="local")
-    assert _named(late["checks"], "auto: captions cover the speech")["note"] == "no transcript to compare with"
-    assert "inputs" not in _named(late["checks"], "auto: cuts land on sentence boundaries")
+    names = [check["name"] for check in late["checks"]]
+    assert "auto: captions cover the speech" not in names and "auto: cuts land on sentence boundaries" not in names
 
 
 # --- Studio: the tag and the breakdown, and old versions without a basis ---
@@ -230,7 +243,7 @@ process.stdout.write(JSON.stringify(out));
     assert [(item["basis"], item["by"], item["inputs"]) for item in out["saved"]] == [("", "", []), ("", "", [])]
     assert out["saved"][0]["note"] == "4.0 s cut vs 4.0 s target" and out["saved"][0]["passed"] is True
     assert out["opinion"] == "Muse Spark’s judgment of the cut, not a measurement."
-    assert out["measuredTitle"] == "Measured by Briefcut’s checker, not judged by a model. Its data came from Meta Voice Transcribe and Local Whisper."
+    assert out["measuredTitle"] == "Measured by Briefcut’s checker, not judged by a model. Its data came from Meta Voice Transcribe and an earlier local transcript."
     assert out["plainTitle"] == "Measured by Briefcut’s checker, not judged by a model."
     assert out["probed"] == "Read from the finished file by ffprobe."
     assert out["keeps"]["basis"] == "derived" and out["keeps"]["inputs"] == ["meta-voice-transcribe", "local-whisper"]

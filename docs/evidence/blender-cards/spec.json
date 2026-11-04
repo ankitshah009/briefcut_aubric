@@ -1,0 +1,152 @@
+{
+  "recorded": "2026-11-04",
+  "source_clip": "examples/demo/workshop.mp4 (procedural oak-bowl workshop clip), via campaign render-1 at 1080x1920",
+  "goal": "Show how the oak bowl is made, start to finish",
+  "spark": {
+    "model": "muse-spark-1.3-contributor",
+    "proposal": {
+      "kind": "intro_title",
+      "text": "Oak Bowl Start To Finish",
+      "subtitle": "From Wet Blank To Table Ready",
+      "style": "warm_wood",
+      "palette": "oak",
+      "camera": "dolly_in",
+      "duration": 3,
+      "backdrop_prompt": "Softly blurred close-up of oak shavings and a bowl blank resting on a workshop bench.",
+      "reason": "Warm wood letters in oak tones reflect the start-to-finish bowl making."
+    },
+    "validated_card": {
+      "kind": "intro_title",
+      "text": "Oak Bowl Start To Finish",
+      "subtitle": "From Wet Blank To Table Ready",
+      "style": "warm_wood",
+      "palette": "oak",
+      "camera": "dolly_in",
+      "duration": 3.0,
+      "reason": "Warm wood letters in oak tones reflect the start-to-finish bowl making.",
+      "aspect": "9:16"
+    },
+    "notes": [],
+    "usage": {
+      "estimated_max_usd": 0.0033794,
+      "cached": false,
+      "input_tokens": 700,
+      "output_tokens": 1712,
+      "total_tokens": 2412,
+      "cost_usd": 0.0004124
+    }
+  },
+  "muse_image": {
+    "model": "muse-image-1.0",
+    "prompt_from_spark": "Softly blurred close-up of oak shavings and a bowl blank resting on a workshop bench.",
+    "usage": {
+      "estimated_max_usd": 0.01,
+      "cached": false,
+      "input_tokens": 4034,
+      "output_tokens": 786,
+      "total_tokens": 4820,
+      "cost_usd": 0.01
+    },
+    "file": "image-df01da453b0962c6.png"
+  },
+  "render_spec": {
+    "version": 2,
+    "kind": "intro_title",
+    "lines": [
+      "Oak Bowl",
+      "Start",
+      "To Finish"
+    ],
+    "subtitle": "From Wet Blank To Table Ready",
+    "style": "warm_wood",
+    "camera": "dolly_in",
+    "duration": 3.0,
+    "fps": 30.0,
+    "width": 1080,
+    "height": 1920,
+    "samples": 16,
+    "colors": {
+      "primary": "#C98B55",
+      "accent": "#F3DDBB",
+      "shadow": "#3A2414"
+    },
+    "fonts": {
+      "title": "/System/Library/Fonts/Supplemental/Arial Black.ttf",
+      "subtitle": "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
+    },
+    "backdrop": "image-df01da453b0962c6.png"
+  },
+  "render": {
+    "hash": "3f59d102579ca67e0ed0",
+    "frames": 90,
+    "seconds": 3.0,
+    "width": 1080,
+    "height": 1920,
+    "codec": "prores_4444",
+    "pix_fmt": "yuva444p10le",
+    "blender": "Blender 5.2.3 LTS (hash e13b728c6880 built 2026-10-22 01:31:22)",
+    "engine": "BLENDER_EEVEE",
+    "blender_seconds": 24.17,
+    "render_seconds": 23.49,
+    "encode_seconds": 0.4,
+    "samples": 16,
+    "title_body": "Oak Bowl\nStart\nTo Finish"
+  },
+  "card_file_bytes": 48734227,
+  "meta_calls": [
+    {
+      "operation": "motion_card",
+      "model": "muse-spark-1.3-contributor",
+      "status": "completed",
+      "reserved_usd": 0.0033794,
+      "cost_usd": 0.0004124,
+      "input_tokens": 700,
+      "output_tokens": 1712,
+      "request_id": "resp_6aeb81c9af742de224004460"
+    },
+    {
+      "operation": "image",
+      "model": "muse-image-1.0",
+      "status": "completed",
+      "reserved_usd": 0.01,
+      "cost_usd": 0.01,
+      "input_tokens": 4034,
+      "output_tokens": 786,
+      "request_id": null
+    }
+  ],
+  "spend_usd": 0.0104124,
+  "composite": {
+    "ops": [
+      "motion_card (card from cache, start 0.0, end 3.0)",
+      "export shorts_9x16"
+    ],
+    "input": {
+      "duration": 18.933333,
+      "width": 1080,
+      "height": 1920,
+      "has_audio": true
+    },
+    "output": {
+      "duration": 18.933333,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "size_bytes": 10316844
+    },
+    "steps": [
+      {
+        "name": "export_shorts_9x16",
+        "ok": true,
+        "ms": 3463
+      },
+      {
+        "name": "verify_video",
+        "ok": true,
+        "ms": 644
+      }
+    ]
+  }
+}

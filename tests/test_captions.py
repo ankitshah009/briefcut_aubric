@@ -144,7 +144,7 @@ def test_polish_respects_gap_and_length_limits_and_short_trailers():
     assert out == [Cue(0, 1.5, "Made by hand. Really.")]
     # A pause longer than max_gap blocks merging even for an open-ended cue.
     out = polish_cues([Cue(0, 1, "Made by hand and"), Cue(1.6, 2, "oiled.")])
-    assert [c.text for c in out] == ["Made by hand and", "Oiled."]
+    assert [c.text for c in out] == ["Made by hand and", "oiled."]  # the same sentence goes on, so no capital
     assert [(c.start, c.end) for c in out] == [(0, 1), (1.6, 2)]
     # The joined text must fit max_chars.
     long_a = "the raw oak blank sits wet and heavy on the bench by the door"

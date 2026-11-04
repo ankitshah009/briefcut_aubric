@@ -9,7 +9,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from typing import Any
 from urllib.error import HTTPError, URLError
 
@@ -504,13 +504,14 @@ def test_distinct_stories_share_budget_but_cached_story_is_free(
 ) -> None:
     http = HttpScript()
     monkeypatch.setattr(meta, "_request", http)
-    first = plan(source, tmp_path, budget_usd=0.1)
-    second = plan(source, tmp_path, budget_usd=0.1)
+    # A story reserves about $0.0709 and bills about $0.0021, so $0.072 covers one and not a second.
+    first = plan(source, tmp_path, budget_usd=0.072)
+    second = plan(source, tmp_path, budget_usd=0.072)
     assert first["segments"] == second["segments"]
     assert second["usage"]["cached"] is True
     with pytest.raises(meta.MetaError, match="(?i)budget|cost|cap"):
         meta.plan_story(source, goal="Give me a different story", duration=10, target_duration=5,
-                        work_dir=tmp_path / "work", budget_usd=0.1)
+                        work_dir=tmp_path / "work", budget_usd=0.072)
     assert sum(method == "POST" and path == "/responses" for method, path, _ in http.calls) == 1
 
 
@@ -519,10 +520,15 @@ def test_concurrent_stories_cannot_both_reserve_the_same_budget(
 ) -> None:
     http = HttpScript()
     ready = Barrier(2)
+    refused = Event()
 
     def simultaneous_preflight(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         if path == "/responses/input_tokens":
             ready.wait(timeout=5)
+        if method == "POST" and path == "/responses":
+            # Hold the winner's call until the other story has tried to reserve. Otherwise the winner can
+            # finish and release its unused reservation first, and both stories then fit (about 1 run in 10).
+            refused.wait(timeout=5)
         return http(method, path, **kwargs)
 
     def make_story(goal: str) -> dict[str, Any] | meta.MetaError:
@@ -530,6 +536,7 @@ def test_concurrent_stories_cannot_both_reserve_the_same_budget(
             return meta.plan_story(source, goal=goal, duration=10, target_duration=5,
                                    work_dir=tmp_path / "work", budget_usd=0.1)
         except meta.MetaError as exc:
+            refused.set()
             return exc
 
     monkeypatch.setattr(meta, "_request", simultaneous_preflight)

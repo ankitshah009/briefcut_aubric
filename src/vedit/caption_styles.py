@@ -26,8 +26,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
-from vedit.captions import Cue, Word, cue_key, format_ts, interpolate_words, is_tight, join_words, split_words
-from vedit.edit_spec import EMPHASIS_COLOR
+from vedit.captions import (PHRASE_ENDS, SENTENCE_ENDS, Cue, Word, cue_key, edge_stripped, format_ts, interpolate_words, is_tight,
+                            join_words, split_words)
+from vedit.edit_spec import COLOR, EMPHASIS_COLOR
 from vedit.errors import BinaryMissing
 from vedit.media import resolve_font
 
@@ -37,10 +38,16 @@ POP_SCALE = 112
 POP_MS = 90
 BOX_ALPHA = "48"
 FALLBACK_FAMILY = "Arial"
-_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️]")  # libass cannot draw color glyphs, so these would burn as empty boxes
-_PHRASE_END = ".,;:!?…。、！？；："
-_SENTENCE_END = ".!?…。！？"
-_WORD_EDGE = re.compile(r"^[^\w]+|[^\w]+$")
+# libass cannot draw color glyphs, so emoji would burn as empty boxes. A whole emoji goes: its skin tone,
+# variation selector, keycap and flag tags, and the joiners of a family. A joiner between letters
+# (Devanagari half forms) is not an emoji and stays; a keycap's digit stays as the digit.
+_EMOJI_BASE = "\U0001F000-\U0001FAFF\u2600-\u27BF\u231A\u231B\u23E9-\u23F3\u23F8-\u23FA\u25FD\u25FE\u2B05-\u2B07\u2B1B\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299"
+_EMOJI_TAIL = "\uFE0E\uFE0F\u20E3\U000E0020-\U000E007F"
+_EMOJI = re.compile(f"[{_EMOJI_BASE}][{_EMOJI_TAIL}]*(?:\u200D[{_EMOJI_BASE}][{_EMOJI_TAIL}]*)*|[{_EMOJI_TAIL}]")
+_LONE_TAIL = re.compile(f"[{_EMOJI_TAIL}]+")
+_PHRASE_END = PHRASE_ENDS
+_SENTENCE_END = SENTENCE_ENDS
+LRM, RLM = "\u200E", "\u200F"
 
 
 @dataclass(frozen=True)
@@ -76,7 +83,7 @@ class Punch(Word):
 
 def word_key(text: str) -> str:
     """A word as compared for emphasis: no edge punctuation, no case."""
-    return _WORD_EDGE.sub("", text).casefold()
+    return edge_stripped(text).casefold()
 
 
 def _punched(word: Word) -> Punch:
@@ -125,6 +132,70 @@ def emphasised(cue: Cue, wanted: Iterable[tuple[int, str]]) -> Cue:
         words[position] = _punched(words[position])
         marked = True
     return replace(timed, words=tuple(words)) if marked else cue
+
+
+def strip_emoji(text: str) -> str:
+    """Text with every emoji gone and the spaces they leave closed up."""
+    if not _EMOJI.search(text):
+        return text
+    return " ".join(_EMOJI.sub("", text).split())
+
+
+def emoji_in(texts: Iterable[str]) -> list[str]:
+    """The emoji in some texts, in order, each once."""
+    return list(dict.fromkeys(match.group(0) for text in texts for match in _EMOJI.finditer(text) if not _LONE_TAIL.fullmatch(match.group(0))))
+
+
+def caption_warnings(cues: Iterable[Cue]) -> list[str]:
+    """What the burned captions leave out, said plainly. Today that is emoji."""
+    cues = list(cues)
+    found = emoji_in(cue.text for cue in cues)
+    if not found:
+        return []
+    lines = sum(1 for cue in cues if _EMOJI.search(cue.text))
+    sample = " ".join(found[:6]) + (" ..." if len(found) > 6 else "")
+    return [f"{lines} caption line{'s' if lines != 1 else ''} had emoji ({sample}). The caption renderer cannot draw color emoji, "
+            "so they were left out of the burned captions. The words around them are unchanged, and captions.srt keeps the emoji."]
+
+
+def _drawable(cue: Cue) -> Cue:
+    """The cue without emoji: a word that was only emoji goes, and its time stays with the word before it."""
+    if not _EMOJI.search(cue.text) and not any(_EMOJI.search(word.text) for word in cue.words):
+        return cue
+    words: list[Word] = []
+    for word in cue.words:
+        text = strip_emoji(word.text)
+        if text:
+            words.append(replace(word, text=text))
+        elif words:
+            words[-1] = replace(words[-1], end=max(words[-1].end, word.end))
+    text = join_words(word.text for word in words) if cue.words else strip_emoji(cue.text)
+    return replace(cue, text=text, words=tuple(words))
+
+
+def direction_mark(text: str) -> str:
+    """The mark that holds a line to its cue's reading direction, or nothing when the cue has one direction only.
+
+    libass picks each line's direction from its first strong letter. A line of an
+    English cue that starts with an Arabic word would then run right to left, so
+    every line of a mixed cue starts with LRM or RLM. The cue's direction is the
+    one most of its letters read in.
+    """
+    rtl = ltr = 0
+    for char in text:
+        kind = unicodedata.bidirectional(char)
+        if kind in ("R", "AL"):
+            rtl += 1
+        elif kind == "L":
+            ltr += 1
+    if not rtl or not ltr:
+        return ""
+    return RLM if rtl > ltr else LRM
+
+
+def is_rtl(text: str) -> bool:
+    """True when most of a text's letters read right to left."""
+    return sum(1 if unicodedata.bidirectional(char) in ("R", "AL") else -1 if unicodedata.bidirectional(char) == "L" else 0 for char in text) > 0
 
 
 class Face:
@@ -205,12 +276,40 @@ class Face:
         return struct.unpack_from(">H", self.data, self.tables[b"hmtx"] + 4 * min(glyph, self.metrics - 1))[0] / self.units
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=64)
 def font_face(path: str) -> Face | None:
     try:
         return Face(Path(path))
     except (OSError, ValueError, KeyError, IndexError, struct.error):
         return None
+
+
+@lru_cache(maxsize=256)
+def _fallbacks(missing: str) -> tuple[Face, ...]:
+    faces: list[Face] = []
+    left = set(missing)
+    while left and len(faces) < 4:
+        try:
+            face = font_face(str(resolve_font("".join(sorted(left)))))
+        except BinaryMissing:
+            break
+        covered = {char for char in left if face is not None and face.advance(char) is not None}
+        if not covered:
+            break
+        faces.append(face)  # type: ignore[arg-type]
+        left -= covered
+    return tuple(faces)
+
+
+def fallback_faces(text: str, face: Face | None) -> tuple[Face, ...]:
+    """The fonts that draw the letters ``face`` lacks, as libass's own fallback would, so their real widths are measured.
+
+    With no ``face`` there is nothing to fall back from, and widths stay estimates.
+    """
+    if face is None:
+        return ()
+    missing = {char for char in text if unicodedata.category(char)[0] in "LN" and face.advance(char) is None}
+    return _fallbacks("".join(sorted(missing))) if missing else ()
 
 
 def caption_font() -> tuple[str, Face | None, Path | None]:
@@ -248,6 +347,7 @@ class Stage:
     size: int
     room: int  # widest line, in pixels
     face: Face | None = None
+    fallbacks: tuple[Face, ...] = ()  # fonts for the letters ``face`` lacks, in the order libass would reach for them
 
     def measure(self, text: str, size: int | None = None) -> float:
         ems = 0.0
@@ -256,6 +356,10 @@ class Stage:
             if kind[0] in "MC":
                 continue
             advance = self.face.advance(char) if self.face else None
+            for other in self.fallbacks if advance is None else ():
+                advance = other.advance(char)
+                if advance is not None:
+                    break
             if advance is None:
                 wide = unicodedata.east_asian_width(char) in ("W", "F")
                 advance = 1.0 if wide else 0.3 if char == " " else 0.62
@@ -318,6 +422,8 @@ def _fitted_words(cue: Cue, stage: Stage) -> list[Word]:
     timed = cue if cue.words else interpolate_words(cue)
     words: list[Word] = []
     for word in timed.words:
+        if not word.text.strip():
+            continue  # nothing to draw, and pagination reads each word's last letter
         words.extend(_broken_word(word, stage) if stage.width((word,)) * MIN_SCALE > stage.room else [word])
     return words
 
@@ -368,10 +474,48 @@ def _grouped(words: list[Word], stage: Stage) -> list[list[Word]]:
             current = []
     if current:
         pages.append(current)
+    if not look.words:
+        pages = _without_orphans(pages, stage)
     if not look.words and len(pages) >= 2 and len(pages[-1]) == 1 and len(pages[-2]) >= 3:
         # A lone last word reads as a mistake, so it takes one from the page before.
         pages[-1].insert(0, pages[-2].pop())
     return pages
+
+
+ORPHAN_WORDS = 3  # a page this short, cut off mid-sentence, is an orphan
+
+
+def _fits(words: list[Word], stage: Stage) -> bool:
+    return len(_wrapped(words, stage)) <= stage.look.lines
+
+
+def _without_orphans(pages: list[list[Word]], stage: Stage) -> list[list[Word]]:
+    """A page of three words or fewer, cut off mid-sentence, rejoins the page before it, or the two share the words evenly.
+
+    A line too long for one page (a translation often runs longer than the speech)
+    would otherwise leave its last words alone, like "la mesa." for half a second.
+    The new break prefers punctuation. A page that follows a finished sentence is
+    left alone: it starts a sentence of its own.
+    """
+    for index in range(1, len(pages)):
+        head, tail = pages[index - 1], pages[index]
+        if not head or not tail or len(tail) > ORPHAN_WORDS or head[-1].text[-1] in _SENTENCE_END:
+            continue
+        words = head + tail
+        if _fits(words, stage):
+            pages[index - 1], pages[index] = words, []
+            continue
+        best: tuple[float, list[Word], list[Word]] | None = None
+        for cut in range(1, len(words)):
+            left, right = words[:cut], words[cut:]
+            if len(right) <= len(tail) or not _fits(left, stage) or not _fits(right, stage):
+                continue
+            score = abs(stage.width(left) - stage.width(right)) - (stage.size * 3 if left[-1].text[-1] in _PHRASE_END else 0)
+            if best is None or score < best[0]:
+                best = (score, left, right)
+        if best is not None:
+            pages[index - 1], pages[index] = best[1], best[2]
+    return [page for page in pages if page]
 
 
 def paginate(cue: Cue, stage: Stage) -> list[Page]:
@@ -397,9 +541,19 @@ def _tag_color(value: str) -> str:
     return f"&H{value[5:7]}{value[3:5]}{value[1:3]}&".upper()
 
 
+def safe_color(value: Any, fallback: str = "#FFFFFF") -> str:
+    """``value`` when it is ``#RRGGBB``, else ``fallback``.
+
+    A colour is sliced into ASS tags and FFmpeg options, so anything else (a brace,
+    a backslash, a colon or a comma) could open a tag or add a filter option.
+    """
+    return value.upper() if isinstance(value, str) and COLOR.fullmatch(value) else fallback
+
+
 def ass_text(text: str) -> str:
     """Caption text as literal ASS: nothing in it can act as an override tag or a line break."""
-    plain = "".join(char for char in text if unicodedata.category(char) not in ("Cc", "Cs"))
+    # Bidi embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069) from model text could show a line reversed.
+    plain = "".join(char for char in text if unicodedata.category(char) not in ("Cc", "Cs") and not ("\u202a" <= char <= "\u202e" or "\u2066" <= char <= "\u2069"))
     plain = _EMOJI.sub("", plain).replace("\\", "\\⁠")  # a joiner keeps "\N" from reading as a break
     return plain.replace("{", "\\{").replace("}", "\\}")
 
@@ -413,7 +567,7 @@ def _dialogue(start: int, end: int, text: str) -> str:
 
 
 def _page_body(page: Page, *, active: int | None = None, base: str = "", high: str = "", pop: bool = False,
-               accent: str = "", punch: int = 100, bold: bool = True) -> str:
+               accent: str = "", punch: int = 100, bold: bool = True, mark: str = "") -> str:
     """A page's text. The active word carries the highlight; scaling a word never moves another line.
 
     With an ``accent``, a punch word is drawn in it at ``punch`` percent, and bold when
@@ -445,13 +599,13 @@ def _page_body(page: Page, *, active: int | None = None, base: str = "", high: s
             out += text
             previous = word.text
             index += 1
-        rendered.append(out)
+        rendered.append(mark + out if out else out)
     return "\\N".join(rendered)
 
 
-def _events(pages: list[Page], stage: Stage, base: str, high: str, accent: str = "") -> list[str]:
+def _events(pages: list[Page], stage: Stage, base: str, high: str, accent: str = "", mark: str = "") -> list[str]:
     look = stage.look
-    ink = {"base": base, "accent": accent, "punch": look.punch, "bold": look.bold}
+    ink = {"base": base, "accent": accent, "punch": look.punch, "bold": look.bold, "mark": mark}
     events: list[str] = []
     for page in pages:
         start, end = _centiseconds(page.start), _centiseconds(page.end)
@@ -483,9 +637,9 @@ def render_ass(cues: list[Cue], *, width: int, height: int, settings: dict[str, 
     look = LOOKS.get(str(settings.get("style", "boxed")), LOOKS["boxed"])
     scale = float(settings.get("scale") or 1.0)
     position = settings.get("position", "bottom")
-    color = str(settings.get("color") or "#FFFFFF")
-    highlight = str(settings.get("highlight") or "#FFD60A")
-    accent = str(settings.get("emphasis_color") or EMPHASIS_COLOR)
+    color = safe_color(settings.get("color"), "#FFFFFF")
+    highlight = safe_color(settings.get("highlight"), "#FFD60A")
+    accent = safe_color(settings.get("emphasis_color"), EMPHASIS_COLOR)
     marks = emphasis_marks(settings)
     family, face, _file = caption_font()
     side, top, bottom = safe_area(width, height)
@@ -493,7 +647,7 @@ def render_ass(cues: list[Cue], *, width: int, height: int, settings: dict[str, 
     outline = round(size * look.outline, 1)
     pad = round(size * look.padding)
     room = max(size, width - 2 * side - round(2 * max(outline, pad)))
-    stage = Stage(look, size, room, face)
+    stage = Stage(look, size, room, face, fallback_faces("".join(cue.text for cue in cues), face))
     alignment, margin = {"top": (8, top), "middle": (5, 0)}.get(position, (2, bottom))
     if pad:
         border_style, shadow, outline_color, back_color = 4, pad, "&H00000000", f"&H{BOX_ALPHA}000000"
@@ -520,8 +674,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for cue in cues:
         wanted = marks.get(cue_key(cue)) if marks else None
         if wanted:
-            cue = emphasised(cue, wanted)
-        events.extend(_events(paginate(cue, stage), stage, _tag_color(color), _tag_color(highlight), _tag_color(accent)))
+            cue = emphasised(cue, wanted)  # before emoji go, so a pick's place still counts them
+        cue = _drawable(cue)
+        if not cue.text:
+            continue
+        events.extend(_events(paginate(cue, stage), stage, _tag_color(color), _tag_color(highlight), _tag_color(accent), direction_mark(cue.text)))
     return header + "\n".join(events) + "\n"
 
 

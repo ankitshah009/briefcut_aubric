@@ -64,6 +64,12 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
     p.add_argument("file")
     p.set_defaults(func=cmd_probe)
 
+    p = sub.add_parser("verify", help="re-hash a render's receipts and say exactly what changed (no network)")
+    p.add_argument("target", help="campaign.zip, a project or render folder, or receipts.json")
+    p.add_argument("--expect", metavar="EV_ID", help="root evidence id from a trusted place, such as Studio; a different root fails")
+    p.add_argument("--json", action="store_true", help="print the full result as JSON")
+    p.set_defaults(func=cmd_verify)
+
     p = sub.add_parser("plan", help="compile a brief to scripts without rendering")
     p.add_argument("brief")
     p.add_argument("--work-dir")
@@ -161,14 +167,19 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
+    from vedit import settings
+
+    # The same .env.local the briefcut command reads: a judge who pasted the key there sees the Meta row pass.
+    settings.load_checkout_env()
     checks = run_doctor()
     sys.stdout.write(format_doctor(checks))
     return 0 if all(c.ok for c in checks if c.required) else 1
 
 
 def cmd_setup(_args: argparse.Namespace) -> int:
-    from vedit import onboarding
+    from vedit import onboarding, settings
 
+    settings.load_checkout_env()
     status = onboarding.setup_status(refresh=True)
     for item in status["items"]:
         print(f"{'OK' if item['ok'] else 'NO'}  {item['title']}: {item['summary']}")
@@ -180,6 +191,19 @@ def cmd_setup(_args: argparse.Namespace) -> int:
             print(f"    Create a key at {item['key_url']}, then open Settings in Briefcut (run `briefcut`) and paste it.")
             print("    Or set MODEL_API_KEY and VEDIT_META_ENABLED=1 in the environment.")
     return 0 if status["ready"] else 1
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Exit 0 when every hash matches, 1 with the list of what changed, 2 when there are no receipts."""
+    from vedit.evidence import ReceiptsMissing, format_verification, verify
+
+    try:
+        report = verify(Path(args.target).expanduser(), expect=args.expect)
+    except ReceiptsMissing as exc:
+        print(f"vedit verify: {exc}", file=sys.stderr)
+        return 2
+    sys.stdout.write(json.dumps(report, indent=2) + "\n" if args.json else format_verification(report))
+    return 0 if report["ok"] else 1
 
 
 def cmd_probe(args: argparse.Namespace) -> int:
@@ -447,12 +471,18 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
     except ImportError as exc:
         print(f"vedit: the MCP server needs the `mcp` package ({exc}). Install it with `uv sync` or `uv pip install 'vedit[mcp]'`.", file=sys.stderr)
         return 2
+    from vedit import settings
+
+    # An agent (Muse Code, Claude Code) starts this server with its own environment, which may not carry the key.
+    # Read the checkout's .env.local the way `briefcut` and `vedit doctor` do; values already set still win.
+    settings.load_checkout_env()
     return serve_stdio()
 
 
 def cmd_meta_status(_args: argparse.Namespace) -> int:
-    from vedit import meta
+    from vedit import meta, settings
 
+    settings.load_checkout_env()
     status = meta.capabilities()
     print(f"configured  {'yes' if status['configured'] else 'no (add a key in Settings, or set MODEL_API_KEY)'}")
     print(f"enabled     {'yes' if status['enabled'] else 'no (turn on Meta in Settings, or set VEDIT_META_ENABLED=1)'}")
@@ -464,8 +494,9 @@ def cmd_meta_status(_args: argparse.Namespace) -> int:
 
 
 def cmd_meta_check(_args: argparse.Namespace) -> int:
-    from vedit import meta
+    from vedit import meta, settings
 
+    settings.load_checkout_env()
     result = meta.check_access()
     print(result["reason"])
     if result.get("models"):

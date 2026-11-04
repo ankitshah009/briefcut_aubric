@@ -1,23 +1,21 @@
 {
   "patches": [
     {
-      "op": "set_speed",
+      "op": "trim_end",
       "segment": 1,
-      "seconds": null,
-      "value": 0.85,
+      "seconds": 5.0,
       "reason": "Hold the finished bowl a beat longer before the first cut",
       "source": "director"
     },
     {
-      "op": "set_speed",
+      "op": "trim_end",
       "segment": 4,
-      "seconds": null,
-      "value": 1.25,
+      "seconds": 28.0,
       "reason": "Tighten the sanding moment",
       "source": "director"
     }
   ],
-  "summary": "The patches slow the opening finished bowl moment and speed up the sanding moment to make it tighter.",
+  "summary": "The patches extend the opening finished bowl hold and shorten the sanding moment.",
   "warnings": [],
   "provider": "meta",
   "model": "meta-models/Muse-Glimmer-30B",
@@ -26,9 +24,9 @@
     "cached": false,
     "cost_usd": 0.0,
     "local": true,
-    "input_tokens": 1535,
-    "output_tokens": 2036,
-    "total_tokens": 3571
+    "input_tokens": 1553,
+    "output_tokens": 1747,
+    "total_tokens": 3300
   },
   "runtime": "llama.cpp",
   "private": true

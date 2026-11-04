@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "briefcut",
-  "description": "Briefcut by Aubric.ai: a local, agent-native video editor with an MCP server and a skill.",
+  "description": "Briefcut by Aubric, Inc.: a local, agent-native video editor with an MCP server and a skill.",
   "owner": {
     "name": "Ankit Shah",
     "url": "https://github.com/ankitshah009"

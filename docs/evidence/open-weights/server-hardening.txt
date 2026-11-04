@@ -1,0 +1,9 @@
+Checked 2026-11-04 10:37 PST against the server started by: uv run python -m vedit.open_weights serve --draft
+GET /props without key -> 401
+POST /v1/chat/completions without key -> 401
+GET /props with key -> 200
+GET /slots with key -> 501 (slot monitor disabled by --no-slots)
+GET / -> 404 (no web UI, --no-webui)
+Listening sockets:
+  llama-ser 127.0.0.1:8091
+Key file: -rw------- ~/.vedit/models/open-weights/llama-server.key

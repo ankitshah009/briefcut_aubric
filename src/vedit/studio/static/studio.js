@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const activeStatuses = new Set(["queued", "analyzing", "rendering"]);
   const labels = { queued: "Queued", analyzing: "Shaping the story", planned: "Ready to edit", rendering: "Making the video", complete: "Verified", failed: "Needs attention", cancelled: "Cancelled" };
-  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1, version: null, notes: {} };
+  const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1, version: null, notes: {}, budgetRaisedFrom: "" };
   const uploadedClips = new WeakMap();
   const storageKey = "vedit.studio.current";
   // Fallback for when /api/capabilities fails; mirrors project_media.MAX_SOURCE_BYTES.
@@ -62,8 +62,75 @@
   function stopPolling() { clearTimeout(state.pollTimer); state.pollTimer = null; if (state.pollController) state.pollController.abort(); state.pollController = null; state.epoch += 1; }
   /* Every project runs on Meta: Muse Spark plans, SAM 3.1 tracks, Meta Voice Transcribe captions. */
   function readSettings() {
-    return { goal: $("goal").value.trim(), provider: "meta", target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: $("subject").value.trim(), budget_usd: Number($("budget").value), generate_cover: $("cover-mode").value === "meta", caption_provider: "meta", review: $("review").checked };
+    return { goal: $("goal").value.trim(), provider: "meta", target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: $("subject").value.trim(), budget_usd: Number($("budget").value), generate_cover: $("cover-mode").value === "meta", caption_provider: "meta", review: $("review").checked, director: chosenDirector() };
   }
+  /* ---------- Reviewer: Muse Spark or Muse Wonder ---------- */
+  /* A Wonder review costs about $0.10 to $0.15, but it reserves its whole output
+     allowance first, so it needs a project limit of at least that. The server says
+     how much (capabilities.meta.directors.wonder_min_budget_usd); 0.4 is only the
+     fallback for a server too old to say. */
+  function wonderMinimumBudget() {
+    const directors = state.capabilities && state.capabilities.meta && state.capabilities.meta.directors || {};
+    const value = Number(directors.wonder_min_budget_usd);
+    return Number.isFinite(value) && value > 0 ? value : 0.4;
+  }
+  function directorId(value) { return /wonder/i.test(String(value || "")) ? "wonder" : "spark"; }
+  function chosenDirector() { const picked = document.querySelector('input[name="director"]:checked'); return picked ? directorId(picked.value) : "spark"; }
+  function setDirector(value) { const id = directorId(value); document.querySelectorAll('input[name="director"]').forEach((input) => { input.checked = input.value === id; }); }
+  function directorName(value) { return directorId(value) === "wonder" ? "Muse Wonder" : "Muse Spark"; }
+  function projectDirector(job) { const req = job && job.request || {}; return req.director ? directorId(req.director) : chosenDirector(); }
+  /* Choosing Wonder raises the limit to the lowest choice that covers it, and says so.
+     Going back to Spark puts the old limit back, unless the person changed it since. */
+  function updateDirectorChoice(raise) {
+    const wonder = chosenDirector() === "wonder";
+    const needsWonder = wonder && $("review").checked;
+    const budget = $("budget");
+    const dollars = (value) => "$" + Number(value).toFixed(2);
+    $("director-choice").hidden = !$("review").checked;
+    $("review-by").textContent = "Director\u2019s notes \u00b7 " + directorName(chosenDirector());
+    Array.from(budget.options).forEach((option) => {
+      const low = Number(option.value) < wonderMinimumBudget();
+      option.disabled = needsWonder && low;
+      option.textContent = dollars(option.value) + (needsWonder && low ? " (too low for Muse Wonder)" : "");
+    });
+    let raised = "";
+    const memo = state.budgetRaisedFrom;
+    if (raise && needsWonder && Number(budget.value) < wonderMinimumBudget()) {
+      const next = Array.from(budget.options).find((option) => Number(option.value) >= wonderMinimumBudget());
+      if (next) { state.budgetRaisedFrom = { from: budget.value, to: next.value }; budget.value = next.value; raised = "The project API limit is now " + dollars(next.value) + ", so the review can run. "; }
+    } else if (raise && !needsWonder && memo) {
+      if (budget.value === memo.to) { budget.value = memo.from; raised = "The project API limit is back to " + dollars(memo.from) + ". "; }
+      state.budgetRaisedFrom = "";
+    }
+    $("director-raise").hidden = !raised; $("director-raise").textContent = raised.trim();
+    $("director-note").textContent = wonder
+      ? "Muse Wonder is Meta\u2019s most capable model. It also hears the voice and each cut. A review costs about $0.10 to $0.15. It holds up to " + "$" + wonderMinimumBudget().toFixed(2) + " of the limit while it runs."
+      : "Muse Spark watches the cut and reads the captions. Choose Muse Wonder when the sound matters.";
+  }
+  /* The spoken-language picker, from the one list the server keeps (meta.languages): "auto" first, then every
+     language Meta Voice Transcribe hears. The page's own options are the fallback when the call fails. */
+  function fillLanguages(rows) {
+    const heard = Array.isArray(rows) ? rows.filter((row) => row && typeof row.code === "string" && row.code && row.heard !== false) : [];
+    if (!heard.length) return;
+    const select = $("language");
+    const chosen = select.value;
+    select.replaceChildren(new Option("Detect automatically", "auto"), ...heard.map((row) => new Option(String(row.name || row.code), row.code)));
+    chooseOption(select, chosen || "auto", languageLabel(chosen), (a, b) => a === b);
+  }
+  function languageLabel(code) {
+    const rows = state.capabilities && state.capabilities.meta && Array.isArray(state.capabilities.meta.languages) ? state.capabilities.meta.languages : [];
+    const base = String(code || "").split("-")[0].toLowerCase();
+    const row = rows.find((item) => item && item.code === base);
+    return row ? (row.code === code ? String(row.name) : row.name + " (" + code + ")") : String(code || "");
+  }
+  /* Selects ``value``. A saved value the list lacks (a custom length, budget or regional code) is added, not dropped. */
+  function chooseOption(select, value, label, same) {
+    const match = Array.from(select.options).find((option) => same(option.value, value));
+    if (match) { select.value = match.value; return; }
+    select.append(new Option(label, String(value)));
+    select.value = String(value);
+  }
+  const sameNumber = (a, b) => Number(a) === Number(b);
   function metaReady() { const caps = state.capabilities; const meta = caps && caps.meta || {}; return !!(meta.available || (meta.available === undefined && meta.enabled && meta.configured)); }
   function updateCaptionNote() {
     const on = $("captions").checked;
@@ -154,6 +221,7 @@
       $("effect-preset").replaceChildren(new Option("No effect", "none"), ...state.effectPresets.map((item) => new Option(item.label, item.id)));
       if (state.effectPresets.some((item) => item.id === chosenEffect)) $("effect-preset").value = chosenEffect;
       updateEffectControls();
+      fillLanguages(meta.languages);
       const ready = metaReady();
       const renders = render.ready !== false;
       $("connection-status").textContent = ready && renders ? "Meta connected" : "Setup needed";
@@ -233,6 +301,7 @@
     if (!binned && !state.file && !state.paths.length) { showError("Choose your footage first."); $("clip").focus(); return; }
     if (!metaReady()) { showError("Add your Meta API key before creating a story. Settings shows where to get one."); openMetaSettings(); return; }
     if (!$("cloud-consent").checked) { showError("Confirm that this footage can be sent to Meta before creating the story."); $("cloud-consent").focus(); return; }
+    if ($("review").checked && chosenDirector() === "wonder" && Number($("budget").value) < wonderMinimumBudget()) { showError("A Muse Wonder review needs a project API limit of $" + wonderMinimumBudget().toFixed(2) + " or more. Raise the limit, or choose Muse Spark."); $("budget").focus(); return; }
     const payload = readSettings();
     const settingsSnapshot = JSON.stringify(payload);
     payload.effect = readEffect();
@@ -349,14 +418,20 @@
     const req = job.request || {};
     $("goal").value = req.goal || "";
     $("aspect").value = req.aspect || "9:16";
-    if ([15, 30, 60, 90].includes(Number(req.target_duration))) $("target-duration").value = String(req.target_duration);
+    const length = Number(req.target_duration);
+    if (Number.isFinite(length) && length > 0) chooseOption($("target-duration"), length, (Math.round(length * 10) / 10) + " seconds", sameNumber);
     $("captions").checked = !!req.captions;
-    $("language").value = req.language || "en";
+    const language = typeof req.language === "string" && req.language ? req.language : "auto";
+    chooseOption($("language"), language, languageLabel(language), (a, b) => a === b);
     updateCaptionNote();
     $("subject").value = req.subject || "";
-    if ([0.25, 0.5, 1, 2].includes(Number(req.budget_usd))) $("budget").value = String(req.budget_usd);
+    const budget = Number(req.budget_usd);
+    if (Number.isFinite(budget) && budget > 0) chooseOption($("budget"), budget, "$" + budget.toFixed(2), sameNumber);
     $("cover-mode").value = req.generate_cover ? "meta" : "frame";
     $("review").checked = !!req.review;
+    setDirector(req.director);
+    state.budgetRaisedFrom = "";
+    updateDirectorChoice(false);
     fillEffect(req.effect);
     $("cloud-consent").checked = false;
   }
@@ -392,6 +467,7 @@
     const recoverable = ["failed", "cancelled"].includes(job.status);
     const verified = hasVerifiedResult(job);
     $("project-name").textContent = job.name || state.draft && state.draft.title || job.plan && job.plan.title || state.sourceName || "Untitled project";
+    $("project-name").title = $("project-name").textContent; // the top bar can cut a long name short
     $("result").textContent = job.message || labels[job.status] || "Your project is saved.";
     $("project-status").textContent = labels[job.status] || job.status;
     $("project-status").className = "status-pill" + (active ? " is-working" : complete ? " is-complete" : recoverable ? " is-failed" : "");
@@ -422,7 +498,7 @@
     }
     updateWorkflow(complete ? 2 : job.plan ? 1 : 0);
     if (job.plan && state.draft) {
-      $("story-description").textContent = job.plan.summary || "Review and refine the moments before rendering.";
+      $("story-description").textContent = storyDescription(job.plan, job.request);
       $("say-pauses").textContent = state.draft.segments.length + (state.draft.segments.length === 1 ? " selected moment" : " selected moments");
       $("say-shape").textContent = (job.request && job.request.aspect || "9:16") + " output";
       $("say-captions").textContent = job.request && job.request.captions ? "Captions by Meta Voice Transcribe" : "Original audio";
@@ -492,6 +568,12 @@
     $("proof-color").textContent = [proof.color_space || proof.color && proof.color.space, proof.color_range || proof.color && proof.color.range].filter(Boolean).join(" / ") || "Not tagged";
     const trackingOff = job && job.request && job.request.tracking_disabled && job.request.subject;
     $("proof-subject").textContent = !current ? "—" : result.tracked_subject ? result.tracked_subject : trackingOff ? "Off (center crop)" : "None requested";
+    // The root evidence id covers the video's sha256 and every receipt; `vedit verify` re-hashes them.
+    const evidence = failed ? "" : version && version.evidence_id || (current && typeof result.evidence_id === "string" ? result.evidence_id : "");
+    $("evidence-root").hidden = !evidence;
+    $("evidence-id").textContent = evidence ? evidence.slice(0, 15) + "…" : "—";
+    $("evidence-id").title = evidence;
+    $("copy-evidence").dataset.id = evidence;
     paintWarnings("delivery-warnings", current ? result.warnings || [] : []);
     paintVersionTabs(job, versions, version);
     paintRunFacts(job, result, version);
@@ -505,8 +587,9 @@
   /* How each receipt knows what it claims. Versions saved before this have no basis and show no tag. */
   const checkBases = ["observed", "derived", "inferred"];
   const basisLabels = { observed: "Probed", derived: "Measured", inferred: "Model opinion" };
-  const instrumentNames = { ffprobe: "ffprobe", lint: "Briefcut’s checker", "brief-parser": "Briefcut’s brief reader", "muse-spark": "Muse Spark", "sam-3.1": "SAM 3.1", "meta-voice-transcribe": "Meta Voice Transcribe" };
-  function instrumentName(id) { return instrumentNames[id] || id; }
+  const instrumentNames = { ffprobe: "ffprobe", lint: "Briefcut’s checker", "brief-parser": "Briefcut’s brief reader", "muse-spark": "Muse Spark", "muse-wonder": "Muse Wonder", "sam-3.1": "SAM 3.1", "meta-voice-transcribe": "Meta Voice Transcribe" };
+  // Projects saved before Briefcut went Meta-only name a local transcriber; say so plainly.
+  function instrumentName(id) { return instrumentNames[id] || (String(id).startsWith("local-") ? "an earlier local transcript" : id); }
   function basisTitle(check) {
     if (check.basis === "observed") return "Read from the finished file by " + instrumentName(check.by || "ffprobe") + ".";
     if (check.basis === "inferred") return (check.by ? instrumentName(check.by) + "’s" : "A model’s") + " judgment of the cut, not a measurement.";
@@ -514,12 +597,12 @@
     return "Measured by " + (check.by ? instrumentName(check.by) : "code") + ", not judged by a model." + (check.inputs.length ? " Its data came from " + check.inputs.map(instrumentName).join(" and ") + "." : "");
   }
   function basisBreakdown(checks) {
-    const count = (basis) => checks.filter((check) => check.basis === basis).length;
+    const count = (basis) => checks.filter((check) => check.basis === basis && !check.advisory).length;
     const measured = count("derived"), probed = count("observed"), opinions = count("inferred");
     return [measured ? measured + " measured" : "", probed ? probed + " probed" : "", opinions ? opinions + (opinions === 1 ? " model opinion" : " model opinions") : ""].filter(Boolean).join(", ");
   }
   function normalizeChecks(list) {
-    return Array.isArray(list) ? list.filter((check) => check && typeof check === "object").map((check) => ({ name: String(check.name || "Check"), passed: check.passed === true, at: check.at !== null && check.at !== "" && Number.isFinite(Number(check.at)) ? Number(check.at) : null, note: typeof check.note === "string" ? check.note : "", basis: checkBases.includes(check.basis) ? check.basis : "", by: typeof check.by === "string" ? check.by : "", inputs: Array.isArray(check.inputs) ? check.inputs.filter((item) => typeof item === "string" && item) : [] })) : [];
+    return Array.isArray(list) ? list.filter((check) => check && typeof check === "object").map((check) => ({ name: String(check.name || "Check"), passed: check.passed === true, at: check.at !== null && check.at !== "" && Number.isFinite(Number(check.at)) ? Number(check.at) : null, note: typeof check.note === "string" ? check.note : "", basis: checkBases.includes(check.basis) ? check.basis : "", by: typeof check.by === "string" ? check.by : "", inputs: Array.isArray(check.inputs) ? check.inputs.filter((item) => typeof item === "string" && item) : [], advisory: check.advisory === true })) : [];
   }
   function normalizePatches(list) {
     return Array.isArray(list) ? list.filter((patch) => patch && typeof patch === "object").map((patch) => ({ op: String(patch.op || "adjust"), summary: typeof patch.summary === "string" ? patch.summary : "", segment: patch.segment !== null && Number.isFinite(Number(patch.segment)) ? Number(patch.segment) : null, seconds: patch.seconds !== null && Number.isFinite(Number(patch.seconds)) ? Number(patch.seconds) : null, reason: typeof patch.reason === "string" ? patch.reason : "", source: patch.source === "director" ? "director" : "auto", before: patch.before && typeof patch.before === "object" ? patch.before : null, after: patch.after && typeof patch.after === "object" ? patch.after : null, skipped: typeof patch.skipped === "string" ? patch.skipped : patch.skipped === true ? "Skipped" : "" })).map((patch) => {
@@ -529,9 +612,11 @@
   }
   function resultChecks(result) { return result ? normalizeChecks(Array.isArray(result.checks) ? result.checks : result.review && result.review.checks) : []; }
   function resultPatches(result) { return result ? normalizePatches(Array.isArray(result.patches) ? result.patches : result.review && result.review.patches) : []; }
+  /* An advisory receipt is a note, not a check: it never counts toward passed or total. */
   function countChecks(checks, passed, total) {
-    const t = total !== null && Number.isFinite(Number(total)) ? Number(total) : checks.length;
-    const p = passed !== null && Number.isFinite(Number(passed)) ? Number(passed) : checks.filter((check) => check.passed).length;
+    const real = checks.filter((check) => !check.advisory);
+    const t = total !== null && Number.isFinite(Number(total)) ? Number(total) : real.length;
+    const p = passed !== null && Number.isFinite(Number(passed)) ? Number(passed) : real.filter((check) => check.passed).length;
     return { passed: p, total: t };
   }
   function jobVersions(job) {
@@ -546,12 +631,12 @@
         const checks = normalizeChecks(item.checks);
         const merged = checks.length || !current ? checks : resultChecks(result);
         const count = countChecks(merged, item.passed, item.total);
-        return { revision, status: item.status === "failed" ? "failed" : "verified", source: typeof item.source === "string" ? item.source : "approved", created_at: item.created_at || null, proof: item.proof && typeof item.proof === "object" ? item.proof : current ? result.proof || {} : {}, checks: merged, passed: count.passed, total: count.total, hook_score: item.hook_score, verdict: item.verdict, review: item.review && typeof item.review === "object" ? item.review : current ? result.review : null, applied_patches: normalizePatches(item.applied_patches), video_url: item.video_url || (current ? result.video_url : ""), report_url: item.report_url || (current ? result.report_url : ""), cover_url: item.cover_url || (current ? result.cover_url : ""), bundle_url: item.bundle_url || (current ? result.bundle_url : ""), timings: item.timings && typeof item.timings === "object" ? item.timings : null, error: item.error, note: typeof item.note === "string" ? item.note : "", stopped: typeof item.stopped === "string" ? item.stopped : "" };
+        return { revision, status: item.status === "failed" ? "failed" : "verified", source: typeof item.source === "string" ? item.source : "approved", created_at: item.created_at || null, proof: item.proof && typeof item.proof === "object" ? item.proof : current ? result.proof || {} : {}, checks: merged, passed: count.passed, total: count.total, hook_score: item.hook_score, verdict: item.verdict, review: item.review && typeof item.review === "object" ? item.review : current ? result.review : null, applied_patches: normalizePatches(item.applied_patches), video_url: item.video_url || (current ? result.video_url : ""), report_url: item.report_url || (current ? result.report_url : ""), cover_url: item.cover_url || (current ? result.cover_url : ""), bundle_url: item.bundle_url || (current ? result.bundle_url : ""), evidence_id: typeof item.evidence_id === "string" ? item.evidence_id : current && typeof result.evidence_id === "string" ? result.evidence_id : "", timings: item.timings && typeof item.timings === "object" ? item.timings : null, error: item.error, note: typeof item.note === "string" ? item.note : "", stopped: typeof item.stopped === "string" ? item.stopped : "" };
       });
     } else if (hasVerifiedResult(job)) {
       const checks = resultChecks(result);
       const count = countChecks(checks, result.passed, result.total);
-      list = [{ revision: verifiedRevision(job), status: "verified", source: "approved", created_at: job.updated_at || null, proof: result.proof || {}, checks, passed: count.passed, total: count.total, hook_score: result.review && result.review.hook_score, verdict: result.review && result.review.verdict, review: result.review, applied_patches: normalizePatches(result.applied_patches), video_url: result.video_url, report_url: result.report_url, cover_url: result.cover_url, bundle_url: result.bundle_url, timings: job.timings && typeof job.timings === "object" ? job.timings : null, error: null, note: "" }];
+      list = [{ revision: verifiedRevision(job), status: "verified", source: "approved", created_at: job.updated_at || null, proof: result.proof || {}, checks, passed: count.passed, total: count.total, hook_score: result.review && result.review.hook_score, verdict: result.review && result.review.verdict, review: result.review, applied_patches: normalizePatches(result.applied_patches), video_url: result.video_url, report_url: result.report_url, cover_url: result.cover_url, bundle_url: result.bundle_url, evidence_id: typeof result.evidence_id === "string" ? result.evidence_id : "", timings: job.timings && typeof job.timings === "object" ? job.timings : null, error: null, note: "" }];
     }
     list.sort((a, b) => a.revision - b.revision);
     list.forEach((item) => { if (!item.note && state.notes[item.revision]) item.note = state.notes[item.revision]; });
@@ -638,14 +723,20 @@
     section.hidden = !checks.length;
     if (!checks.length) return;
     const basis = basisBreakdown(checks);
-    $("checks-summary").textContent = version.passed + " of " + version.total + " passed" + (basis ? " · " + basis : "") + " · v" + version.revision;
+    const notes = checks.filter((check) => check.advisory).length;
+    $("checks-summary").textContent = version.passed + " of " + version.total + " passed" + (basis ? " · " + basis : "") + (notes ? " · " + notes + (notes === 1 ? " note" : " notes") : "") + " · v" + version.revision;
     const list = $("checks-list"); list.replaceChildren();
     checks.forEach((check) => {
-      const item = element("li", "check " + (check.passed ? "is-pass" : "is-fail"));
-      const glyph = element("span", "check-glyph", check.passed ? "✓" : "✕"); glyph.setAttribute("aria-hidden", "true");
-      const name = element("span", "check-name"); name.append(element("span", "sr", check.passed ? "Passed: " : "Failed: "), document.createTextNode(check.name));
-      if (check.basis) {
-        const tag = element("span", "check-basis is-" + check.basis, basisLabels[check.basis]); tag.title = basisTitle(check);
+      // A note says something worth knowing about the cut. It neither passes nor fails.
+      const item = element("li", "check " + (check.advisory ? "is-note" : check.passed ? "is-pass" : "is-fail"));
+      const glyph = element("span", "check-glyph", check.advisory ? "i" : check.passed ? "✓" : "✕"); glyph.setAttribute("aria-hidden", "true");
+      const name = element("span", "check-name");
+      if (check.advisory) name.append(element("span", "check-advisory", "Note"), element("span", "sr", ": "), document.createTextNode(check.name));
+      else name.append(element("span", "sr", check.passed ? "Passed: " : "Failed: "), document.createTextNode(check.name));
+      if (check.basis && !check.advisory) {
+        // An opinion names the model behind it, so a Wonder review reads apart from a Spark one.
+        const model = check.basis === "inferred" && /^muse-/.test(check.by) ? instrumentName(check.by) : "";
+        const tag = element("span", "check-basis is-" + check.basis + (model ? " by-" + check.by : ""), basisLabels[check.basis] + (model ? " \u00b7 " + model : "")); tag.title = basisTitle(check);
         name.append(element("span", "sr", ", "), tag);
       }
       item.append(glyph, name);
@@ -699,7 +790,7 @@
     const id = state.job.id;
     const next = finite(state.job.revision, verifiedRevision(state.job)) + 1;
     try {
-      const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/revise", { method: "POST", body: mode === "note" ? { mode: "note", note } : { mode }, timeout: 25000 });
+      const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/revise", { method: "POST", body: mode === "note" ? { mode: "note", note } : { mode, director: projectDirector(state.job) }, timeout: 25000 });
       if (!data.job) throw new Error("The revision was not started. Your verified version is still available.");
       const revision = finite(data.job.revision, next);
       if (note) state.notes[revision] = note;
@@ -715,11 +806,19 @@
   }
 
 
+  function reviewDirector(review) {
+    if (review && typeof review.director === "string" && review.director) return directorId(review.director);
+    if (review && typeof review.model === "string" && review.model) return directorId(review.model);
+    return projectDirector(state.job);
+  }
   function paintDirectorNotes(review, requested, patches) {
     const panel = $("director-notes");
     const show = !!(requested || review);
     panel.hidden = !show;
     if (!show) return;
+    const wonder = reviewDirector(review) === "wonder";
+    $("director-by").textContent = (wonder ? "Muse Wonder watched and heard the finished video." : "Muse Spark reviewed the finished video.") + " Opinions, not measurements.";
+    $("director-by").title = review && typeof review.model === "string" && review.model ? "Model: " + review.model : "";
     const error = review && typeof review.error === "string" ? review.error : (!review ? "The review did not run for this version." : "");
     $("director-error").hidden = !error;
     $("director-error").textContent = error;
@@ -749,7 +848,9 @@
       fixes.appendChild(item);
     });
     if (ok && !fixes.children.length) fixes.appendChild(element("li", "muted", review.partial ? "See the receipts above for this version." : "Nothing flagged."));
-    const caption = ok && typeof review.caption_suggestion === "string" ? review.caption_suggestion.trim() : "";
+    // A model can answer the word "null" for no suggestion; that is no caption.
+    const suggested = ok && typeof review.caption_suggestion === "string" ? review.caption_suggestion.trim() : "";
+    const caption = /^(null|none|n\/a)$/i.test(suggested) ? "" : suggested;
     $("director-caption-wrap").hidden = !caption;
     $("director-caption").textContent = caption;
     const director = (patches || []).filter((patch) => patch.source === "director");
@@ -990,13 +1091,20 @@
     state.file = null; state.paths = []; state.sourceURL = ""; state.duration = 0; state.job = null; state.draft = null; state.selected = -1; state.sourceName = ""; state.rangeEnd = null; state.settingsSnapshot = ""; state.settingsDirty = false; state.pendingCreate = null; state.effectTimingEdited = false; state.version = null; state.notes = {};
     $("version-tabs").hidden = true; $("checks-section").hidden = true; $("version-changes").hidden = true; $("director-notes").hidden = true; $("revise-note").value = "";
     storageRemove(storageKey);
-    if (clearForm) { $("desk-form").reset(); $("clip").value = ""; updateCaptionNote(); updateEffectControls(); }
+    if (clearForm) { $("desk-form").reset(); $("clip").value = ""; state.budgetRaisedFrom = ""; updateCaptionNote(); updateEffectControls(); updateDirectorChoice(false); }
     $("project-name").textContent = "Untitled project"; $("result").textContent = "A little raw footage. A story worth sharing."; $("project-status").textContent = "Ready to start"; $("project-status").className = "status-pill";
     $("clip-name").textContent = "The original stays untouched."; $("drop-title").textContent = "Choose your footage"; $("source-badge").textContent = "No clip selected";
     $("job-progress").hidden = true; $("delivery-panel").hidden = true; $("delivery-panel").classList.remove("is-previous"); $("recovery-panel").hidden = true; $("preview-final").disabled = true; $("preview-final").textContent = "Finished video"; $("budget-status").hidden = true; $("save-status").textContent = ""; $("story-description").textContent = "Review the moments before you make the video.";
     state.loop = false; $("scrubber").hidden = true; $("transcript-panel").hidden = true; $("analysis-badge").hidden = true; $("analysis-notes").hidden = true; $("run-facts").hidden = true;
     clearError(); renderStory(); setPreview("source"); updateWorkflow(0); setControls();
     if (window.BriefcutEditor) BriefcutEditor._reset();
+  }
+
+  async function copyEvidence() {
+    const id = $("copy-evidence").dataset.id || "";
+    if (!id) return;
+    try { await navigator.clipboard.writeText(id); toast("Evidence id copied."); }
+    catch (_) { $("evidence-id").textContent = id; toast("Select and copy the full id shown."); }
   }
 
   async function copyPost() {
@@ -1008,6 +1116,21 @@
 
 
   /* ---------- Analysis, scrubber, transcript ---------- */
+  /* What planned this story, in words that match what ran: the plan's provider and who transcribed it decide.
+     Muse Spark's own summary follows. An older project saved before Briefcut ran on Meta gets plain, neutral words. */
+  function storyDescription(plan, request) {
+    const analysis = plan && plan.analysis && typeof plan.analysis === "object" ? plan.analysis : {};
+    const summary = plan && typeof plan.summary === "string" ? plan.summary.trim() : "";
+    const review = "Review every moment before you make the video.";
+    if (analysis.method === "script") return summary || review;
+    const meta = (plan && plan.provider) === "meta" || analysis.method === "meta" || (request && request.provider) === "meta";
+    if (!meta) return "Moments were picked from scene cuts and pauses in the footage. " + review;
+    const heard = analysis.transcribed_by === "meta-voice-transcribe" && analysis.transcribed !== false;
+    const sentences = Array.isArray(analysis.sentences) && analysis.sentences.length > 0;
+    const how = "Muse Spark planned this story from the footage" + (heard ? " and the Meta Voice Transcribe transcript" : "")
+      + (sentences ? ". Each cut ends on a sentence boundary." : ".");
+    return [how, summary || review].join(" ");
+  }
   function analysisOf(job) {
     const plan = job && job.plan;
     const analysis = plan && plan.analysis;
@@ -1029,7 +1152,9 @@
     badge.textContent = meta ? "Meta director" : "Older project";
     badge.classList.toggle("is-meta", !!meta);
     badge.title = meta ? "Moments proposed by Muse Spark from the footage. Review every range." : "Saved before Briefcut ran on Meta. Moments came from scene cuts and pauses.";
-    const notes = analysis && Array.isArray(analysis.notes) ? analysis.notes.filter((note) => typeof note === "string" && note) : [];
+    /* An older project's own notes describe a planner Briefcut no longer has, so only Meta and script notes show. */
+    const current = !!meta || (analysis && analysis.method === "script");
+    const notes = current && analysis && Array.isArray(analysis.notes) ? analysis.notes.filter((note) => typeof note === "string" && note) : [];
     $("analysis-notes").hidden = !notes.length;
     $("analysis-notes").textContent = notes.join(" ");
   }
@@ -1194,7 +1319,7 @@
     $("fact-spend").textContent = job.request && job.request.provider === "meta" || captionProviderUsed === "meta" ? "$" + spend.toFixed(3) + " reserved" : "$0.00";
     const checksNode = $("fact-checks");
     checksNode.textContent = version && version.total ? version.passed + " / " + version.total + " passed" : "—";
-    if (version && version.total) checksNode.append(Object.assign(document.createElement("small"), { textContent: "v" + version.revision + (version.checks.some((check) => /^director:/i.test(check.name)) ? " · auto + director" : " · auto checks") }));
+    if (version && version.total) checksNode.append(Object.assign(document.createElement("small"), { textContent: "v" + version.revision + (version.checks.some((check) => /^director:/i.test(check.name)) ? " · auto + " + (version.checks.some((check) => check.by === "muse-wonder") ? "Muse Wonder" : version.checks.some((check) => check.by === "muse-spark") ? "Muse Spark" : "director") : " · auto checks") }));
   }
 
   /* ---------- Shortcuts ---------- */
@@ -1242,6 +1367,9 @@
   $("effect-intensity").addEventListener("input", () => { updateEffectControls(); saveDraft(); paintEffectSummary(); });
   ["effect-start", "effect-duration"].forEach((id) => { $(id).addEventListener("input", () => { state.effectTimingEdited = true; saveDraft(); paintEffectSummary(); }); });
   $("target-duration").addEventListener("change", boundDefaultEffectDuration);
+  $("review").addEventListener("change", () => updateDirectorChoice(true));
+  document.querySelectorAll('input[name="director"]').forEach((input) => input.addEventListener("change", () => updateDirectorChoice(true)));
+  $("budget").addEventListener("change", () => { state.budgetRaisedFrom = ""; updateDirectorChoice(false); });
   $("new-project").addEventListener("click", () => { const running = isActive(); resetProject(true); if (running) toast("Your previous job keeps running. Find it in Projects."); $("clip").focus(); });
   $("dismiss-error").addEventListener("click", clearError);
   $("preview-source").addEventListener("click", () => setPreview("source"));
@@ -1252,6 +1380,7 @@
   $("render-center-crop").addEventListener("click", () => renderCampaign({ tracking: false }));
   $("reconnect-job").addEventListener("click", () => { clearError(); state.pollFailures = 0; $("reconnect-job").hidden = true; if (state.job) schedulePoll(); });
   $("copy-caption").addEventListener("click", copyPost);
+  $("copy-evidence").addEventListener("click", copyEvidence);
     $("use-director-caption").addEventListener("click", () => {
       const caption = $("director-caption").textContent.trim();
       if (!caption || !state.draft) return;
@@ -1296,6 +1425,7 @@
   if (window.BriefcutEditor) BriefcutEditor._attach({ state, request, announce, toast, showError, saveDraft, renderStory, setPreview, seekTo, seekSegment, isActive, setControls, maxSegments, hasVerifiedResult, addSegment });
 
   async function init() {
+    updateDirectorChoice(false);
     setControls();
     await loadCapabilities();
     const linked = (() => { try { return new URLSearchParams(location.hash.replace(/^#/, "")).get("job") || ""; } catch (_) { return ""; } })();

@@ -23,7 +23,7 @@ Muse Code reads MCP servers from `~/.config/muse/settings.json`. Add a `briefcut
 
 `VEDIT_WORKSPACE` here is Studio's project folder on a Mac, so projects that Muse Code makes open in Studio too. One process holds a workspace at a time, so close Studio while Muse Code is editing, then open Studio to see the result.
 
-The server takes the Meta key from Briefcut's own settings or from `MODEL_API_KEY` in the environment you start Muse Code from. Never put the key in `settings.json`.
+The server finds the Meta key on its own: from `.env.local` in the checkout, from Briefcut's Settings, or from `MODEL_API_KEY` in the environment Muse Code passes it. Muse Code does not forward your shell's environment to MCP servers by default, which is why the server reads `.env.local` itself. Never put the key in `settings.json`; if you want the shell's value, use `"env": {"MODEL_API_KEY": "${MODEL_API_KEY}"}`, which Muse Code fills in when it starts the server.
 
 ## 2. The skill
 

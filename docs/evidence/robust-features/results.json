@@ -1,0 +1,1702 @@
+{
+  "schema": "briefcut.robust-features.v1",
+  "recorded_at": "2026-11-04T19:48:51Z",
+  "hero_word": {
+    "no_sound_whitehouse": {
+      "clip": "whitehouse-walk.mp4",
+      "heard": [],
+      "suggest": {
+        "ok": false,
+        "refused": "A hero word needs speech, and no words were heard in this cut. Nothing was sent to Muse Spark."
+      }
+    },
+    "silent_track_wanrong": {
+      "clip": "wanrong-walk.mp4",
+      "heard": [
+        {
+          "start": 0.0,
+          "end": 2.0,
+          "text": "You"
+        }
+      ],
+      "suggest": {
+        "ok": false,
+        "refused": "Only filler words are said in this cut (you), so there is no word worth showing. Nothing was sent to Muse Spark."
+      },
+      "simulated_transcript": [
+        {
+          "start": 0.0,
+          "end": 0.9,
+          "text": "Thank"
+        },
+        {
+          "start": 0.9,
+          "end": 1.6,
+          "text": "you."
+        }
+      ],
+      "matte_for_invented_word": {
+        "ok": false,
+        "refused": "“Thank” is in the transcript, but the clip is silent while it should be said (peak -91 dB). The transcript may have invented it, so it is left out."
+      }
+    },
+    "two_people_light_background_man": {
+      "clip": "whitehouse-walk.mp4",
+      "subject": "the man in the dark suit",
+      "word_supplied_by": "this proof script (the clip has no speech)",
+      "shapes": {
+        "16:9": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the man in the dark suit",
+            "side": "top",
+            "font": "heavy",
+            "color": "#101014",
+            "reason": "",
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ]
+          },
+          "side_note": "At center the background behind the word is too busy for any colour to read (best 2.3:1), so the word sits top, clear of the subject, where it reads at 7.3:1.",
+          "color_note": "The background behind the word is light, so it is drawn in black (7.3:1) rather than white (1.9:1).",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0126,
+            "mean_area": 0.2065,
+            "first_missing": null,
+            "hidden": 0.0,
+            "hidden_by_side": {
+              "center": 0.4401,
+              "top": 0.0,
+              "left": 0.0884,
+              "right": 0.6224
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ],
+            "color": "#101014",
+            "contrast": 7.32,
+            "contrast_by_color": {
+              "#FFFFFF": 1.93,
+              "#FFD60A": 1.37,
+              "#FF453A": 1.37,
+              "#FF9F0A": 1.09,
+              "#30D158": 1.07,
+              "#0A84FF": 1.47,
+              "#101014": 7.32
+            },
+            "background_luma": 161,
+            "best_contrast_by_side": {
+              "center": 2.29,
+              "top": 7.32,
+              "left": 2.24,
+              "right": 4.14
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-man-16x9/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1920x1080 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "top",
+                "text": "WALK",
+                "size": 68,
+                "x": 360,
+                "y": 199,
+                "width": 158,
+                "height": 48,
+                "visible": [
+                  0,
+                  158,
+                  720,
+                  405
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1920,
+              "height": 1080,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 0% of the word, so it is not behind anything; #101014 reads at 7.3:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-man-16x9.jpg"
+        },
+        "9:16": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the man in the dark suit",
+            "side": "center",
+            "font": "heavy",
+            "color": "#FFFFFF",
+            "reason": "",
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ]
+          },
+          "side_note": "",
+          "color_note": "",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0126,
+            "mean_area": 0.2065,
+            "first_missing": null,
+            "hidden": 0.4636,
+            "hidden_by_side": {
+              "center": 0.4636,
+              "top": 0.0705,
+              "left": 0.0492,
+              "right": 0.7928
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ],
+            "color": "#FFFFFF",
+            "contrast": 9.99,
+            "contrast_by_color": {
+              "#FFFFFF": 9.99,
+              "#FFD60A": 7.08,
+              "#FF453A": 2.93,
+              "#FF9F0A": 4.86,
+              "#30D158": 4.94,
+              "#0A84FF": 2.74,
+              "#101014": 1.21
+            },
+            "background_luma": 62,
+            "best_contrast_by_side": {
+              "center": 9.99,
+              "top": 5.89,
+              "left": 9.12,
+              "right": 2.04
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-man-9x16/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1080x1920 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "center",
+                "text": "WALK",
+                "size": 156,
+                "x": 360,
+                "y": 360,
+                "width": 363,
+                "height": 111,
+                "visible": [
+                  158,
+                  0,
+                  405,
+                  720
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1080,
+              "height": 1920,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 46% of the word; #FFFFFF reads at 10.0:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-man-9x16.jpg"
+        },
+        "1:1": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the man in the dark suit",
+            "side": "top",
+            "font": "heavy",
+            "color": "#101014",
+            "reason": "",
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ]
+          },
+          "side_note": "At center the background behind the word is too busy for any colour to read (best 2.2:1), so the word sits top, 6% behind the subject, where it reads at 5.7:1.",
+          "color_note": "The background behind the word is light, so it is drawn in black (5.7:1) rather than white (2.2:1).",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0126,
+            "mean_area": 0.2065,
+            "first_missing": null,
+            "hidden": 0.0568,
+            "hidden_by_side": {
+              "center": 0.379,
+              "top": 0.0568,
+              "left": 0.0827,
+              "right": 0.6104
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.5092,
+              0.1466,
+              0.8792,
+              1.0
+            ],
+            "color": "#101014",
+            "contrast": 5.71,
+            "contrast_by_color": {
+              "#FFFFFF": 2.2,
+              "#FFD60A": 1.56,
+              "#FF453A": 1.09,
+              "#FF9F0A": 1.09,
+              "#30D158": 1.1,
+              "#0A84FF": 1.11,
+              "#101014": 5.71
+            },
+            "background_luma": 151,
+            "best_contrast_by_side": {
+              "center": 2.24,
+              "top": 5.71,
+              "left": 2.21,
+              "right": 4.01
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-man-1x1/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1080x1080 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "top",
+                "text": "WALK",
+                "size": 209,
+                "x": 360,
+                "y": 95,
+                "width": 486,
+                "height": 148,
+                "visible": [
+                  0,
+                  0,
+                  720,
+                  720
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1080,
+              "height": 1080,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 6% of the word; #101014 reads at 5.7:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-man-1x1.jpg"
+        }
+      }
+    },
+    "two_people_light_background_people": {
+      "clip": "whitehouse-walk.mp4",
+      "subject": "the two people",
+      "word_supplied_by": "this proof script (the clip has no speech)",
+      "shapes": {
+        "16:9": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the two people",
+            "side": "top",
+            "font": "heavy",
+            "color": "#101014",
+            "reason": "",
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ]
+          },
+          "side_note": "Spark asked for center, where SAM's mask covers 79% of the word, so the word sits top instead, 5% behind the subject.",
+          "color_note": "The background behind the word is light, so it is drawn in black (7.5:1) rather than white (1.9:1).",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0098,
+            "mean_area": 0.3742,
+            "first_missing": null,
+            "hidden": 0.0494,
+            "hidden_by_side": {
+              "center": 0.7921,
+              "top": 0.0494,
+              "left": 0.5791,
+              "right": 0.7168
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ],
+            "color": "#101014",
+            "contrast": 7.53,
+            "contrast_by_color": {
+              "#FFFFFF": 1.91,
+              "#FFD60A": 1.35,
+              "#FF453A": 1.37,
+              "#FF9F0A": 1.09,
+              "#30D158": 1.07,
+              "#0A84FF": 1.47,
+              "#101014": 7.53
+            },
+            "background_luma": 161,
+            "best_contrast_by_side": {
+              "center": 5.98,
+              "top": 7.53,
+              "left": 10.84,
+              "right": 3.53
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-people-16x9/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1920x1080 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "top",
+                "text": "WALK",
+                "size": 68,
+                "x": 360,
+                "y": 199,
+                "width": 158,
+                "height": 48,
+                "visible": [
+                  0,
+                  158,
+                  720,
+                  405
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1920,
+              "height": 1080,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 5% of the word; #101014 reads at 7.5:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-people-16x9.jpg"
+        },
+        "9:16": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the two people",
+            "side": "top",
+            "font": "heavy",
+            "color": "#101014",
+            "reason": "",
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ]
+          },
+          "side_note": "Spark asked for center, where SAM's mask covers 94% of the word, so the word sits top instead, 7% behind the subject.",
+          "color_note": "The background behind the word is light, so it is drawn in black (5.9:1) rather than white (2.2:1).",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0098,
+            "mean_area": 0.3742,
+            "first_missing": null,
+            "hidden": 0.0698,
+            "hidden_by_side": {
+              "center": 0.9379,
+              "top": 0.0698,
+              "left": 0.8392,
+              "right": 0.8515
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ],
+            "color": "#101014",
+            "contrast": 5.89,
+            "contrast_by_color": {
+              "#FFFFFF": 2.23,
+              "#FFD60A": 1.58,
+              "#FF453A": 1.1,
+              "#FF9F0A": 1.09,
+              "#30D158": 1.1,
+              "#0A84FF": 1.15,
+              "#101014": 5.89
+            },
+            "background_luma": 153,
+            "best_contrast_by_side": {
+              "center": 7.42,
+              "top": 5.89,
+              "left": 8.39,
+              "right": 8.62
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-people-9x16/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1080x1920 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "top",
+                "text": "WALK",
+                "size": 156,
+                "x": 360,
+                "y": 98,
+                "width": 363,
+                "height": 111,
+                "visible": [
+                  158,
+                  0,
+                  405,
+                  720
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1080,
+              "height": 1920,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 7% of the word; #101014 reads at 5.9:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-people-9x16.jpg"
+        },
+        "1:1": {
+          "matte": {
+            "ok": true
+          },
+          "edit": {
+            "word": "WALK",
+            "start": 1.0,
+            "end": 2.8,
+            "subject": "the two people",
+            "side": "top",
+            "font": "heavy",
+            "color": "#101014",
+            "reason": "",
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ]
+          },
+          "side_note": "Spark asked for center, where SAM's mask covers 68% of the word, so the word sits top instead, 6% behind the subject.",
+          "color_note": "The background behind the word is light, so it is drawn in black (5.7:1) rather than white (2.2:1).",
+          "warnings": [
+            "No words are heard in this cut, so the hero word's timing could not be checked."
+          ],
+          "stats": {
+            "frames": 54,
+            "masked_frames": 54,
+            "filled_frames": 0,
+            "empty_frames": 0,
+            "coverage": 1.0,
+            "flicker": 0.0098,
+            "mean_area": 0.3742,
+            "first_missing": null,
+            "hidden": 0.0564,
+            "hidden_by_side": {
+              "center": 0.6796,
+              "top": 0.0564,
+              "left": 0.5546,
+              "right": 0.6951
+            },
+            "window_frames": 54,
+            "subject_box": [
+              0.1735,
+              0.1468,
+              0.8787,
+              1.0
+            ],
+            "color": "#101014",
+            "contrast": 5.71,
+            "contrast_by_color": {
+              "#FFFFFF": 2.2,
+              "#FFD60A": 1.56,
+              "#FF453A": 1.09,
+              "#FF9F0A": 1.09,
+              "#30D158": 1.1,
+              "#0A84FF": 1.11,
+              "#101014": 5.71
+            },
+            "background_luma": 151,
+            "best_contrast_by_side": {
+              "center": 3.57,
+              "top": 5.71,
+              "left": 10.58,
+              "right": 2.71
+            }
+          },
+          "usage": {
+            "cached": true,
+            "charged_this_call_usd": 0
+          },
+          "render": {
+            "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-people-1x1/video.mp4",
+            "ops": [
+              "select_ranges",
+              "hero_word",
+              "reframe",
+              "thumbnail",
+              "export"
+            ],
+            "warnings": [
+              "The source is 720x720, so this 1080x1080 export is upscaled and gains no detail."
+            ],
+            "hero_layout": [
+              {
+                "word": "WALK",
+                "first_frame": 30,
+                "last_frame": 84,
+                "side": "top",
+                "text": "WALK",
+                "size": 209,
+                "x": 360,
+                "y": 95,
+                "width": 486,
+                "height": 148,
+                "visible": [
+                  0,
+                  0,
+                  720,
+                  720
+                ]
+              }
+            ],
+            "steps_ok": true,
+            "probe": {
+              "duration": 4.833333,
+              "width": 1080,
+              "height": 1080,
+              "has_audio": false,
+              "has_video": true,
+              "color_space": "bt709",
+              "color_range": "tv"
+            }
+          },
+          "check": {
+            "name": "auto: hero word sits behind the subject",
+            "passed": true,
+            "at": 1.0,
+            "note": "“WALK” for 1.80 s from 1.00 s; SAM masked 100% of 54 frames; the subject covers 6% of the word; #101014 reads at 5.7:1 against the background",
+            "basis": "derived",
+            "by": "lint",
+            "inputs": [
+              "sam-3.1",
+              "muse-spark"
+            ]
+          },
+          "sheet": "hero-people-1x1.jpg"
+        }
+      }
+    },
+    "retrimmed_after_the_word_was_set_workshop": {
+      "clip": "workshop.mp4",
+      "heard": "This is the finished oak bowl, oiled and ready for the table.",
+      "suggest": {
+        "ok": true
+      },
+      "proposal": {
+        "word": "bowl,",
+        "start": 1.59,
+        "end": 3.59,
+        "side": "center",
+        "reason": "It names the central handcrafted object shown in the video."
+      },
+      "checked_edit": {
+        "word": "bowl",
+        "start": 1.53,
+        "end": 3.53,
+        "subject": "the wooden bowl",
+        "side": "center",
+        "font": "heavy",
+        "color": "#FFFFFF",
+        "reason": "It names the central handcrafted object shown in the video."
+      },
+      "spark_model": "muse-spark-1.3-contributor",
+      "spark_usage": {
+        "estimated_max_usd": 0.0033453,
+        "cached": true,
+        "input_tokens": 456,
+        "output_tokens": 2968,
+        "total_tokens": 3424,
+        "cost_usd": 0.0006392,
+        "charged_this_call_usd": 0
+      },
+      "status_after_trim": {
+        "status": "moved",
+        "start": 0.53,
+        "end": 2.53,
+        "spoken": [
+          0.59,
+          1.26
+        ],
+        "note": "The cut changed after the hero word was set: “bowl” is now said at 0.59 s, but its window opens at 1.53 s."
+      },
+      "matte_without_reanchor": {
+        "ok": false,
+        "refused": "The cut changed after the hero word was set: “bowl” is now said at 0.59 s, but its window opens at 1.53 s. Pick the hero word again."
+      },
+      "matte_with_reanchor": {
+        "ok": true
+      },
+      "placed": {
+        "word": "bowl",
+        "start": 0.53,
+        "end": 2.53,
+        "subject": "the wooden bowl",
+        "side": "top",
+        "font": "heavy",
+        "color": "#FFFFFF",
+        "reason": "It names the central handcrafted object shown in the video.",
+        "subject_box": [
+          0.2664,
+          0.2269,
+          0.7652,
+          0.7856
+        ]
+      },
+      "warnings": [
+        "The cut changed after the hero word was set: “bowl” is now said at 0.59 s, but its window opens at 1.53 s. The word moved with it, to 0.53 s."
+      ],
+      "color_note": "",
+      "side_note": "Spark asked for center, where SAM's mask covers 61% of the word, so the word sits top instead, 15% behind the subject.",
+      "stats": {
+        "frames": 60,
+        "masked_frames": 60,
+        "filled_frames": 0,
+        "empty_frames": 0,
+        "coverage": 1.0,
+        "flicker": 0.0076,
+        "mean_area": 0.2178,
+        "first_missing": null,
+        "hidden": 0.1461,
+        "hidden_by_side": {
+          "center": 0.6106,
+          "top": 0.1461,
+          "left": 0.5434,
+          "right": 0.6025
+        },
+        "window_frames": 60,
+        "subject_box": [
+          0.2664,
+          0.2269,
+          0.7652,
+          0.7856
+        ],
+        "color": "#FFFFFF",
+        "contrast": 12.59,
+        "contrast_by_color": {
+          "#FFFFFF": 12.59,
+          "#FFD60A": 8.92,
+          "#FF453A": 3.7,
+          "#FF9F0A": 6.13,
+          "#30D158": 6.23,
+          "#0A84FF": 3.45,
+          "#101014": 1.28
+        },
+        "background_luma": 55,
+        "best_contrast_by_side": {
+          "center": 14.14,
+          "top": 12.59,
+          "left": 14.14,
+          "right": 15.28
+        }
+      },
+      "usage": {
+        "cached": true,
+        "charged_this_call_usd": 0
+      },
+      "render": {
+        "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/render-retrim/video.mp4",
+        "ops": [
+          "select_ranges",
+          "hero_word",
+          "reframe",
+          "loudnorm",
+          "thumbnail",
+          "export"
+        ],
+        "warnings": [
+          "The source is 1280x720, so this 1920x1080 export is upscaled and gains no detail."
+        ],
+        "hero_layout": [
+          {
+            "word": "bowl",
+            "first_frame": 16,
+            "last_frame": 76,
+            "side": "top",
+            "text": "BOWL",
+            "size": 403,
+            "x": 640,
+            "y": 143,
+            "width": 937,
+            "height": 286,
+            "visible": [
+              0,
+              0,
+              1280,
+              720
+            ]
+          }
+        ],
+        "steps_ok": true,
+        "probe": {
+          "duration": 4.0,
+          "width": 1920,
+          "height": 1080,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv"
+        }
+      },
+      "check": {
+        "name": "auto: hero word sits behind the subject",
+        "passed": true,
+        "at": 0.53,
+        "note": "“bowl” for 2.00 s from 0.53 s; SAM masked 100% of 60 frames; the subject covers 15% of the word; #FFFFFF reads at 12.6:1 against the background",
+        "basis": "derived",
+        "by": "lint",
+        "inputs": [
+          "sam-3.1",
+          "muse-spark"
+        ]
+      },
+      "sheet": "hero-retrim-16x9.jpg"
+    }
+  },
+  "verified_find": [
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "the woman walking",
+      "rule": {
+        "kind": "visual",
+        "phrase": "woman",
+        "reason": "SAM looked for “woman”."
+      },
+      "spark_moments": [
+        {
+          "start": 0.0,
+          "end": 4.838,
+          "reason": "A woman in a gray suit and black mask walks beside a man down a hallway.",
+          "label": "A woman in a gray suit and black mask walks beside a man dow",
+          "source": "meta",
+          "score": 0.9
+        }
+      ],
+      "spark_subject": "woman",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "woman",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “woman” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “woman” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “woman” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 0.0,
+            "end": 4.838,
+            "reason": "A woman in a gray suit and black mask walks beside a man down a hallway.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “woman” in 44 of 44 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/woman-919.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                0.919,
+                3.919
+              ],
+              "sampled_frames": 44,
+              "masked_frames": 44,
+              "measured": "mask",
+              "peak_area": 0.2059,
+              "confidence": 0.973
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "someone waving",
+      "rule": {
+        "kind": "visual",
+        "phrase": "person",
+        "reason": "SAM looked for “person”."
+      },
+      "spark_moments": [],
+      "spark_subject": "person",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "person",
+        "phrase_from": "muse-spark",
+        "status": "skipped",
+        "reason": "No moment found by looking at the footage, so SAM had nothing to check.",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “person” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "Not checked: No moment found by looking at the footage, so SAM had nothing to check.",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": []
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "the purple tie",
+      "rule": {
+        "kind": "visual",
+        "phrase": "purple tie",
+        "reason": "SAM looked for “purple tie”."
+      },
+      "spark_moments": [
+        {
+          "start": 0.0,
+          "end": 4.838,
+          "reason": "A man in a dark suit walks forward wearing a purple tie.",
+          "label": "A man in a dark suit walks forward wearing a purple tie.",
+          "source": "meta",
+          "score": 0.9
+        }
+      ],
+      "spark_subject": "purple tie",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "purple tie",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “purple tie” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “purple tie” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “purple tie” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 0.0,
+            "end": 4.838,
+            "reason": "A man in a dark suit walks forward wearing a purple tie.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “purple tie” in 44 of 44 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/purple-tie-919.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                0.919,
+                3.919
+              ],
+              "sampled_frames": 44,
+              "masked_frames": 44,
+              "measured": "mask",
+              "peak_area": 0.0098,
+              "confidence": 0.785
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "la mujer caminando",
+      "rule": {
+        "kind": "abstract",
+        "phrase": null,
+        "reason": "The search is not in English and no English subject was named for it, so SAM, which reads English names, was not asked."
+      },
+      "spark_moments": [
+        {
+          "start": 0.0,
+          "end": 4.838,
+          "reason": "Woman in gray suit walks forward beside a man in a hallway.",
+          "label": "Woman in gray suit walks forward beside a man in a hallway.",
+          "source": "meta",
+          "score": 0.9
+        }
+      ],
+      "spark_subject": "woman",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "woman",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “woman” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “woman” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “woman” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 0.0,
+            "end": 4.838,
+            "reason": "Woman in gray suit walks forward beside a man in a hallway.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “woman” in 44 of 44 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/woman-919.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                0.919,
+                3.919
+              ],
+              "sampled_frames": 44,
+              "masked_frames": 44,
+              "measured": "mask",
+              "peak_area": 0.2059,
+              "confidence": 0.973
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "走路的男人",
+      "rule": {
+        "kind": "abstract",
+        "phrase": null,
+        "reason": "The search is not in English and no English subject was named for it, so SAM, which reads English names, was not asked."
+      },
+      "spark_moments": [
+        {
+          "start": 0.0,
+          "end": 4.838,
+          "reason": "A man in a dark suit walks forward through a colonnade.",
+          "label": "A man in a dark suit walks forward through a colonnade.",
+          "source": "meta",
+          "score": 0.9
+        }
+      ],
+      "spark_subject": "man",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "man",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “man” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “man” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “man” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 0.0,
+            "end": 4.838,
+            "reason": "A man in a dark suit walks forward through a colonnade.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “man” in 44 of 44 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/man-919.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                0.919,
+                3.919
+              ],
+              "sampled_frames": 44,
+              "masked_frames": 44,
+              "measured": "mask",
+              "peak_area": 0.2772,
+              "confidence": 0.984
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "the men in dark suits",
+      "rule": {
+        "kind": "visual",
+        "phrase": "men",
+        "reason": "SAM looked for “men”."
+      },
+      "spark_moments": [
+        {
+          "start": 0.0,
+          "end": 4.83,
+          "reason": "Several men in dark suits walk behind in the background hallway.",
+          "label": "Several men in dark suits walk behind in the background hall",
+          "source": "meta",
+          "score": 0.9
+        }
+      ],
+      "spark_subject": "men in dark suits",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "men in dark suits",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “men in dark suits” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “men in dark suits” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “men in dark suits” in 1 moments Muse Spark found: 1 verified (coverage 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 0.0,
+            "end": 4.83,
+            "reason": "Several men in dark suits walk behind in the background hallway.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “men in dark suits” in 45 of 45 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/men-in-dark-suits-915.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                0.915,
+                3.915
+              ],
+              "sampled_frames": 45,
+              "masked_frames": 45,
+              "measured": "mask",
+              "peak_area": 0.2776,
+              "confidence": 0.961
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "where I mention pricing",
+      "rule": {
+        "kind": "spoken",
+        "phrase": null,
+        "reason": "The search asks for something said, so SAM, which sees pictures, was not asked."
+      },
+      "spark_moments": [],
+      "spark_subject": null,
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "spoken",
+        "phrase": null,
+        "phrase_from": "rule",
+        "status": "skipped",
+        "reason": "The search asks for something said, so SAM, which sees pictures, was not asked.",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: found moments checked on screen",
+          "passed": true,
+          "at": null,
+          "note": "Not checked: The search asks for something said, so SAM, which sees pictures, was not asked.",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": []
+      }
+    },
+    {
+      "clip": "whitehouse-walk.mp4",
+      "query": "a dog",
+      "rule": {
+        "kind": "visual",
+        "phrase": "dog",
+        "reason": "SAM looked for “dog”."
+      },
+      "spark_moments": [],
+      "spark_subject": "dog",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "dog",
+        "phrase_from": "muse-spark",
+        "status": "skipped",
+        "reason": "No moment found by looking at the footage, so SAM had nothing to check.",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “dog” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "Not checked: No moment found by looking at the footage, so SAM had nothing to check.",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": []
+      }
+    },
+    {
+      "clip": "wanrong-walk.mp4",
+      "query": "the person walking",
+      "rule": {
+        "kind": "visual",
+        "phrase": "person",
+        "reason": "SAM looked for “person”."
+      },
+      "spark_moments": [
+        {
+          "start": 4.0,
+          "end": 15.0,
+          "reason": "Woman in patterned dress and hat walks along the brick building.",
+          "label": "Woman in patterned dress and hat walks along the brick build",
+          "source": "meta",
+          "score": 0.9
+        },
+        {
+          "start": 0.0,
+          "end": 3.0,
+          "reason": "Man in foreground walks to the right and exits the frame.",
+          "label": "Man in foreground walks to the right and exits the frame.",
+          "source": "meta",
+          "score": 0.85
+        }
+      ],
+      "spark_subject": "person",
+      "spark_model": "muse-spark-1.3-contributor",
+      "verified": {
+        "kind": "visual",
+        "phrase": "person",
+        "phrase_from": "muse-spark",
+        "status": "verified",
+        "reason": "SAM 3.1 looked for “person” in 2 moments Muse Spark found: 2 verified (coverage 100%, 100%).",
+        "spent_usd": 0.0,
+        "receipt": {
+          "name": "sam: “person” is on screen in the found moments",
+          "passed": true,
+          "at": null,
+          "note": "SAM 3.1 looked for “person” in 2 moments Muse Spark found: 2 verified (coverage 100%, 100%).",
+          "basis": "derived",
+          "by": "sam-3.1",
+          "inputs": [
+            "muse-spark"
+          ]
+        },
+        "warnings": [],
+        "moments": [
+          {
+            "start": 4.0,
+            "end": 15.0,
+            "reason": "Woman in patterned dress and hat walks along the brick building.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “person” in 45 of 45 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/person-8000.jpg",
+            "score": 0.9,
+            "evidence": {
+              "window": [
+                8.0,
+                11.0
+              ],
+              "sampled_frames": 45,
+              "masked_frames": 45,
+              "measured": "mask",
+              "peak_area": 0.0135,
+              "confidence": 0.782
+            }
+          },
+          {
+            "start": 0.0,
+            "end": 3.0,
+            "reason": "Man in foreground walks to the right and exits the frame.",
+            "verified": true,
+            "coverage": 1.0,
+            "flagged": null,
+            "verification": "SAM masked “person” in 45 of 45 sampled frames.",
+            "thumbnail": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/5b2353f2-1341-47d2-9a02-18f2349be116/scratchpad/r4/live/find/thumbs/person-0.jpg",
+            "score": 0.85,
+            "evidence": {
+              "window": [
+                0.0,
+                3.0
+              ],
+              "sampled_frames": 45,
+              "masked_frames": 45,
+              "measured": "mask",
+              "peak_area": 0.0115,
+              "confidence": 0.89
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "meta_calls": {
+    "find/meta": [
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb898731129eef48564c66",
+        "reserved_usd": 0.0033215,
+        "cost_usd": 0.0002584
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb898f53ba3e40b8c44f97",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb89ee2d2a3505614c49bc",
+        "reserved_usd": 0.0033216,
+        "cost_usd": 0.0003037
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb89fe48a139d38ee14ecc",
+        "reserved_usd": 0.0033215,
+        "cost_usd": 0.0002174
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8a04094d46439311472e",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a16c4ead642f9914d53",
+        "reserved_usd": 0.0033216,
+        "cost_usd": 0.0002735
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a2906d4ec89bca448fd",
+        "reserved_usd": 0.0033216,
+        "cost_usd": 0.0002929
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8a34f931f8fd29c8414c",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a526593a15c38084727",
+        "reserved_usd": 0.0033217,
+        "cost_usd": 0.000291
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8a59cc4b2aae9cb34ab7",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a6ed3541a8430db4d2c",
+        "reserved_usd": 0.0033216,
+        "cost_usd": 0.0002065
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a7de2f3763851164965",
+        "reserved_usd": 0.0033214,
+        "cost_usd": 0.0002047
+      },
+      {
+        "operation": "find",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8a8e096cec807ac04295",
+        "reserved_usd": 0.0033216,
+        "cost_usd": 0.000616
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8a94cfbc461866304538",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8a97be45d5d43d2c401b",
+        "reserved_usd": 0.01,
+        "cost_usd": 0.01
+      }
+    ],
+    "hero-man/meta": [
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb890f33a96713de164cfe",
+        "reserved_usd": 0.0112,
+        "cost_usd": 0.0108
+      }
+    ],
+    "hero-people/meta": [
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb892dc900d207a3f440a9",
+        "reserved_usd": 0.0112,
+        "cost_usd": 0.0108
+      }
+    ],
+    "hero-retrim/meta": [
+      {
+        "operation": "hero_word",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb89620c7bb88727e54b45",
+        "reserved_usd": 0.0033453,
+        "cost_usd": 0.0005296
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8968f6b762dd66b94668",
+        "reserved_usd": 0.0124,
+        "cost_usd": 0.012
+      },
+      {
+        "operation": "hero_word",
+        "model": "muse-spark-1.3-contributor",
+        "status": "completed",
+        "request_id": "resp_6aeb8b9fa3f74d3b8ae94f4b",
+        "reserved_usd": 0.0033453,
+        "cost_usd": 0.0006392
+      },
+      {
+        "operation": "tracking",
+        "model": "sam-3.1",
+        "status": "completed",
+        "request_id": "resp_6aeb8ba40b01d17e54fd4e61",
+        "reserved_usd": 0.0124,
+        "cost_usd": 0.012
+      }
+    ]
+  },
+  "spend_usd": 0.109433,
+  "seconds": 58.7
+}

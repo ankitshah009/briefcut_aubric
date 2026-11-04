@@ -1,0 +1,118 @@
+{
+  "status": 200,
+  "seconds": 20.5,
+  "ok": true,
+  "motion_card": {
+    "kind": "intro_title",
+    "text": "Oak Bowl In 24 Hours",
+    "subtitle": "From Raw Blank To Table Ready",
+    "style": "warm_wood",
+    "palette": "oak",
+    "camera": "dolly_in",
+    "duration": 3.0,
+    "reason": "Warm wood letters in oak tones match the oak bowl story and hook makers instantly.",
+    "aspect": "9:16",
+    "backdrop": "c66c3a469b15d248"
+  },
+  "proposal": {
+    "kind": "intro_title",
+    "text": "Oak Bowl In 24 Hours",
+    "subtitle": "From Raw Blank To Table Ready",
+    "style": "warm_wood",
+    "palette": "oak",
+    "camera": "dolly_in",
+    "duration": 3.0,
+    "backdrop_prompt": "Softly blurred close-up of golden oak shavings curling around a finished wooden bowl glowing in warm workshop light.",
+    "reason": "Warm wood letters in oak tones match the oak bowl story and hook makers instantly."
+  },
+  "notes": [],
+  "usage": {
+    "estimated_max_usd": 0.0033797,
+    "cached": false,
+    "input_tokens": 703,
+    "output_tokens": 1564,
+    "total_tokens": 2267,
+    "cost_usd": 0.0003831
+  },
+  "backdrop_usage": {
+    "estimated_max_usd": 0.01,
+    "cached": false,
+    "input_tokens": 4038,
+    "output_tokens": 847,
+    "total_tokens": 4885,
+    "cost_usd": 0.01
+  },
+  "model": "muse-spark-1.3-contributor",
+  "backdrop": {
+    "id": "c66c3a469b15d248",
+    "kind": "image",
+    "name": "Motion card backdrop",
+    "duration": null,
+    "width": 1152,
+    "height": 2048
+  },
+  "poster": "/api/campaigns/4895f70caaf44029aed8e62c865e241b/assets?id=c66c3a469b15d248",
+  "budget": {
+    "cap_usd": 0.6,
+    "reserved_usd": 0.4195924,
+    "remaining_usd": 0.1804076,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0046899,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0232,
+        "calls": 2,
+        "model": "sam-3.1"
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.00205,
+        "calls": 1,
+        "model": "muse-voice-transcribe-1.0"
+      },
+      "review": {
+        "reserved_usd": 0.366092,
+        "calls": 1,
+        "model": "muse-wonder-1.0"
+      },
+      "patch": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "translate": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "emphasis": {
+        "reserved_usd": 0.0033593,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "hero_word": {
+        "reserved_usd": 0.0068215,
+        "calls": 2,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "motion_card": {
+        "reserved_usd": 0.0033797,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "image": {
+        "reserved_usd": 0.01,
+        "calls": 1,
+        "model": "muse-image-1.0"
+      }
+    }
+  },
+  "warnings": []
+}

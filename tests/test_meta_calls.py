@@ -129,7 +129,9 @@ def test_a_call_logs_its_start_while_it_runs_and_its_end_with_sizes_cost_and_res
     [row] = meta.call_log(work, budget_usd=0.5)["calls"]
     assert row["status"] == "done" and row["cost_kind"] == "actual" and row["cost_usd"] == result["usage"]["cost_usd"]
     assert row["purpose"] == "Plan the story" and row["request_id"] == "resp_live42" and row["seconds"] == end["seconds"]
-    assert set(row) == {"id", "started_at", "operation", "model", "purpose", "status", "seconds", "size", "reserved_usd", "cost_usd", "cost_kind", "request_id"}
+    assert set(row) == {"id", "started_at", "operation", "model", "purpose", "status", "seconds", "size", "reserved_usd", "cost_usd", "cost_kind", "request_id",
+                        "runs_on", "runtime", "weights"}
+    assert (row["runs_on"], row["runtime"], row["weights"]) == ("meta-api", None, None), "a Meta API call names no local runtime"
 
 
 def test_a_cached_answer_is_not_a_call_and_a_failed_one_is_logged_as_failed(enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,7 +200,9 @@ def test_totals_split_spend_from_reservations_and_match_the_budget_rule(tmp_path
     done, running = panel["calls"][1], panel["calls"][0]
     assert done["size"] == {"input_tokens": 9, "output_tokens": 4} and done["cost_usd"] == 0.005 and done["cost_kind"] == "actual"
     assert running["status"] == "running" and running["cost_usd"] == 0.03 and running["cost_kind"] == "reserved"
-    assert panel["totals"] == {"calls": 2, "running": 1, "spent_usd": 0.035, "held_usd": 0.05, "budget_usd": 0.25, "remaining_usd": 0.2}
+    # A finished call holds what Meta billed ($0.005), a running one its reservation ($0.03).
+    assert panel["totals"] == {"calls": 2, "running": 1, "spent_usd": 0.035, "held_usd": 0.035, "budget_usd": 0.25, "remaining_usd": 0.215,
+                               "api_calls": 2, "local_calls": 0}
 
 
 def test_a_call_whose_process_died_is_stopped_not_running_forever(tmp_path: Path) -> None:
@@ -335,7 +339,8 @@ def test_a_project_with_no_calls_yet_returns_an_empty_list(studio: tuple[int, An
     status, raw = get(port, f"/api/campaigns/{ident}/meta-calls")
     assert status == 200
     assert json.loads(raw) == {"ok": True, "status": "analyzing", "calls": [],
-                               "totals": {"calls": 0, "running": 0, "spent_usd": 0.0, "held_usd": 0.0, "budget_usd": 0.5, "remaining_usd": 0.5}}
+                               "totals": {"calls": 0, "running": 0, "spent_usd": 0.0, "held_usd": 0.0, "budget_usd": 0.5, "remaining_usd": 0.5,
+                                          "api_calls": 0, "local_calls": 0}}
 
 
 # --- The page ---

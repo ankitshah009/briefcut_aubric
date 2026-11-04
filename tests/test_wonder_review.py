@@ -234,7 +234,7 @@ def test_a_default_budget_cannot_cover_wonder_and_the_video_never_leaves(cut: Pa
     message = str(refused.value)
     allowance = meta._OUTPUT_TOKENS * WONDER_OUT
     assert f"${allowance:.4f}" in message and "before the video is counted" in message
-    assert "$4 in and $20 out per million tokens, Standard mode only" in message
+    assert "$4 in and $20 out per million tokens). " in message and "Standard mode only" not in message
     assert "Raise the campaign budget to at least $0.33, or choose Muse Spark as the director." in message
     assert http.calls == [], "nothing is uploaded for a review the budget cannot pay for"
     assert not (tmp_path / "work" / "meta-usage.json").exists()
@@ -242,8 +242,9 @@ def test_a_default_budget_cannot_cover_wonder_and_the_video_never_leaves(cut: Pa
 
 def test_earlier_spend_counts_against_wonder(cut: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     work = tmp_path / "work"
-    meta._ledger(work, {"id": "plan1", "operation": "story", "model": "muse-spark-1.3", "reserved_usd": 0.10, "budget_usd": 0.40,
-                        "status": "completed", "usage": {"cost_usd": 0.02}})
+    # A finished call holds what Meta billed ($0.10), not what it reserved ($0.30).
+    meta._ledger(work, {"id": "plan1", "operation": "story", "model": "muse-spark-1.3", "reserved_usd": 0.30, "budget_usd": 0.40,
+                        "status": "completed", "usage": {"cost_usd": 0.10}})
     http = Http()
     with pytest.raises(meta.MetaError, match=r"\$0\.1000 of the \$0\.4000 campaign budget is already reserved.*at least \$0\.43"):
         review(cut, tmp_path, http, monkeypatch, director="wonder", budget_usd=0.40)

@@ -6,7 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef1f5">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f141c">
-  <title>Briefcut by Aubric.ai — Video Studio</title>
+  <title>Briefcut by Aubric, Inc. · Video Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b2433'/%3E%3Cpath d='M9 10v12M16 7v18M23 12v8' stroke='%23fff' stroke-width='3.4' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="studio.css">
   <link rel="stylesheet" href="editor.css">
   <link rel="stylesheet" href="inspector.css">
@@ -16,18 +17,18 @@
 <body>
   <a class="skip-link" href="#workspace">Skip to editor</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Briefcut by Aubric.ai home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>Briefcut</strong><span class="brand-divider" aria-hidden="true"></span><span>by Aubric.ai</span></a>
+    <a class="brand" href="/" aria-label="Briefcut by Aubric, Inc. home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>Briefcut</strong><span class="brand-divider" aria-hidden="true"></span><span>by Aubric, Inc.</span></a>
     <div class="editor-heading"><h2 id="project-name" tabindex="-1">Untitled project</h2><span id="project-status" class="status-pill">Ready to start</span></div>
     <nav class="workflow" aria-label="Project stages">
       <ol><li id="step-source" aria-current="step"><button type="button" data-mode="story" aria-pressed="true"><span>1</span>Story</button></li><li id="step-story"><button type="button" data-mode="edit" aria-pressed="false" disabled><span>2</span>Edit</button></li><li id="step-deliver"><button type="button" data-mode="deliver" aria-pressed="false" disabled><span>3</span>Deliver</button></li></ol>
     </nav>
     <div class="top-actions">
-      <button id="meta-calls-toggle" class="button button-quiet mc-toggle" type="button" aria-controls="meta-calls" aria-expanded="false" title="Every call this project makes to the Meta Model API" hidden><span class="mc-dot" aria-hidden="true"></span>Meta calls<span id="meta-calls-count" class="mc-count">0</span></button>
+      <button id="meta-calls-toggle" class="button button-quiet mc-toggle" type="button" aria-controls="meta-calls" aria-expanded="false" aria-label="Meta calls" title="Meta calls: every call this project makes to a Meta model, on the Meta Model API or on this computer" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10.5h3.2l2.2-5.5 4.4 10 2.2-4.5H18"/></svg><span id="meta-calls-count" class="mc-count" aria-hidden="true">0</span></button>
       <details id="recent-projects" class="recent">
         <summary>Projects <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
         <div class="recent-popover"><h2>Recent projects</h2><ul id="recent-list"><li class="empty-recent">Your projects will appear here.</li></ul></div>
       </details>
-      <button id="new-project" class="button button-quiet" type="button">New project</button>
+      <button id="new-project" class="button button-quiet" type="button" aria-label="New project">New<span class="np-more">&nbsp;project</span></button>
       <button id="shortcuts-button" class="button button-quiet" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
       <button type="button" id="make" class="button button-primary" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg>Make the video</button>
     </div>
@@ -36,7 +37,7 @@
     <div class="mc-head"><div><h2 id="meta-calls-heading">Meta calls</h2><p id="meta-calls-sub" class="mc-sub">Reading the call log.</p></div><button type="button" id="meta-calls-close" class="mc-close" aria-label="Close Meta calls"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
     <p id="meta-calls-empty" class="mc-empty" hidden>No Meta calls yet. They appear here as Briefcut works.</p>
     <ol id="meta-calls-list" class="mc-list" aria-label="Meta calls, newest first"></ol>
-    <div class="mc-foot"><p id="meta-calls-total" class="mc-total"></p><p class="mc-where">All calls go to the Meta Model API from this computer.</p></div>
+    <div class="mc-foot"><p id="meta-calls-total" class="mc-total"></p><p id="meta-calls-where" class="mc-where">All calls go to the Meta Model API from this computer.</p></div>
   </section>
 
   <main id="workspace" class="workspace" tabindex="-1">
@@ -92,10 +93,19 @@
             <label for="subject">Keep this subject in frame <span class="optional">optional</span></label><input type="text" id="subject" maxlength="150" placeholder="The person in the blue apron">
             <div class="field-pair"><div><label for="budget">Project API limit</label><select id="budget"><option value="0.25">$0.25</option><option value="0.5">$0.50</option><option value="1">$1.00</option><option value="2">$2.00</option></select></div><div><label for="cover-mode">Cover</label><select id="cover-mode"><option value="frame">Frame from video</option><option value="meta">Generate with Meta</option></select></div></div>
             <p id="budget-status" class="field-note" hidden></p>
-            <label class="check-field"><input type="checkbox" id="review"><span>Ask Meta to review the finished cut <small class="fine-print">Director’s notes · Muse Spark</small></span></label>
+            <label class="check-field"><input type="checkbox" id="review"><span>Ask Meta to review the finished cut <small class="fine-print" id="review-by">Director’s notes · Muse Spark</small></span></label>
+            <fieldset id="director-choice" class="director-choice" aria-describedby="director-note" hidden>
+              <legend>Reviewer</legend>
+              <div class="director-options">
+                <label><input type="radio" name="director" value="spark" checked><span><strong>Muse Spark</strong><small>Watches the cut</small></span></label>
+                <label><input type="radio" name="director" value="wonder"><span><strong>Muse Wonder</strong><small>Watches and hears the cut</small></span></label>
+              </div>
+              <p id="director-raise" class="field-note director-raise" role="status" hidden></p>
+              <p id="director-note" class="field-note">Muse Spark watches the cut and reads the captions. Choose Muse Wonder when the sound matters.</p>
+            </fieldset>
           </div>
           <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" checked><span>Add captions</span></label><span id="caption-availability" class="fine-print">Meta Voice Transcribe</span></div>
-          <div id="language-field"><label for="language">Spoken language</label><select id="language"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="pt">Portuguese</option><option value="ja">Japanese</option></select></div>
+          <div id="language-field"><label for="language">Spoken language</label><select id="language"><option value="auto">Detect automatically</option><option value="ar">Arabic</option><option value="bn">Bengali</option><option value="nl">Dutch</option><option value="en">English</option><option value="fr">French</option><option value="de">German</option><option value="he">Hebrew</option><option value="hi">Hindi</option><option value="id">Indonesian</option><option value="it">Italian</option><option value="ja">Japanese</option><option value="kn">Kannada</option><option value="ko">Korean</option><option value="ms">Malay</option><option value="zh">Mandarin Chinese</option><option value="mr">Marathi</option><option value="pl">Polish</option><option value="pt">Portuguese</option><option value="es">Spanish</option><option value="tl">Tagalog</option><option value="ta">Tamil</option><option value="te">Telugu</option><option value="th">Thai</option><option value="tr">Turkish</option><option value="vi">Vietnamese</option></select></div>
           <p id="caption-provider-note" class="field-note">Meta Voice Transcribe hears the audio on Meta’s servers. The captions render on this computer.</p>
           <label class="check-field consent"><input type="checkbox" id="cloud-consent"><span>Send this footage to Meta using my API key. Required to create a story.</span></label>
         </section>
@@ -179,15 +189,15 @@
         </section>
         <section id="version-changes" class="version-changes" aria-labelledby="version-changes-heading" hidden><h3 id="version-changes-heading">What changed</h3><p id="version-note" class="version-note" hidden></p><ul id="version-changes-list"></ul></section>
         <section id="director-notes" class="director-notes" aria-labelledby="director-heading" hidden>
-          <div class="director-heading"><div><h3 id="director-heading">Director’s notes</h3><p class="fine-print">Muse Spark reviewed the finished video. Opinions, not measurements.</p></div><span id="hook-score" class="hook-score" aria-label="Hook score"></span></div>
+          <div class="director-heading"><div><h3 id="director-heading">Director’s notes</h3><p id="director-by" class="fine-print">Muse Spark reviewed the finished video. Opinions, not measurements.</p></div><span id="hook-score" class="hook-score" aria-label="Hook score"></span></div>
           <p id="director-verdict" class="director-verdict"></p>
           <div class="director-columns"><div><h4>Working</h4><ul id="director-strengths"></ul></div><div><h4>Could be tighter</h4><ul id="director-fixes"></ul></div></div>
           <div id="director-caption-wrap" class="director-caption" hidden><h4>Suggested caption</h4><p id="director-caption"></p><button type="button" id="use-director-caption" class="text-button">Use this caption</button></div>
           <div id="director-patches" class="director-patches" hidden><h4>Director’s fixes</h4><ul id="director-patch-list"></ul><button type="button" id="apply-director" class="button button-primary">Apply director’s fixes</button></div>
           <p id="director-error" class="warning-message" hidden></p>
         </section>
-        <form id="revise-form" class="revise-box" autocomplete="off"><label for="revise-note">Director’s note</label><div class="revise-row"><input type="text" id="revise-note" maxlength="500" placeholder="Hold the finished bowl longer, then cut to the lathe." aria-describedby="revise-hint"><button type="submit" id="revise-submit" class="button button-secondary">Revise with a note</button></div><p id="revise-hint" class="fine-print">Director’s notes need Meta mode.</p></form>
-        <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr><tr><th scope="row">Tracked subject</th><td id="proof-subject">—</td></tr></tbody></table></details>
+        <form id="revise-form" class="revise-box" autocomplete="off"><label for="revise-note">Director’s note</label><div class="revise-row"><input type="text" id="revise-note" maxlength="500" placeholder="Hold the first shot longer, then cut to the close-up." aria-describedby="revise-hint"><button type="submit" id="revise-submit" class="button button-secondary">Revise with a note</button></div><p id="revise-hint" class="fine-print">Director’s notes need Meta mode.</p></form>
+        <details class="proof-details"><summary>File verification <a id="download-report" download>Download report</a></summary><table id="proof"><caption class="sr">Probe of the finished file</caption><tbody><tr><th scope="row">Duration</th><td id="proof-duration">—</td></tr><tr><th scope="row">Width</th><td id="proof-width">—</td></tr><tr><th scope="row">Height</th><td id="proof-height">—</td></tr><tr><th scope="row">Audio</th><td id="proof-has_audio">—</td></tr><tr><th scope="row">Video</th><td id="proof-has_video">—</td></tr><tr><th scope="row">Color</th><td id="proof-color">—</td></tr><tr><th scope="row">Tracked subject</th><td id="proof-subject">—</td></tr></tbody></table><p class="evidence-root" id="evidence-root" hidden>Root evidence id <code id="evidence-id">—</code> <button type="button" id="copy-evidence" class="text-button">Copy id</button><br>Anyone can check these receipts with <code>vedit verify</code>.</p></details>
       </section>
       <div id="recovery-panel" class="recovery-panel" hidden><div><p id="recovery-message"></p><p class="recovery-hint">Retry uses the last submitted settings. Choose “Render this version” to apply your edits.</p></div><div class="recovery-actions"><button type="button" id="render-center-crop" class="button button-primary" hidden>Render with center crop</button><button type="button" id="retry-job" class="button button-secondary">Retry last attempt</button></div></div>
       <footer class="workspace-footer"><span class="local-dot" aria-hidden="true"></span><span>Built around your footage. Finished on your machine.</span><span id="save-status"></span></footer>
@@ -209,10 +219,10 @@
       <tr><td><kbd>1</kbd> – <kbd>8</kbd></td><td>Select and preview a moment</td></tr>
     </tbody></table>
     <table><caption>Timeline</caption><tbody>
-      <tr><td><kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>B</kbd></td><td>Split at the playhead</td></tr>
+      <tr><td><kbd>S</kbd> or <kbd data-mod>Cmd</kbd>+<kbd>B</kbd></td><td>Split at the playhead</td></tr>
       <tr><td><kbd>Delete</kbd></td><td>Remove the selection; the story closes the gap</td></tr>
-      <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
-      <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
+      <tr><td><kbd data-mod>Cmd</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd data-mod>Cmd</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
       <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Move the playhead one frame; hold <kbd>Shift</kbd> for 1 s</td></tr>
       <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Previous or next cut</td></tr>
       <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>Start or end of the story</td></tr>
@@ -242,7 +252,8 @@
     <div class="shortcuts-footer"><button type="button" id="shortcuts-close" class="button button-secondary">Done</button></div></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <p id="live" class="sr" aria-live="polite" aria-atomic="true"></p>
-<script src="timeline_items.js"></script>
+<script src="platform.js"></script>
+  <script src="timeline_items.js"></script>
   <script src="look-styles.js"></script>
   <script src="timeline.js"></script>
   <script src="preview.js"></script>

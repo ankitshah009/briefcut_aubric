@@ -44,29 +44,101 @@ _LOUDNORM_BOUNDS = {
 def detect_silence(
     path: str | Path,
     *,
-    threshold_db: float = -32.0,
+    threshold_db: float | None = None,
     min_silence: float = 0.45,
     track: int | None = None,
 ) -> list[Range]:
     """Return silent ranges using ffmpeg silencedetect (audio-only filter).
 
     ``track`` is the audio stream to measure, for files that hold several.
+
+    ``threshold_db`` None measures where a pause starts in this recording:
+    ``silence_threshold_db`` of its integrated loudness, 16 dB under it and
+    within -50 to -26 dBFS, the rule the agent planner uses too. A number is
+    used as given. Either way, a recording whose loudest sound barely reaches
+    that line would read as one long silence, so its line drops to halfway
+    between its own room level and its peak: a whispered talk still has speech
+    and pauses. That fallback only ever lowers the line.
     """
-    result = run_ffmpeg(
-        [
-            "-i",
-            str(path),
-            *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]),
-            "-af",
-            f"silencedetect=noise={threshold_db}dB:d={min_silence}",
-            "-f",
-            "null",
-            "-",
-        ]
-    )
+    from vedit.agent.decide import SILENCE_DEFAULT_DB, silence_threshold_db
+
+    select = ["-map", f"0:a:{track}"] if track is not None else ["-vn"]
+    asked = SILENCE_DEFAULT_DB if threshold_db is None else float(threshold_db)
+    measures = _LEVEL_STATS + ("," + _LOUDNESS if threshold_db is None else "")
+
+    def listen(threshold: float, *, stats: bool) -> str:
+        chain = f"silencedetect=noise={threshold:.2f}dB:d={min_silence}" + (f",{measures}" if stats else "")
+        return run_ffmpeg(["-i", str(path), *select, "-af", chain, "-f", "null", "-"]).stderr
+
+    try:
+        stderr = listen(asked, stats=True)
+    except RenderError:
+        # An FFmpeg too old for these measure options still detects silence.
+        stderr, peak, loudness = listen(asked, stats=False), None, None
+    else:
+        peak, loudness = _level(stderr, "Peak level"), _integrated(stderr)
+    threshold = asked if threshold_db is not None else silence_threshold_db(loudness)
+    if peak is not None and _INAUDIBLE_PEAK_DB < peak < threshold + _QUIET_HEADROOM_DB:
+        floor = _noise_peak_db(path, track)
+        if floor is not None and floor < peak:
+            threshold = min(threshold, (peak + floor) / 2)
+    if abs(threshold - asked) >= 0.5:
+        stderr = listen(threshold, stats=False)
+    return _silences(stderr)
+
+
+# Integrated loudness, printed once in ebur128's summary. Per-frame lines stay out of the log.
+_LOUDNESS = "ebur128=framelog=verbose"
+_INTEGRATED = re.compile(r"\bI:\s+(-?[0-9.]+|-?inf) LUFS")
+
+
+def _integrated(stderr: str) -> float | None:
+    found = _INTEGRATED.findall(stderr)
+    if not found:
+        return None
+    value = float(found[-1])
+    return value if math.isfinite(value) else None
+
+
+# The loudest sample of a whole track, printed once at the end.
+_LEVEL_STATS = "astats=measure_perchannel=none:measure_overall=Peak_level"
+# A recording whose peak sits less than this above the pause threshold is too quiet for a fixed one.
+_QUIET_HEADROOM_DB = 12.0
+# Room tone's samples peak about this far above its average level.
+_NOISE_CREST_DB = 10.0
+_FLOOR_RATE = 4000  # enough to hear a room and a voice; a two-hour track decodes in moments
+_FLOOR_WINDOW = 120  # 30 ms at _FLOOR_RATE
+
+
+def _level(stderr: str, name: str) -> float | None:
+    found = re.findall(rf"{name} dB:\s*(-?[0-9.]+|-?inf)", stderr)
+    if not found:
+        return None
+    value = float(found[-1])
+    return value if math.isfinite(value) else None
+
+
+def _noise_peak_db(path: str | Path, track: int | None) -> float | None:
+    """How loud the room's own samples get: the quietest tenth of 30 ms windows, plus their crest."""
+    from operator import mul
+
+    from vedit.sound import decode_mono
+
+    try:
+        samples = decode_mono(path, rate=_FLOOR_RATE, track=track)
+    except ValueError:
+        return None
+    levels = sorted(sum(map(mul, samples[at:at + _FLOOR_WINDOW], samples[at:at + _FLOOR_WINDOW])) / _FLOOR_WINDOW
+                    for at in range(0, len(samples) - _FLOOR_WINDOW + 1, _FLOOR_WINDOW))
+    if len(levels) < 10:
+        return None
+    return 10 * math.log10(max(levels[len(levels) // 10], 1.0) / 32768.0 ** 2) + _NOISE_CREST_DB
+
+
+def _silences(stderr: str) -> list[Range]:
     silences: list[Range] = []
     open_start: float | None = None
-    for line in result.stderr.splitlines():
+    for line in stderr.splitlines():
         start = _START.search(line)
         if start:
             open_start = float(start.group(1))
@@ -107,7 +179,7 @@ def keep_ranges(
 
 def select_expression(keeps: list[Range]) -> str:
     if not keeps:
-        raise AnalysisError("no keep-ranges — the file is entirely silence under the threshold")
+        raise AnalysisError("Nothing is left to keep: the whole file is quieter than the silence threshold.")
     return "+".join(f"between(t,{k.start:.3f},{k.end:.3f})" for k in keeps)
 
 
@@ -138,21 +210,26 @@ def detect_scenes(path: str | Path, *, threshold: float = 0.35) -> list[float]:
     return out
 
 
-def audible(path: str | Path, *, track: int | None = None) -> bool:
-    """False when a track holds nothing a listener could hear, such as digital silence."""
-    result = run_ffmpeg(["-i", str(path), *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]), "-af", "volumedetect", "-f", "null", "-"])
+def audible(path: str | Path, *, track: int | None = None, start: float = 0.0, seconds: float | None = None) -> bool:
+    """False when a track holds nothing a listener could hear, such as digital silence.
+
+    ``start`` and ``seconds`` limit the listen to one stretch of the file.
+    """
+    window = (["-ss", f"{start:.3f}"] if start > 0 else []) + ["-i", str(path)] + (["-t", f"{seconds:.3f}"] if seconds is not None else [])
+    result = run_ffmpeg([*window, *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]), "-af", "volumedetect", "-f", "null", "-"])
     peaks = _PEAK.findall(result.stderr)
     return not peaks or float(peaks[-1]) > _INAUDIBLE_PEAK_DB
 
 
-def measure_loudness(path: str | Path, *, af: str = "") -> dict[str, float] | None:
+def measure_loudness(path: str | Path, *, af: str = "", i: float = -14.0, tp: float = -1.5, lra: float = 11.0) -> dict[str, float] | None:
     """Two-pass loudnorm measurement. Returns the measured_* fields ffmpeg needs.
 
     None means there is nothing to normalize. BS.1770 gates out anything under
     -70 LUFS and needs 0.4 s of audio, so digital silence and a very short clip
     measure -inf, a value the loudnorm filter refuses. ``af`` is the chain that
     runs ahead of loudnorm in the real encode, so the second pass is told about
-    the signal it will actually receive.
+    the signal it will actually receive. ``i``, ``tp`` and ``lra`` must be the
+    second pass's targets: ``target_offset`` is measured against them.
     """
     result = run_ffmpeg(
         [
@@ -160,7 +237,7 @@ def measure_loudness(path: str | Path, *, af: str = "") -> dict[str, float] | No
             str(path),
             "-vn",
             "-af",
-            ",".join(x for x in (af, "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json") if x),
+            ",".join(x for x in (af, f"{loudnorm_filter(i=i, tp=tp, lra=lra)}:print_format=json") if x),
             "-f",
             "null",
             "-",
@@ -203,7 +280,7 @@ def apply_cut_silence(
     dest: Path,
     keeps_path: Path,
     *,
-    threshold_db: float = -32.0,
+    threshold_db: float | None = None,
     min_silence: float = 0.45,
     pad: float = 0.12,
     width: int = 1920,
@@ -213,13 +290,16 @@ def apply_cut_silence(
     background: str = "black",
     pixel_format: str = "yuv420p",
 ) -> list[Range]:
-    """Detect silence and write a jumped-cut file. Runs at render, not plan."""
+    """Detect silence and write a jumped-cut file. Runs at render, not plan.
+
+    ``threshold_db`` None measures the pause level from this recording's loudness.
+    """
     from vedit.media import probe
 
     info = probe(src)
     if not info.has_audio:
         raise AnalysisError(f"cut_silence requires an audio track: {src}")
-    silences = detect_silence(src, threshold_db=threshold_db, min_silence=min_silence)
+    silences = detect_silence(src, threshold_db=threshold_db, min_silence=min_silence, track=info.audio_map)
     keeps = keep_ranges(info.duration, silences, pad=pad)
     expr = select_expression(keeps)
     keeps_path.write_text(
@@ -242,11 +322,11 @@ def apply_cut_silence(
     filters: list[str] = []
     maps: list[str] = []
     if info.has_video:
-        filters.append(f"[0:v]select='{expr}',setpts=N/FRAME_RATE/TB,{vf}[v]")
+        filters.append(f"[0:v:{info.video_map}]select='{expr}',setpts=N/FRAME_RATE/TB,{vf}[v]")
         maps += ["-map", "[v]"]
     else:
         maps += ["-vn"]
-    filters.append(f"[0:a]aselect='{expr}',asetpts=N/SR/TB,{af}[a]")
+    filters.append(f"[0:a:{info.audio_map}]aselect='{expr}',asetpts=N/SR/TB,{af}[a]")
     maps += ["-map", "[a]"]
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.stem + ".part" + dest.suffix)
@@ -289,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--in", dest="inp", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--keeps", required=True)
-    p.add_argument("--threshold-db", type=float, default=-32.0)
+    p.add_argument("--threshold-db", type=float, default=None, help="pause level in dBFS; measured from the recording when left out")
     p.add_argument("--min-silence", type=float, default=0.45)
     p.add_argument("--pad", type=float, default=0.12)
     p.add_argument("--width", type=int, default=1920)
@@ -401,7 +481,7 @@ def apply_loudnorm(
     has_video: bool = True,
 ) -> dict[str, float] | None:
     """Two-pass EBU R128. Runs at render so plan stays a script writer."""
-    measured = measure_loudness(src)
+    measured = measure_loudness(src, i=i, tp=tp, lra=lra)
     argv = ["-i", str(src)]
     if measured:
         argv += ["-af", loudnorm_filter(measured, i=i, tp=tp, lra=lra)]
@@ -463,9 +543,12 @@ def apply_encode(
         start = max(0.0, duration - fade_out)
         video = ",".join(x for x in (video, f"fade=t=out:st={start:.3f}:d={fade_out}") if x)
         audio = ",".join(x for x in (audio, f"afade=t=out:st={start:.3f}:d={fade_out}") if x)
-    measured = measure_loudness(src, af=audio) if loudnorm and has_audio else None
+    measured = measure_loudness(src, af=audio, i=i, tp=tp, lra=lra) if loudnorm and has_audio else None
     if measured:
         audio = ",".join(x for x in (audio, loudnorm_filter(measured, i=i, tp=tp, lra=lra)) if x)
+        # loudnorm pads its output to whole 100 ms frames; end the sound where the picture ends.
+        info = probe(src)
+        audio += f",atrim=end={(info.duration if has_video else info.file_duration):.6f}"
     preset_obj = get_preset(preset)
     if preset_obj.video_codec == "gif":
         # After any fade, because the palette has to describe the finished frames.

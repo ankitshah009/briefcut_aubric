@@ -1,6 +1,6 @@
 ---
 name: briefcut
-description: Edit real footage with Briefcut. It imports clips, plans a story with Meta's Muse Spark, renders on this machine with FFmpeg, and proves the delivered file with receipts. It needs a Meta API key. Use it to cut a talk or a set of clips into a short, add captions, music or a logo, make several shorts from one long clip, find a moment, or turn a script into a narrated video. Do not use it to write FFmpeg by hand, for image-only design work, or to publish to social platforms, which Briefcut does not do.
+description: Edit real footage with Briefcut. It imports clips, plans a story with Meta's Muse Spark, renders on this machine with FFmpeg, and proves the delivered file with receipts. It needs a Meta API key. Use it to cut a talk or a set of clips into a short, add captions, music or a logo, make several shorts from one long clip, find a moment, or turn a script into a caption-led video (there is no synthetic voice). Do not use it to write FFmpeg by hand, for image-only design work, or to publish to social platforms, which Briefcut does not do.
 metadata:
   version: "1"
 ---
@@ -10,8 +10,9 @@ metadata:
 Briefcut is a video editor that runs on Meta models. Muse Spark plans and
 reviews the story, SAM 3.1 tracks and cuts out the subject, Meta Voice
 Transcribe writes the captions, and Muse Image draws covers and scene pictures.
-FFmpeg renders on this machine. There is no local mode and no local model: a
-Meta API key is required. Its MCP server (`briefcut`) runs the same project
+FFmpeg renders on this machine. There is no local mode: a Meta API key is
+required, and only private mode (below) moves some text-only steps to Meta's
+open-weight model on this computer. Its MCP server (`briefcut`) runs the same project
 manager as Studio and the Mac app. Every finished render carries receipts:
 named checks plus an ffprobe of the delivered file. The receipts are the
 proof, not the job status.
@@ -54,10 +55,12 @@ Pick the first tool from what the user gave you. Paths must be absolute.
 | Several clips or photos | Import each file (one call per file), then one `briefcut_create_story` with every returned path (1 to 30 files, 4 GB each) |
 | A long clip and a request for several shorts | Make the story first and wait for `planned`, then `briefcut_make_shorts(job_id, count)` with a count of 2 to 5 |
 | "Find the part where ..." | `briefcut_find_moments(job_id, query)` on a project that already has a plan |
-| A written script | `briefcut_script_to_video(script, images)`; with no images, Muse Image draws each scene |
+| A written script | `briefcut_script_to_video(script, images)` makes a caption-led video with no voice; with no images, Muse Image draws each scene |
 | Music, a logo, or a picture to add | `briefcut_add_asset(job_id, path)` (when listed), then use its `id` in `briefcut_edit` |
 | A planned cut to change | Read it with `briefcut_timeline`, change it with `briefcut_edit` (both when listed), or render an edited copy of `job.plan` with `briefcut_render(job_id, plan)` |
 | A rendered cut to improve | `briefcut_revise(job_id, mode="auto")` applies the automatic fixes from the receipts |
+| A big word behind the speaker | `briefcut_hero_word(job_id)` (when listed) proposes a `hero_word` edit; apply it with `briefcut_edit` |
+| A 3D title, end card, or lower third | `briefcut_motion_card(job_id, kind)` (when listed and `briefcut_status` shows `motion_cards` true) proposes a `motion_card` edit; apply it with `briefcut_edit` |
 | A brief-level edit (silence cut, music duck, export presets, podcast audio) | Use the CLI; see [CLI and briefs](references/cli-and-briefs.md) |
 
 The story flow is the same every time:
@@ -74,7 +77,32 @@ The story flow is the same every time:
 
 Useful `briefcut_create_story` fields: `goal` (what the video should do),
 `target_duration` (0.5 to 180 seconds, default 30), `aspect` (`9:16`, `16:9`,
-or `1:1`, default `9:16`), `captions` (default on), and `subject`.
+or `1:1`, default `9:16`), `captions` (default on), `subject`, `language` (a
+code such as `es`, or `auto` to let Meta detect it; `meta.languages` in
+`briefcut_status` lists them), `budget_usd`, `review`, and `director`. Leave
+`language` and `budget_usd` out to use the user's Settings defaults.
+
+## Find, review, and suggest
+
+- `briefcut_find_moments(job_id, query)` searches the transcript for free and
+  the footage with Muse Spark. With `verify` (the default), SAM 3.1 checks up
+  to 5 found moments, about $0.01 each. Each moment has `verified` (true,
+  false, or null when not checked), `coverage`, and `flagged` (SAM never saw
+  it). `drop_unseen=true` moves never-seen moments to `verification.dropped`.
+  Tell the user which moments SAM did not see.
+- `director` picks who reviews the cut when `review` is on: `spark` (Muse
+  Spark, the default, watches it) or `wonder` (Muse Wonder, which also
+  listens). Wonder needs a budget of at least
+  `meta.directors.wonder_min_budget_usd`. `briefcut_revise` takes it too.
+- `briefcut_hero_word` and `briefcut_motion_card` only suggest. Nothing renders
+  or saves until `briefcut_edit` applies the returned edit. A motion card's
+  backdrop is one Muse Image picture ($0.01); pass `backdrop=false` to skip it.
+- Private mode: when `meta.private.enabled` is true in `briefcut_status`,
+  director's notes, caption translation, and script scenes run on Muse Glimmer
+  30B on this computer, for $0. It fails closed and never falls back to the
+  Meta API. Story planning, tracking, transcription, and pictures still use
+  Meta. The user turns it on in Settings and starts the model server with
+  `uv run python -m vedit.open_weights serve`. Do not turn it on yourself.
 
 A plan has `segments` (source `start` and `end` in seconds, with `label` and
 `reason`), `title`, `caption`, `hashtags`, and an `edit` block. Briefcut
@@ -110,6 +138,9 @@ A render is proven only by its receipts and the file itself.
   the video should have sound.
 - On the CLI: read `report.json` and confirm duration, width and height,
   `has_audio`, `has_video`, and color.
+- `briefcut_verify(job_id)` re-hashes the bundle against its `receipts.json`
+  evidence ids and names anything that changed. Anyone can run
+  `vedit verify campaign.zip` on the download. Hashes are not a signature.
 - To probe a file yourself, run `vedit probe /absolute/file.mp4` (from a
   checkout, `uv run vedit probe ...`), or `ffprobe`.
 - A `complete` status, an exit code of 0, or a progress bar is not proof.
@@ -132,7 +163,8 @@ with no images, and, when listed, `briefcut_edit` with a new caption language
 names each one; tell the user before you render it.
 `briefcut_generate_background` needs `consent=true` (the prompt words, about
 $0.01). `mode="director"` applies patches a Meta review already returned.
-Each project has a spending cap, `budget_usd` (default 0.25, at most 5).
+Each project has a spending cap, `budget_usd` (at most 5). Left out, it is
+the default in Settings ($0.25 unless the user changed it).
 
 The consent rule: footage goes to Meta only for a project the user asked you
 to make.

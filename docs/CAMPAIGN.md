@@ -1,6 +1,6 @@
 # Briefcut campaign workflow
 
-**Briefcut by Aubric.ai** turns real footage into an editable story, a cover, post copy, and a downloadable delivery package. Rendering runs on the local machine. Optional Meta integration adds footage understanding and subject tracking; the `vedit` compiler still owns the actual edit. Curated visual effects are available inside the same workflow. See [Brand](BRAND.md) and [Spatial effects](SPATIAL_EFFECTS.md).
+**Briefcut by Aubric, Inc.** turns real footage into an editable story, a cover, post copy, and a downloadable delivery package. Rendering runs on the local machine. Optional Meta integration adds footage understanding and subject tracking; the `vedit` compiler still owns the actual edit. Curated visual effects are available inside the same workflow. See [Brand](BRAND.md) and [Spatial effects](SPATIAL_EFFECTS.md).
 
 ## Run locally
 
@@ -260,16 +260,23 @@ or in a client's JSON config:
 | Tool | Does |
 | --- | --- |
 | `briefcut_import_clip(path)` | Copies a local video (≤ 4 GB, must probe as video) into a fresh `vedit-sessions/<id>/inbox/` folder; returns `paths`, `bytes`, duration, and frame size. |
-| `briefcut_create_story(paths, goal, provider="local", target_duration=30, aspect="9:16", captions=true, caption_provider="local", language="en", subject="", budget_usd=0.25, generate_cover=false, review=false, effect=null)` | Queues a plan from 1 to 30 imported clips or photos; same fields as `POST /api/campaigns`. Returns the job. |
-| `briefcut_find_moments(job_id, query)` | Finds matching transcript moments locally, plus visible footage in Meta mode. Returns results, warnings, and budget. |
+| `briefcut_create_story(paths, goal, provider="meta", target_duration=30, aspect="9:16", captions=true, caption_provider="meta", language=null, subject="", budget_usd=null, generate_cover=false, review=false, effect=null, director=null)` | Queues a plan from 1 to 30 imported clips or photos; same fields as `POST /api/campaigns`. Returns the job. `language` and `budget_usd` left out use the defaults saved in Studio Settings (language `auto`, budget $0.25). `provider` and `caption_provider` are always `meta`; the server refuses `local`. `director` is `spark` (default) or `wonder`; a Wonder review needs `budget_usd` of at least $0.33. |
+| `briefcut_find_moments(job_id, query, verify=true, drop_unseen=false)` | Searches the project's transcript (free) and, with Muse Spark, the footage. With `verify`, SAM 3.1 checks up to 5 found moments (about $0.01 each) and marks each `verified`, with `coverage`; moments SAM never saw are flagged, or moved to `verification.dropped` with `drop_unseen`. Returns results, warnings, and budget. |
 | `briefcut_make_shorts(job_id, count=3, target_duration=30, aspect="9:16", budget_usd=null, auto_render=true)` | Starts 2 to 5 linked short projects from distinct moments. Wait on each returned job id. |
-| `briefcut_script_to_video(script, aspect="9:16", provider="meta", budget_usd=0.25, language="en", voice=null, images=[], review=false, auto_refine=0, template="none", edit=null)` | Creates an editable narrated project from a script. Without supplied images, Meta is required for scene pictures. |
+| `briefcut_script_to_video(script, aspect="9:16", provider="meta", budget_usd=null, language=null, voice=null, images=[], review=false, auto_refine=0, template="none", edit=null, director=null)` | Creates an editable, caption-led project from a script, one scene per clip. Nothing narrates it: Meta has no text-to-speech model. Without supplied images, Muse Image draws one picture per scene. |
 | `briefcut_wait(job_id, timeout_seconds=600)` | Polls every 0.5 s until `planned`, `complete`, `failed`, or `cancelled`; a timeout is a tool error and the job keeps running. |
 | `briefcut_get(job_id)`, `briefcut_list()` | The public job, or `{"jobs": [...]}` newest first. |
-| `briefcut_render(job_id, plan=null)` | Renders the saved plan or an edited copy of `job.plan`. |
-| `briefcut_revise(job_id, mode, note=null)` | Version N+1 from `auto`, `director`, or `note` patches (see Revise above). |
+| `briefcut_render(job_id, plan=null, captions=null, aspect=null)` | Renders the saved plan or an edited copy of `job.plan`. |
+| `briefcut_revise(job_id, mode, note=null, director=null)` | Version N+1 from `auto`, `director`, or `note` patches (see Revise above). |
 | `briefcut_receipts(job_id)` | `revision`, `passed`/`total`, named `checks`, ffprobe `proof`, `patches`, `review`, `versions`. |
 | `briefcut_artifact_path(job_id, name, revision=null)` | Absolute path on disk for `source`, `video`, `cover`, `bundle`, `brief`, or `report`, so the agent reads the file itself. |
 | `briefcut_cancel(job_id)`, `briefcut_retry(job_id)` | Stop a running job; re-queue a failed or cancelled one. |
+| `briefcut_status()` | Meta capabilities and the valid edit ids, with no network call. |
+| `briefcut_timeline(job_id, detail="summary", offset=0, limit=50)` | The timeline, summary first, with paged detail. |
+| `briefcut_edit(job_id, edit=null, patches=null, render=false, captions=null, aspect=null)` | A small validated change to a planned job. A dry run unless `render=true`. Its `meta` field lists anything the draft would send to Meta at render. |
+| `briefcut_hero_word(job_id, subject=null, font=null, color=null)` | Muse Spark proposes one spoken word to show huge behind the subject; Briefcut checks it. Apply it with `briefcut_edit`. |
+| `briefcut_motion_card(job_id, kind="intro_title", backdrop=true)` | Muse Spark designs a 3D motion card (`intro_title`, `end_card`, or `lower_third`) that Blender renders on this machine. Needs Blender. Apply it with `briefcut_edit`. |
+| `briefcut_add_asset(job_id, path)` | Registers a local audio or image file as a project asset. |
+| `briefcut_generate_background(job_id, prompt, consent)` | Muse Image paints a cutout background. Needs `consent: true`. |
 
 Every `CampaignError` comes back as a tool error with the same message the HTTP API would return; unexpected failures are reported without their traceback. A render is verified only when `briefcut_receipts` shows `passed == total` and `proof.has_video`; a `complete` status alone is not proof.

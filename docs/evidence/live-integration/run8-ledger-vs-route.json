@@ -1,0 +1,138 @@
+{
+  "workshop": {
+    "project": "4895f70caaf44029aed8e62c865e241b",
+    "route_status": 200,
+    "route_totals": {
+      "calls": 14,
+      "running": 0,
+      "spent_usd": 0.149892,
+      "held_usd": 0.4375424,
+      "api_calls": 13,
+      "local_calls": 1,
+      "budget_usd": 0.6,
+      "remaining_usd": 0.1624576
+    },
+    "ledger": {
+      "rows": 14,
+      "spent_usd": 0.149892,
+      "held_usd": 0.4375424,
+      "local_rows": 1,
+      "by_operation": {
+        "transcribe / muse-voice-transcribe-1.0": {
+          "calls": 1,
+          "cost_usd": 0.002,
+          "reserved_usd": 0.00205
+        },
+        "story / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0015976,
+          "reserved_usd": 0.0046899
+        },
+        "review / muse-wonder-1.0": {
+          "calls": 1,
+          "cost_usd": 0.09994,
+          "reserved_usd": 0.366092
+        },
+        "emphasis / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0004574,
+          "reserved_usd": 0.0033593
+        },
+        "hero_word / muse-spark-1.3-contributor": {
+          "calls": 2,
+          "cost_usd": 0.0013731,
+          "reserved_usd": 0.0068215
+        },
+        "tracking / sam-3.1": {
+          "calls": 3,
+          "cost_usd": 0.0324,
+          "reserved_usd": 0.0332
+        },
+        "motion_card / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0003831,
+          "reserved_usd": 0.0033797
+        },
+        "image / muse-image-1.0": {
+          "calls": 1,
+          "cost_usd": 0.01,
+          "reserved_usd": 0.01
+        },
+        "find / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0015774,
+          "reserved_usd": 0.0046289
+        },
+        "patch / meta-models/Muse-Glimmer-30B": {
+          "calls": 1,
+          "cost_usd": 0.0,
+          "reserved_usd": 0.0
+        },
+        "translate / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0001634,
+          "reserved_usd": 0.0033211
+        }
+      }
+    },
+    "call_log_ids": 14,
+    "ledger_ids_in_log": 14,
+    "route_rows": 14,
+    "job_budget": 0.4375424,
+    "match": {
+      "calls": true,
+      "spent": true,
+      "held": true,
+      "local": true,
+      "remaining": true
+    }
+  },
+  "wanrong": {
+    "project": "d58a2cc491e0499ba880f4fde7dc7d9f",
+    "route_status": 200,
+    "route_totals": {
+      "calls": 3,
+      "running": 0,
+      "spent_usd": 0.0113069,
+      "held_usd": 0.0176975,
+      "api_calls": 3,
+      "local_calls": 0,
+      "budget_usd": 0.3,
+      "remaining_usd": 0.2823025
+    },
+    "ledger": {
+      "rows": 3,
+      "spent_usd": 0.0113069,
+      "held_usd": 0.0176975,
+      "local_rows": 0,
+      "by_operation": {
+        "story / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.0006889,
+          "reserved_usd": 0.0038494
+        },
+        "find / muse-spark-1.3-contributor": {
+          "calls": 1,
+          "cost_usd": 0.000618,
+          "reserved_usd": 0.0038481
+        },
+        "tracking / sam-3.1": {
+          "calls": 1,
+          "cost_usd": 0.01,
+          "reserved_usd": 0.01
+        }
+      }
+    },
+    "call_log_ids": 3,
+    "ledger_ids_in_log": 3,
+    "route_rows": 3,
+    "job_budget": 0.0176975,
+    "match": {
+      "calls": true,
+      "spent": true,
+      "held": true,
+      "local": true,
+      "remaining": true
+    }
+  }
+}

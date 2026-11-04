@@ -1,7 +1,7 @@
 "use strict";
 
 /*
- * The inspector: eight tabs over the plan's edit, the note box, and the
+ * The inspector: nine tabs over the plan's edit, the note box, and the
  * delivery extras. Tabs read capabilities().editor and write through
  * BriefcutEditor.change, so a choice added to the catalogue appears here and
  * every edit can be undone.
@@ -11,7 +11,7 @@
   if (!Kit) return;
   const { $, el, icon, finite, clamp, getPath, setPath, clock, bytes, plural, money } = Kit;
   const SPEEDS = [.25, .5, .75, 1, 1.25, 1.5, 2, 3, 4];
-  const state = { tab: "look", built: false, moment: 0, textIndex: -1, overlayIndex: -1, selection: "", chat: [], chatJob: "", chatRevision: 0, chatOpen: false, cutoutMode: "", consent: false, refine: 0, options: {}, background: { busy: false, error: "" }, shorts: { busy: false, error: "", jobs: [], family: [], job: "", timer: 0, why: {} } };
+  const state = { tab: "look", built: false, moment: 0, textIndex: -1, overlayIndex: -1, selection: "", chat: [], chatJob: "", chatRevision: 0, chatOpen: false, cutoutMode: "", consent: false, refine: 0, options: {}, background: { busy: false, error: "" }, hero: { busy: false, error: "", job: "", proposal: null, adjusted: [], subject: null, wordError: "" }, card: { busy: false, error: "", job: "", kind: "intro_title", backdrop: true, proposal: null, poster: "", notes: [] }, shorts: { busy: false, error: "", jobs: [], family: [], job: "", timer: 0, why: {} } };
   const panels = [];
   let idCounter = 0;
   const nextId = (name) => "ix-" + name + "-" + (idCounter += 1);
@@ -285,7 +285,10 @@
     const output = (characters / 3) / 1e6 * finite(prices.output_per_million, 0);
     return input + output;
   }
+  /* Caption translation targets: every language Muse Spark writes, from the server's one list (meta.languages). */
   function languageChoices() {
+    const served = (Kit.caps().meta || {}).languages;
+    if (Array.isArray(served) && served.length) return served.filter((row) => row && typeof row.code === "string" && row.code).map((row) => ({ id: row.code, name: String(row.name || row.code) }));
     const list = Kit.catalogue() || {};
     if (Array.isArray(list.caption_languages) && list.caption_languages.length) return list.caption_languages.map((row) => (typeof row === "string" ? { id: row, name: row } : row));
     const select = $("language");
@@ -317,7 +320,10 @@
       el("option", { value: "", text: "Original language" }), languageChoices().map((row) => el("option", { value: row.id, text: row.name })));
     const languageNote = note("");
     panel.syncs.push((view) => {
-      language.value = view.captions.language || "";
+      const target = view.captions.language || "";
+      /* A saved code the list lacks (an agent may set pt-BR) stays visible instead of reading as the original language. */
+      if (target && !Array.from(language.options).some((option) => option.value === target)) language.append(el("option", { value: target, text: target }));
+      language.value = target;
       const ready = Kit.metaReady() && metaFeature("translate");
       language.disabled = !ready;
       if (!ready) { languageNote.textContent = Kit.metaReady() ? "Translation is not available right now." : Kit.metaReason(); return; }
@@ -360,12 +366,95 @@
     panel.body.append(
       group("", on),
       group("Style", cards, chosenDescription(panel, list.caption_styles, (view) => view.captions.style)),
+      punchWords(panel),
       group("Placement",
         segmented(panel, { legend: "Position", choices: list.caption_positions.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), path: "captions.position", undo: () => "Caption position" }),
         slider(panel, { label: "Size", path: "captions.scale", min: .5, max: 2, step: .05, undo: "Caption size" }),
         el("div", { class: "ix-color-row" }, colorField(panel, { label: "Text", path: "captions.color" }), colorField(panel, { label: "Highlight", path: "captions.highlight" }))),
       group("Language", el("label", { for: "ix-caption-language", class: "sr", text: "Caption language" }), language, languageNote),
       group("Lines", cueEmpty, cueList));
+  }
+
+  /* ---------- Punch words ---------- */
+  /* Muse Spark picks the word that carries a line, and the render draws it larger in an
+     accent. With punch words on and no picks, the server asks Spark at render time, and the
+     result carries the picks with Spark's reasons. Turning one off writes the rest as the
+     picks, so the next render keeps them and drops only that one. */
+  function validPick(item) { return !!item && typeof item.cue_key === "string" && Number.isInteger(Number(item.word_index)) && typeof item.word === "string" && !!item.word; }
+  function pickId(item) { return item.cue_key + ":" + Number(item.word_index); }
+  function cleanPick(item) { return { cue_key: String(item.cue_key), word_index: Number(item.word_index), word: String(item.word) }; }
+  function renderedPicks() {
+    const project = Kit.job();
+    const result = project && project.result;
+    return result && Array.isArray(result.emphasis) ? result.emphasis.filter(validPick) : [];
+  }
+  function punchState(view) {
+    const on = view.captions.emphasize === true;
+    const own = Array.isArray(view.captions.emphasis) ? view.captions.emphasis.filter(validPick) : [];
+    const rendered = renderedPicks();
+    const why = new Map(rendered.map((pick) => [pickId(pick), typeof pick.why === "string" ? pick.why.trim() : ""]));
+    const picks = on ? (own.length ? own : rendered) : [];
+    const ids = (list) => JSON.stringify(list.map(pickId).sort());
+    const changed = on ? own.length > 0 && ids(own) !== ids(rendered) : rendered.length > 0;
+    return { on, own, picks, why, rendered, changed };
+  }
+  function punchGate() {
+    if (!captionsOn()) return "Turn captions on to use punch words.";
+    if (!Kit.metaReady()) return Kit.metaReason();
+    const project = Kit.job();
+    if (project && project.request && project.request.provider !== "meta") return "This project was saved before Briefcut ran on Meta. Create a new story to use punch words.";
+    return "";
+  }
+  function turnOffPick(pick) {
+    const { picks } = punchState(Kit.view());
+    const rest = picks.filter((item) => pickId(item) !== pickId(pick)).map(cleanPick);
+    // An empty list would ask Spark to pick again, so the last one off turns punch words off.
+    const applied = Kit.edit("Turn off punch word", (edit) => { setPath(edit, "captions.emphasis", rest); if (!rest.length) setPath(edit, "captions.emphasize", false); }, { coalesce: false });
+    if (applied) Kit.toast(rest.length ? "\u201c" + pick.word + "\u201d is off. Render this version to apply it." : "No punch words left, so punch words are off. Render this version to apply it.");
+  }
+  function renderNow() { const make = $("make"); if (make && !make.disabled) make.click(); else Kit.toast("Finish the current step, then render this version."); }
+  function punchWords(panel) {
+    const on = toggle(panel, { label: "Punch words", hint: "Muse Spark picks the word that carries each line.", path: "captions.emphasize", gate: punchGate });
+    const accent = colorField(panel, { label: "Accent", path: "captions.emphasis_color" });
+    const status = note("");
+    status.setAttribute("aria-live", "polite");
+    const list = el("ul", { class: "ix-punch", "aria-label": "Punch words" });
+    const render = el("button", { type: "button", class: "button button-secondary ix-wide", text: "Render this version", hidden: true, on: { click: renderNow } });
+    let signature = "";
+    panel.syncs.push((view) => {
+      const punch = punchState(view);
+      const cues = captionCues();
+      accent.hidden = !punch.on;
+      const translated = !!view.captions.language;
+      status.hidden = !punch.on && !punch.changed;
+      status.textContent = punch.changed ? (punch.on ? "Changed since the last render. It applies when you render this version." : "Punch words come off when you render this version.")
+        : !punch.on ? ""
+        : translated ? "Translated captions get no punch words. They stay on the original language."
+        : punch.picks.length ? plural(punch.picks.length, "word") + " picked by Muse Spark. Point at one to see why. The preview shows the accent."
+        : "Muse Spark picks the words when you render. They appear here after the render.";
+      render.hidden = !punch.changed || !(Kit.job() && Kit.job().result);
+      const next = JSON.stringify([punch.picks.map((pick) => [pickId(pick), pick.word, punch.why.get(pickId(pick)) || ""]), cues.map((cue) => [cueKey(cue), cue.start, cue.text])]);
+      list.hidden = !punch.picks.length;
+      if (next === signature) return;
+      signature = next;
+      rebuild(list, () => punch.picks.map((pick) => {
+        const cue = cues.find((row) => cueKey(row) === pick.cue_key);
+        const reason = punch.why.get(pickId(pick)) || "";
+        const tokens = cue ? String(cue.text).split(/\s+/).filter(Boolean) : [];
+        const index = Number(pick.word_index);
+        const line = el("p", { class: "ix-punch-line" });
+        if (index < tokens.length) tokens.forEach((token, at) => { if (at) line.append(" "); line.append(at === index ? el("mark", { class: "ix-punch-word", text: token }) : token); });
+        else line.append(el("mark", { class: "ix-punch-word", text: pick.word }));
+        if (reason) line.append(el("span", { class: "sr", text: " (Why Muse Spark picked it: " + reason.replace(/[.]$/, "") + ")" }));
+        const id = "ix-punch-" + pick.cue_key + "-" + index;
+        return el("li", { title: reason ? "Muse Spark: " + reason : "Muse Spark picked this word." },
+          cue ? el("button", { type: "button", class: "ix-time", text: clock(cue.start), "aria-label": "Jump to " + clock(cue.start), on: { click: () => seek(Number(cue.start)) } }) : el("span", { class: "ix-time" }),
+          line,
+          el("button", { type: "button", class: "ix-icon", id, title: "Turn off this punch word", "aria-label": "Turn off the punch word \u201c" + pick.word + "\u201d", on: { click: () => turnOffPick(pick) } }, icon("close")),
+          reason ? el("p", { class: "ix-punch-why", "aria-hidden": "true", text: reason }) : null);
+      }));
+    });
+    return group("Emphasis", on, accent, status, list, render);
   }
 
   /* ---------- Text, logo, images ---------- */
@@ -844,7 +933,7 @@
         if (field) field.focus();
       },
     });
-    const subject = el("input", { id: "ix-cut-subject", type: "text", maxlength: "150", placeholder: "The wooden bowl", on: { change: () => {
+    const subject = el("input", { id: "ix-cut-subject", type: "text", maxlength: "150", placeholder: "The person in the red jacket", on: { change: () => {
       const text = subject.value.replace(/\s+/g, " ").trim();
       if (pendingMode() !== off && !text) { subject.value = Kit.view().cutout.subject || ""; return; }
       if (!tryCommit(text)) commitCutout({ subject: text }, "Cutout subject");
@@ -860,7 +949,7 @@
     const generateStatus = note("");
     const generate = el("form", { class: "ix-stack", on: { submit: submitBackground } },
       el("label", { for: "ix-cut-prompt", text: "Generate a background" }),
-      el("input", { id: "ix-cut-prompt", name: "prompt", type: "text", maxlength: "300", placeholder: "A sunlit workshop wall" }),
+      el("input", { id: "ix-cut-prompt", name: "prompt", type: "text", maxlength: "300", placeholder: "A soft studio backdrop" }),
       el("button", { type: "submit", class: "button button-secondary ix-wide", id: "ix-cut-generate", text: "Generate" }), generateStatus);
     const imageRow = el("div", { class: "ix-stack" }, el("label", { for: image.id, text: "Background image" }), image, generate);
     const consent = el("input", { type: "checkbox", id: "ix-cut-consent", on: { change: () => {
@@ -924,6 +1013,8 @@
     const [low, high] = isGif ? [.08, .3] : format === "webm" ? [.02, .12] : [.03, .2];
     return { low: frames * low / 8 + sound, high: frames * high / 8 + sound };
   }
+  /* "source" keeps the footage's own frame rate; estimates then assume 30 fps. */
+  function fpsLabel(value) { return value === "source" ? "Match source" : value + " fps"; }
   function jobAspect() { return renderChoice("aspect", () => ($("aspect") ? $("aspect").value : "9:16")); }
   function buildExport(panel) {
     const list = Kit.catalogue();
@@ -942,10 +1033,330 @@
     });
     panel.body.append(group("",
       segmented(panel, { legend: "Quality", choices: options.qualities.map((value) => ({ value, label: value })), path: "export.quality", undo: () => "Export quality" }),
-      segmented(panel, { legend: "Frame rate", choices: options.fps.map((value) => ({ value, label: value + " fps" })), path: "export.fps", undo: () => "Frame rate" }),
+      segmented(panel, { legend: "Frame rate", choices: options.fps.map((value) => ({ value, label: fpsLabel(value) })), path: "export.fps", undo: () => "Frame rate" }),
       segmented(panel, { legend: "Format", choices: options.formats.map((value) => ({ value, label: value.toUpperCase() })), path: "export.format", undo: () => "Export format" }),
       formatNote, aspect),
     group("Estimated size", size, sizeNote));
+  }
+
+  /* ---------- Effects ---------- */
+  /* One section per effect. The 3D motion card goes here as a second section, built the
+     same way: choices from catalogue(), one draft field, rendered by the server. */
+  const HERO_COLOR_NAMES = { "#FFFFFF": "White", "#FFD60A": "Yellow", "#FF453A": "Red", "#FF9F0A": "Orange", "#30D158": "Green", "#0A84FF": "Blue", "#101014": "Black" };
+  // Mirrors edit_spec.HERO_WORD: letters and digits joined by spaces, apostrophes or hyphens, one closing mark.
+  const HERO_WORD = /^[\p{L}\p{N}]+(?:['\u2019\- ][\p{L}\p{N}]+)*[!?.]?$/u;
+  function heroChoices() { const list = Kit.catalogue() || {}; return list.hero_word && typeof list.hero_word === "object" ? list.hero_word : null; }
+  function heroBlock() {
+    if (!heroChoices()) return "Hero words are not in this build yet.";
+    const features = (Kit.caps().meta || {}).features || {};
+    if (Object.prototype.hasOwnProperty.call(features, "hero_word") && !features.hero_word) return Kit.metaReady() ? "Hero words are not ready on this computer yet." : Kit.metaReason();
+    return metaProjectBlock("tracking", "Hero words");
+  }
+  function adjustedNotes(value) {
+    const rows = Array.isArray(value) ? value : value ? [value] : [];
+    return rows.map((row) => (typeof row === "string" ? row : row && typeof row === "object" ? row.note || row.message || row.reason || "" : "")).filter((text) => typeof text === "string" && text.trim()).map((text) => text.trim());
+  }
+  function heroState() { const project = Kit.job(); if (!project || state.hero.job !== project.id) state.hero = { busy: false, error: "", job: project ? project.id : "", proposal: null, adjusted: [], subject: null, wordError: "" }; return state.hero; }
+  /* What SAM cuts out so the word sits behind it: the "Behind" field. Until the person types
+     there it holds the current hero word's subject, else the project's "Keep this subject in frame". */
+  function heroSubject() {
+    const hero = heroState();
+    if (typeof hero.subject === "string") return hero.subject.replace(/\s+/g, " ").trim();
+    const current = Kit.view().hero_word;
+    const project = Kit.job();
+    return String(current && current.subject || project && project.request && project.request.subject || "").replace(/\s+/g, " ").trim();
+  }
+  async function suggestHero() {
+    const hero = heroState();
+    if (!Kit.job() || hero.busy || heroBlock()) return;
+    const current = Kit.view().hero_word || {};
+    // The server no longer guesses a subject. With none, SAM would be billed and find nothing.
+    const subject = heroSubject();
+    if (!subject) return;
+    const body = { subject };
+    if (current.font) body.font = current.font;
+    if (current.color) body.color = current.color;
+    hero.busy = true; hero.error = ""; hero.wordError = "";
+    paintPanels();
+    try {
+      const data = await Kit.api("/hero-word", { method: "POST", body, timeout: 120000 });
+      if (!data || !data.hero_word || typeof data.hero_word !== "object" || !data.hero_word.word) throw new Error("Muse Spark did not suggest a word this time. Try again.");
+      hero.proposal = data.proposal && typeof data.proposal === "object" ? data.proposal : null;
+      hero.adjusted = adjustedNotes(data.adjusted).concat(adjustedNotes(data.warnings));
+      Kit.edit("Suggest hero word", (edit) => { edit.hero_word = Object.assign({}, data.hero_word); }, { coalesce: false });
+      Kit.announce("Muse Spark suggests the hero word " + data.hero_word.word + ", from " + clock(data.hero_word.start, true) + " to " + clock(data.hero_word.end, true) + ".");
+    } catch (error) { hero.error = error.message; }
+    hero.busy = false;
+    paintPanels();
+  }
+  function editHero(label, change, options) {
+    return Kit.edit(label, (edit) => { if (edit.hero_word && typeof edit.hero_word === "object") change(edit.hero_word); }, options);
+  }
+  /* Times stay on the output clock, inside the story, and 0.5 to 3 seconds long, as the server checks. */
+  function heroTiming(which, raw, view) {
+    const choices = heroChoices() || {};
+    const low = finite(choices.min_seconds, .5), high = finite(choices.max_seconds, 3);
+    const hero = view.hero_word;
+    const total = storyLength() || Math.max(finite(hero.end, 0), high);
+    let start = finite(hero.start, 0), end = finite(hero.end, start + 1);
+    const value = Math.round(finite(raw, which === "start" ? start : end) * 100) / 100;
+    if (which === "start") { const length = end - start; start = clamp(value, 0, Math.max(0, total - low)); end = Math.min(total, start + clamp(length, low, high)); }
+    else { end = clamp(value, start + low, Math.min(total, start + high)); }
+    start = Math.round(start * 100) / 100; end = Math.round(end * 100) / 100;
+    editHero("Hero word timing", (row) => { row.start = start; row.end = end; }, { coalesce: false });
+    return Math.abs((which === "start" ? start : end) - value) > .005;
+  }
+  function heroEditor(panel) {
+    const choices = heroChoices() || {};
+    const maxChars = finite(choices.max_chars, 18), maxWords = finite(choices.max_words, 2);
+    const wordId = nextId("hero-word"), startId = nextId("hero-start"), endId = nextId("hero-end"), errorId = nextId("hero-error");
+    const wordError = el("p", { id: errorId, class: "ix-note is-error", role: "alert", hidden: true });
+    const word = el("input", { id: wordId, type: "text", maxlength: String(maxChars), autocomplete: "off", spellcheck: "false", on: { input: () => {
+      const text = word.value.replace(/\s+/g, " ").trim();
+      const problem = !text ? "Write a word." : text.split(" ").length > maxWords ? "Use at most " + plural(maxWords, "word") + "." : !HERO_WORD.test(text) ? "Use letters and digits. Spaces, apostrophes and hyphens can join them." : "";
+      wordError.hidden = !problem; wordError.textContent = problem;
+      if (problem) { word.setAttribute("aria-invalid", "true"); word.setAttribute("aria-describedby", errorId); return; }
+      word.removeAttribute("aria-invalid"); word.removeAttribute("aria-describedby");
+      editHero("Hero word", (row) => { row.word = text; });
+    } } });
+    const timing = (id, which, label) => {
+      const input = el("input", { id, type: "number", min: "0", step: "0.05", inputmode: "decimal", on: { change: () => {
+        const moved = heroTiming(which, input.value, Kit.view());
+        if (moved) Kit.toast("Kept to " + finite(choices.min_seconds, .5) + " to " + finite(choices.max_seconds, 3) + " seconds, inside the story.");
+      } } });
+      return { input, node: el("div", { class: "ix-field" }, el("label", { for: id, text: label }), input) };
+    };
+    const start = timing(startId, "start", "Starts at (s)");
+    const end = timing(endId, "end", "Ends at (s)");
+    const jump = el("button", { type: "button", class: "ix-link", text: "Go to the word", on: { click: () => { const hero = Kit.view().hero_word; if (hero) seek(finite(hero.start, 0)); } } });
+    const sides = (Array.isArray(choices.sides) ? choices.sides : ["center", "top", "left", "right"]).map((value) => ({ value, label: titleCase(value) }));
+    const fonts = (Array.isArray(choices.fonts) ? choices.fonts : []).map((row) => (typeof row === "string" ? { value: row, label: titleCase(row) } : { value: row.id, label: row.name || row.id }));
+    const side = segmented(panel, { legend: "Side", choices: sides, read: (view) => view.hero_word && view.hero_word.side, write: (value) => editHero("Hero word side", (row) => { row.side = value; }, { coalesce: false }) });
+    const font = fonts.length ? segmented(panel, { legend: "Font", choices: fonts, read: (view) => view.hero_word && view.hero_word.font, write: (value) => editHero("Hero word font", (row) => { row.font = value; }, { coalesce: false }) }) : null;
+    const colorName = nextId("hero-color");
+    const colors = el("fieldset", { class: "ix-hero-colors" }, el("legend", { text: "Color" }),
+      (Array.isArray(choices.colors) ? choices.colors : Object.keys(HERO_COLOR_NAMES)).map((value) => {
+        const hex = String(value).toUpperCase();
+        const name = HERO_COLOR_NAMES[hex] || hex;
+        const input = el("input", { type: "radio", class: "sr", name: colorName, value: hex, on: { change: () => { if (input.checked) editHero("Hero word color", (row) => { row.color = hex; }, { coalesce: false }); } } });
+        return el("label", { class: "ix-hero-color", title: name }, input, el("span", { class: "ix-hero-chip", style: { background: hex }, "aria-hidden": "true" }), el("span", { class: "sr", text: name }));
+      }));
+    const reason = el("p", { class: "ix-note ix-hero-reason" });
+    const adjusted = el("ul", { class: "ix-hero-adjusted", "aria-label": "What Briefcut changed" });
+    const apply = el("button", { type: "button", class: "button button-primary", text: "Apply and render", on: { click: renderNow } });
+    const remove = el("button", { type: "button", class: "button button-secondary", text: "Remove", on: { click: () => { const applied = Kit.edit("Remove hero word", (edit) => { edit.hero_word = null; }, { coalesce: false }); if (applied) { heroState().adjusted = []; Kit.toast("Hero word removed. Undo brings it back."); } } } });
+    const box = el("div", { class: "ix-hero-edit" },
+      el("div", { class: "ix-field" }, el("label", { for: wordId, text: "Word" }), word, wordError),
+      el("div", { class: "ix-hero-times" }, start.node, end.node), jump,
+      reason, adjusted,
+      side, font, colors,
+      note("Appears in the render. The preview does not draw it."),
+      el("div", { class: "ix-hero-actions" }, apply, remove));
+    panel.syncs.push((view) => {
+      const hero = view.hero_word;
+      box.hidden = !hero;
+      if (!hero) return;
+      if (document.activeElement !== word && !word.hasAttribute("aria-invalid")) word.value = hero.word || "";
+      if (document.activeElement !== start.input) start.input.value = finite(hero.start, 0).toFixed(2);
+      if (document.activeElement !== end.input) end.input.value = finite(hero.end, 0).toFixed(2);
+      const total = storyLength();
+      if (total) { start.input.max = String(total); end.input.max = String(total); }
+      const hex = String(hero.color || "#FFFFFF").toUpperCase();
+      colors.querySelectorAll("input").forEach((input) => { input.checked = input.value === hex; });
+      const memo = heroState();
+      const why = hero.reason || memo.proposal && memo.proposal.reason || "";
+      reason.hidden = !why;
+      reason.replaceChildren(el("strong", { text: "Muse Spark: " }), why);
+      adjusted.hidden = !memo.adjusted.length;
+      adjusted.replaceChildren(...memo.adjusted.map((text) => el("li", { text })));
+      const project = Kit.job();
+      apply.disabled = Kit.locked() || !project;
+      apply.textContent = Kit.locked() ? "Rendering" : "Apply and render";
+    });
+    return box;
+  }
+  function heroWord(panel) {
+    const block = el("p", { class: "ix-note", role: "status" });
+    const subjectId = nextId("hero-subject");
+    const hintId = nextId("hero-subject-hint");
+    const hint = el("p", { id: hintId, class: "ix-note", text: "Say what the word sits behind first." });
+    const suggest = el("button", { type: "button", class: "button button-secondary ix-wide", on: { click: suggestHero } }, icon("effects"), el("span", { text: "Suggest a hero word" }));
+    // The button waits for a subject; typing updates it at once, without a full repaint.
+    const ready = () => {
+      const hero = heroState();
+      const missing = !heroSubject();
+      hint.hidden = !missing || !!heroBlock();
+      suggest.disabled = !!heroBlock() || hero.busy || Kit.locked() || missing;
+    };
+    const subject = el("input", { id: subjectId, type: "text", maxlength: "150", autocomplete: "off", placeholder: "What the word sits behind, e.g. the person in the red jacket", "aria-describedby": hintId, on: { input: () => { heroState().subject = subject.value; ready(); } } });
+    const status = el("p", { class: "ix-note", role: "status" });
+    panel.syncs.push((view) => {
+      const hero = heroState();
+      const reason = heroBlock();
+      block.hidden = !reason; block.textContent = reason;
+      if (document.activeElement !== subject) subject.value = typeof hero.subject === "string" ? hero.subject : heroSubject();
+      ready();
+      suggest.lastChild.textContent = hero.busy ? "Asking Muse Spark" : view.hero_word ? "Suggest another word" : "Suggest a hero word";
+      suggest.setAttribute("aria-busy", String(hero.busy));
+      status.hidden = !hero.error && !hero.busy;
+      status.classList.toggle("is-error", !!hero.error);
+      status.textContent = hero.error || (hero.busy ? "Muse Spark is reading the transcript for the word that carries the story." : "");
+    });
+    return group("Hero word",
+      note("Muse Spark picks the word. SAM 3.1 cuts out your subject so the word sits behind it."),
+      block,
+      el("div", { class: "ix-field" }, el("label", { for: subjectId, text: "Behind" }), subject, hint),
+      suggest, status, heroEditor(panel));
+  }
+  /* ---------- 3D title card ---------- */
+  /* Muse Spark designs the card as closed choices, Muse Image paints its backdrop, and
+     Briefcut's own Blender template renders it here. Hidden where Blender is missing. */
+  const CARD_MAX_WORDS = 5; // edit_spec.MOTION_CARD_MAX_WORDS
+  function cardChoices() { const list = Kit.catalogue() || {}; return list.motion_card && typeof list.motion_card === "object" ? list.motion_card : null; }
+  function cardsHere() { return Kit.caps().motion_cards === true && !!cardChoices(); }
+  function cardState() { const project = Kit.job(); if (!project || state.card.job !== project.id) state.card = { busy: false, error: "", job: project ? project.id : "", kind: "intro_title", backdrop: true, proposal: null, poster: "", notes: [] }; return state.card; }
+  function cardBlock() { return metaProjectBlock("story", "3D title cards"); }
+  function sameOrigin(value) {
+    if (typeof value !== "string" || !value) return "";
+    try { const url = new URL(value, location.href); return url.origin === location.origin && url.pathname.startsWith("/api/") ? url.href : ""; } catch (_) { return ""; }
+  }
+  function rowsOf(list) { return (Array.isArray(list) ? list : []).map((row) => (typeof row === "string" ? { id: row, name: titleCase(row.replace(/_/g, " ")) } : { id: row.id, name: row.name || row.id, description: row.description || "" })); }
+  async function designCard() {
+    const card = cardState();
+    if (!Kit.job() || card.busy || cardBlock()) return;
+    const body = { kind: card.kind, backdrop: card.kind !== "lower_third" && card.backdrop };
+    card.busy = true; card.error = "";
+    paintPanels();
+    try {
+      const data = await Kit.api("/motion-card", { method: "POST", body, timeout: 120000 });
+      if (!data || !data.motion_card || typeof data.motion_card !== "object" || !data.motion_card.text) throw new Error("Muse Spark did not design a card this time. Try again.");
+      if (data.backdrop && data.backdrop.id) Kit.addAsset(data.backdrop);
+      card.proposal = data.proposal && typeof data.proposal === "object" ? data.proposal : null;
+      card.poster = sameOrigin(data.poster);
+      card.notes = adjustedNotes(data.notes).concat(adjustedNotes(data.warnings));
+      Kit.edit("Design 3D title card", (edit) => { edit.motion_card = Object.assign({}, data.motion_card); }, { coalesce: false });
+      Kit.announce("Muse Spark designed a title card: " + data.motion_card.text + ".");
+    } catch (error) { card.error = error.message; }
+    card.busy = false;
+    paintPanels();
+  }
+  function editCard(label, change, options) {
+    return Kit.edit(label, (edit) => { if (edit.motion_card && typeof edit.motion_card === "object") change(edit.motion_card); }, options);
+  }
+  function cardSelect(panel, label, rows, field, undo) {
+    const id = nextId("card-" + field);
+    const select = el("select", { id, on: { change: () => editCard(undo, (row) => { row[field] = select.value; }, { coalesce: false }) } }, rows.map((row) => el("option", { value: row.id, text: row.name, title: row.description || null })));
+    const hint = el("p", { class: "ix-note" });
+    panel.syncs.push((view) => {
+      const value = view.motion_card && view.motion_card[field];
+      if (value !== undefined && document.activeElement !== select) select.value = value;
+      const row = rows.find((item) => item.id === select.value);
+      hint.textContent = row && row.description || "";
+      hint.hidden = !hint.textContent;
+    });
+    return el("div", { class: "ix-field" }, el("label", { for: id, text: label }), select, hint);
+  }
+  function cardEditor(panel) {
+    const choices = cardChoices() || {};
+    const maxChars = finite(choices.max_chars, 28), subChars = finite(choices.subtitle_chars, 48);
+    const low = finite(choices.min_seconds, 1.5), high = finite(choices.max_seconds, 4);
+    const titleId = nextId("card-title"), subId = nextId("card-sub"), errorId = nextId("card-error");
+    const titleError = el("p", { id: errorId, class: "ix-note is-error", role: "alert", hidden: true });
+    const title = el("input", { id: titleId, type: "text", maxlength: String(maxChars), autocomplete: "off", on: { input: () => {
+      const text = title.value.replace(/\s+/g, " ").trim();
+      const problem = !text ? "Write a few words." : text.split(" ").length > CARD_MAX_WORDS ? "Use at most " + CARD_MAX_WORDS + " words. Move the rest to the subtitle." : "";
+      titleError.hidden = !problem; titleError.textContent = problem;
+      if (problem) { title.setAttribute("aria-invalid", "true"); title.setAttribute("aria-describedby", errorId); return; }
+      title.removeAttribute("aria-invalid"); title.removeAttribute("aria-describedby");
+      editCard("Title card words", (row) => { row.text = text; });
+    } } });
+    const subtitle = el("input", { id: subId, type: "text", maxlength: String(subChars), autocomplete: "off", on: { input: () => editCard("Title card subtitle", (row) => { row.subtitle = subtitle.value.replace(/\s+/g, " ").trim(); }) } });
+    const palettes = choices.palettes && typeof choices.palettes === "object" ? choices.palettes : {};
+    const paletteId = nextId("card-palette");
+    const chips = el("span", { class: "ix-card-chips", "aria-hidden": "true" });
+    const palette = el("select", { id: paletteId, on: { change: () => editCard("Title card palette", (row) => { row.palette = palette.value; }, { coalesce: false }) } },
+      Object.keys(palettes).map((name) => el("option", { value: name, text: titleCase(name) })));
+    const length = slider(panel, { label: "Length", min: low, max: high, step: .5, format: (value) => value.toFixed(1) + " s", read: (view) => finite(view.motion_card && view.motion_card.duration, 3), write: (value) => editCard("Title card length", (row) => { row.duration = value; }) });
+    const poster = el("img", { class: "ix-card-poster", alt: "Backdrop Muse Image painted for the card", hidden: true });
+    poster.addEventListener("error", () => { poster.hidden = true; });
+    const reason = el("p", { class: "ix-note ix-hero-reason" });
+    const notes = el("ul", { class: "ix-hero-adjusted", "aria-label": "Notes on the design" });
+    const apply = el("button", { type: "button", class: "button button-primary", text: "Apply and render", on: { click: renderNow } });
+    const remove = el("button", { type: "button", class: "button button-secondary", text: "Remove", on: { click: () => { const applied = Kit.edit("Remove 3D title card", (edit) => { edit.motion_card = null; }, { coalesce: false }); if (applied) { const card = cardState(); card.poster = ""; card.notes = []; Kit.toast("Title card removed. Undo brings it back."); } } } });
+    const box = el("div", { class: "ix-hero-edit" },
+      poster,
+      el("div", { class: "ix-field" }, el("label", { for: titleId, text: "Title" }), title, titleError),
+      el("div", { class: "ix-field" }, el("label", { for: subId, text: "Subtitle" }), subtitle),
+      reason, notes,
+      cardSelect(panel, "Style", rowsOf(choices.styles), "style", "Title card style"),
+      el("div", { class: "ix-field" }, el("div", { class: "ix-field-head" }, el("label", { for: paletteId, text: "Palette" }), chips), palette),
+      cardSelect(panel, "Camera", rowsOf(choices.cameras), "camera", "Title card camera"),
+      length,
+      note("The first render takes about 25 to 60 s while Blender works. Later renders of the same card reuse it."),
+      el("div", { class: "ix-hero-actions" }, apply, remove));
+    panel.syncs.push((view) => {
+      const card = view.motion_card;
+      box.hidden = !card;
+      if (!card) return;
+      if (document.activeElement !== title && !title.hasAttribute("aria-invalid")) title.value = card.text || "";
+      if (document.activeElement !== subtitle) subtitle.value = card.subtitle || "";
+      if (document.activeElement !== palette && card.palette) palette.value = card.palette;
+      chips.replaceChildren(...(palettes[palette.value] || []).map((color) => el("i", { style: { background: color } })));
+      const memo = cardState();
+      poster.hidden = !memo.poster;
+      if (memo.poster && poster.getAttribute("src") !== memo.poster) poster.src = memo.poster;
+      const why = card.reason || memo.proposal && memo.proposal.reason || "";
+      reason.hidden = !why;
+      reason.replaceChildren(el("strong", { text: "Muse Spark: " }), why);
+      notes.hidden = !memo.notes.length;
+      notes.replaceChildren(...memo.notes.map((text) => el("li", { text })));
+      apply.disabled = Kit.locked() || !Kit.job();
+      apply.textContent = Kit.locked() ? "Rendering" : "Apply and render";
+    });
+    return box;
+  }
+  function titleCard(panel) {
+    const choices = cardChoices() || {};
+    const kinds = rowsOf(choices.kinds);
+    const block = el("p", { class: "ix-note", role: "status" });
+    const kind = segmented(panel, { legend: "Kind", choices: kinds.map((row) => ({ value: row.id, label: row.name })), read: (view) => (view.motion_card && view.motion_card.kind) || cardState().kind, write: (value) => {
+      cardState().kind = value;
+      // An existing card changes kind in place; a lower third sits over the footage, so it keeps no backdrop.
+      editCard("Title card kind", (row) => { row.kind = value; if (value === "lower_third") delete row.backdrop; }, { coalesce: false });
+      paintPanels();
+    } });
+    const kindNote = note("");
+    const backdropBox = el("input", { type: "checkbox", id: nextId("card-backdrop"), on: { change: () => { cardState().backdrop = backdropBox.checked; } } });
+    const backdrop = el("label", { class: "check-field ix-check", for: backdropBox.id }, backdropBox, el("span", { text: "Paint a backdrop with Muse Image" }));
+    const design = el("button", { type: "button", class: "button button-secondary ix-wide", on: { click: designCard } }, icon("effects"), el("span", { text: "Design it" }));
+    const status = el("p", { class: "ix-note", role: "status" });
+    const section = group("3D title card",
+      note("Muse Spark designs it. Muse Image paints the backdrop. Blender renders it on this computer."),
+      block, kind, kindNote, backdrop, design, status, cardEditor(panel));
+    panel.syncs.push((view) => {
+      section.hidden = !cardsHere();
+      if (section.hidden) return;
+      const card = cardState();
+      const reason = cardBlock();
+      block.hidden = !reason; block.textContent = reason;
+      const chosen = (view.motion_card && view.motion_card.kind) || card.kind;
+      const row = kinds.find((item) => item.id === chosen);
+      kindNote.textContent = row && row.description || ""; kindNote.hidden = !kindNote.textContent;
+      const lower = chosen === "lower_third";
+      backdropBox.checked = !lower && card.backdrop;
+      backdropBox.disabled = lower || card.busy;
+      backdrop.title = lower ? "A lower third sits over the footage, so it has no backdrop." : "Muse Image paints one picture for the card to open on, about $0.01.";
+      design.disabled = !!reason || card.busy || Kit.locked();
+      design.lastChild.textContent = card.busy ? "Designing" : view.motion_card ? "Design it again" : "Design it";
+      design.setAttribute("aria-busy", String(card.busy));
+      status.hidden = !card.error && !card.busy;
+      status.classList.toggle("is-error", !!card.error);
+      status.textContent = card.error || (card.busy ? "Muse Spark is designing the card. Muse Image then paints the backdrop." : "");
+    });
+    return section;
+  }
+  function buildEffects(panel) {
+    panel.body.append(heroWord(panel), titleCard(panel));
   }
 
   /* ---------- Tabs ---------- */
@@ -954,6 +1365,7 @@
     { id: "transitions", label: "Transitions", icon: "transition", build: buildTransitions },
     { id: "captions", label: "Captions", icon: "captions", build: buildCaptions },
     { id: "text", label: "Text", icon: "text", build: buildText },
+    { id: "effects", label: "Effects", icon: "effects", build: buildEffects },
     { id: "audio", label: "Audio", icon: "audio", build: buildAudio },
     { id: "motion", label: "Motion", icon: "motion", build: buildMotion },
     { id: "cutout", label: "Cutout", icon: "cutout", build: buildCutout },
@@ -1052,7 +1464,7 @@
     chat.log = el("ol", { class: "ix-chat-log", "aria-live": "polite", hidden: true });
     chat.status = el("p", { class: "ix-chat-status" });
     chat.chips = el("div", { class: "ix-chips", role: "group", "aria-label": "Suggestions" }, ["Warmer", "Tighter pacing", "Bigger captions"].map((text) => el("button", { type: "button", class: "ix-chip", text, on: { click: () => sendNote(text) } })));
-    chat.input = el("textarea", { id: "ix-chat-input", rows: "1", maxlength: "500", placeholder: "Hold the finished bowl longer", on: {
+    chat.input = el("textarea", { id: "ix-chat-input", rows: "1", maxlength: "500", placeholder: "Hold the first shot longer", on: {
       keydown: (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); chat.form.requestSubmit(); } },
     } });
     chat.send = el("button", { type: "submit", class: "button button-primary ix-send", "aria-label": "Send note", title: "Send note" }, icon("send"));

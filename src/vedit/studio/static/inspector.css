@@ -260,8 +260,23 @@ body:not(.has-story) .ix-refine { display: none; }
 .mb-find form { display: grid; gap: 4px; }
 .mb-find-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
 .mb .mb-find-row .button { width: 34px; padding: 0; }
-.mb-results li { grid-template-columns: 54px minmax(0, 1fr); }
+.mb-results li { grid-template-columns: 76px minmax(0, 1fr); align-items: start; }
 .mb-results .mb-clip-actions { grid-column: 2; justify-content: flex-start; gap: 3px; margin-left: -5px; }
+/* Found moments: the time seeks, Spark's reason, then what SAM 3.1 saw. */
+.mb-results .mb-thumb { width: 76px; height: 48px; }
+.mb-thumb-button { padding: 0; border: 0; cursor: pointer; }
+.mb-thumb-button:focus-visible, .mb-time-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mb-time-button { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.mb-time-button:hover { color: var(--blue); }
+.mb-results .mb-reason { color: var(--ink-soft); }
+.mb-seen { display: inline-flex; align-items: center; justify-self: start; gap: 4px; margin-top: 3px; padding: 1px 6px 1px 5px; border: 1px solid; border-radius: 4px; font-size: 10.5px; font-weight: 650; line-height: 16px; white-space: nowrap; }
+.mb-seen.is-seen { border-color: var(--green-line); background: var(--green-wash); color: var(--green); }
+.mb-seen.is-unseen { border-color: var(--amber-line); background: var(--amber-wash); color: var(--amber); cursor: help; }
+.mb-seen-mark { font-size: 10px; font-weight: 800; }
+.mb-results li.is-unseen .mb-thumb { box-shadow: inset 0 0 0 1px var(--amber-line); }
+.mb-verify-note { margin: 2px 0 0; }
+.mb-dropped summary { color: var(--muted); font-size: 11px; cursor: pointer; }
+.mb-dropped .mb-results { margin-top: 4px; }
 .mb-script-link { margin-top: 10px; }
 .mb-script { padding-top: 2px; }
 .mb-script summary { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
@@ -314,3 +329,83 @@ body:not(.has-story) .ix-refine { display: none; }
   .ix-swatches, .ix-transitions, .ix-cutmodes { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
   .ix-shorts-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* Punch words: each pick in its line, the word marked in the accent; why shows on hover and on focus. */
+.ix-punch { list-style: none; display: grid; gap: 2px; margin: 0; padding: 0; }
+.ix-punch li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 2px 6px; align-items: center; padding: 3px 4px; border-radius: 6px; cursor: default; }
+.ix-punch li:hover, .ix-punch li:focus-within { background: var(--tint); }
+.ix-punch-line { margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
+.ix-punch-word { padding: 0 3px; border-radius: 3px; background: var(--green-wash); box-shadow: inset 0 -2px 0 var(--green); color: var(--ink); font-weight: 700; }
+.ix-punch-why { display: none; grid-column: 2 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.ix-punch li:focus-within .ix-punch-why { display: block; }
+
+/* Hero word */
+.ix-hero-edit { display: grid; gap: 11px; }
+.ix-hero-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ix-hero-times input { font-variant-numeric: tabular-nums; }
+.ix-hero-edit > .ix-link { justify-self: start; margin-top: -6px; }
+.ix-hero-colors { min-width: 0; margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ix-hero-colors legend { width: 100%; margin-bottom: 6px; padding: 0; color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+.ix-hero-colors .ix-hero-color { position: relative; display: grid; place-items: center; width: 22px; height: 22px; margin: 0; cursor: pointer; }
+.ix-hero-chip { display: block; width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 32%, transparent); }
+.ix-hero-color input:checked + .ix-hero-chip { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--blue); }
+.ix-hero-color input:checked + .ix-hero-chip::after { content: "\2713"; display: grid; place-items: center; width: 100%; height: 100%; color: #fff; font-size: 12px; font-weight: 800; text-shadow: 0 0 2px #000, 0 0 4px #000; }
+.ix-hero-color input:focus-visible + .ix-hero-chip { outline: 2px solid var(--focus); outline-offset: 4px; }
+.ix-hero-reason strong { color: var(--ink-soft); font-weight: 650; }
+.ix-hero-adjusted { margin: -4px 0 0; padding: 7px 9px 7px 24px; border: 1px solid var(--amber-line); border-radius: 6px; background: var(--amber-wash); color: var(--amber); font-size: 11px; line-height: 1.45; }
+/* Apply stays in view while the word is edited. */
+.ix-hero-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin-inline: -2px; padding: 8px 2px; border-top: 1px solid var(--line-soft); background: var(--paper); }
+.ix-hero-actions > .button { flex: 1 1 auto; }
+/* At 1280 px the inspector is about 200 px wide: no row may widen it, and model text wraps. */
+.ix-panel-body, .ix-group, .ix-hero-edit { grid-template-columns: minmax(0, 1fr); }
+.ix-hero-reason, .ix-hero-adjusted { overflow-wrap: anywhere; }
+
+/* 3D title card */
+.ix-card-poster { width: 100%; max-height: 180px; object-fit: cover; border-radius: 6px; background: var(--well); }
+.ix-card-chips { display: inline-flex; gap: 3px; }
+.ix-card-chips i { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 30%, transparent); }
+.ix-group .check-field { margin: 0; }
+
+/* ---------- One type scale and an 8 px rhythm across the inspector and the media bin ----------
+   Sizes, gaps and radii come from the tokens in studio.css. */
+.ix h2, .ix h3, .mb h3 { font-size: var(--text-md); letter-spacing: -.1px; }
+.ix-note, .mb-note { font-size: var(--text-xs); line-height: 1.5; }
+.ix label, .mb label { font-size: var(--text-xs); }
+.ix-tab { font-size: var(--text-2xs); }
+.ix-panel { padding: var(--space-4) var(--space-4) var(--space-5); }
+.ix-panel-body { gap: 20px; }
+.ix-group { gap: var(--space-3); padding-bottom: 20px; }
+.ix-stack { gap: var(--space-2); }
+.ix-field { gap: var(--space-1); }
+.ix-value { font-size: var(--text-xs); }
+.ix-link { font-size: var(--text-xs); }
+.ix-gate { margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--blue-line); border-radius: var(--radius-md); font-size: var(--text-xs); line-height: 1.45; }
+.ix-segmented legend, .ix-hero-colors legend { margin-bottom: var(--space-2); font-size: var(--text-xs); }
+.ix-segmented-row { border-radius: var(--radius-sm); }
+.ix .ix-swatch, .ix .ix-capstyle { gap: 6px; font-size: var(--text-2xs); }
+.ix-switch-text small { margin-top: 2px; font-size: var(--text-2xs); line-height: 1.45; }
+.ix-hero-edit { gap: var(--space-3); }
+.ix-hero-edit > .ix-link { margin-top: -4px; }
+.ix-hero-colors { gap: var(--space-2); }
+.ix-hero-adjusted { border-radius: var(--radius-md); font-size: var(--text-xs); }
+.ix-hero-actions { gap: var(--space-2); padding-block: var(--space-3); }
+.ix-card-poster { border-radius: var(--radius-md); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* Find a moment: each result is a small card with its frame, its time, what Muse Spark saw, and what SAM saw. */
+.mb-section { gap: var(--space-2); }
+.mb-heading span { font-size: var(--text-2xs); }
+.mb-find form { gap: 6px; }
+.mb-find label { font-size: var(--text-sm); font-weight: 650; color: var(--ink); }
+.mb-find-row { gap: 6px; }
+.mb-results { gap: 2px; }
+.mb-results li { gap: 2px var(--space-3); padding: var(--space-2); border-radius: var(--radius-md); }
+.mb-results .mb-thumb { width: 80px; height: 52px; border-radius: var(--radius-sm); }
+.mb-clip-text { gap: 2px; }
+.mb-clip-text strong { font-size: var(--text-sm); line-height: 1.35; }
+.mb-status { font-size: var(--text-xs); line-height: 1.45; }
+.mb-seen { gap: 5px; height: 20px; margin-top: var(--space-1); padding: 0 8px 0 6px; border-radius: var(--radius-pill); font-size: var(--text-2xs); line-height: 1; }
+.mb-seen-mark { font-size: 10px; }
+.mb-text-button { padding: 4px 6px; border-radius: var(--radius-sm); font-size: var(--text-xs); }
+.mb-results .mb-clip-actions { gap: 2px; margin: 2px 0 0 -6px; }
+/* The result cards keep their hover padding but line up with the search field. */
+.mb-find .mb-results { margin-inline: calc(-1 * var(--space-2)); }

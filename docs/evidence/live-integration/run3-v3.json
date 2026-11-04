@@ -1,0 +1,304 @@
+{
+  "project": "4895f70caaf44029aed8e62c865e241b",
+  "tag": "run3-v3",
+  "revision": 3,
+  "status": "complete",
+  "message": "Your campaign is ready. The video passed export verification.",
+  "error": null,
+  "request": {
+    "aspect": "9:16",
+    "captions": true,
+    "language": "auto",
+    "director": "wonder",
+    "review": true,
+    "budget_usd": 0.6,
+    "provider": "meta",
+    "caption_provider": "meta"
+  },
+  "transcribed_by": "meta-voice-transcribe",
+  "proof_reported": {
+    "duration": 18.433333,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30.0,
+    "has_audio": true,
+    "has_video": true,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 3527041
+  },
+  "probe_ours": {
+    "duration": 18.433,
+    "size_bytes": 3527041,
+    "width": 1080,
+    "height": 1920,
+    "fps": "30/1",
+    "vcodec": "h264",
+    "pix_fmt": "yuv420p",
+    "color_space": "bt709",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "has_video": true,
+    "has_audio": true,
+    "acodec": "aac",
+    "sample_rate": "48000",
+    "channels": 2
+  },
+  "probe_matches": true,
+  "warnings": [
+    "The hero word was left out: SAM could not find \u201cthe speaker\u201d during the hero word, so it is left out. Name the subject more clearly.",
+    "The hero word needs a subject mask for its moment, which this version does not have, so it is left out.",
+    "The source is 1280x720, so this 1080x1920 export is upscaled and gains no detail.",
+    "Director's notes unavailable: A Muse Wonder review can cost up to $0.3277 (its 16,384-token output allowance alone, before the video is counted, at $4 in and $20 out per million tokens, Standard mode only). $0.3920 of the $0.6000 campaign budget is already reserved. Raise the campaign budget to at least $0.72, or choose Muse Spark as the director. The verified video is unaffected."
+  ],
+  "emphasis": [
+    {
+      "cue_key": "220",
+      "word_index": 5,
+      "word": "bowl,",
+      "why": "names finished object viewers came to see"
+    },
+    {
+      "cue_key": "8300",
+      "word_index": 3,
+      "word": "raw",
+      "why": "marks stark contrast to finished bowl"
+    }
+  ],
+  "hero_word": {
+    "word": "oak",
+    "start": 1.08,
+    "end": 3.08,
+    "subject": "the speaker",
+    "side": "center",
+    "font": "heavy",
+    "color": "#FFFFFF",
+    "reason": "It names the core material of the whole build."
+  },
+  "edit_motion_card": null,
+  "edit_captions": {
+    "style": "boxed",
+    "position": "bottom",
+    "scale": 1.0,
+    "color": "#FFFFFF",
+    "highlight": "#FFD60A",
+    "language": null,
+    "edits": {},
+    "emphasize": true,
+    "emphasis": [
+      {
+        "cue_key": "220",
+        "word_index": 5,
+        "word": "bowl,"
+      },
+      {
+        "cue_key": "8300",
+        "word_index": 3,
+        "word": "raw"
+      }
+    ],
+    "emphasis_color": "#3CE88C"
+  },
+  "checks": [
+    {
+      "name": "auto: cuts land on sentence boundaries",
+      "passed": true,
+      "basis": "derived",
+      "by": "lint",
+      "note": "every cut sits on a sentence boundary",
+      "at": null
+    },
+    {
+      "name": "auto: length fits the target (\u2264 20 s)",
+      "passed": true,
+      "basis": "derived",
+      "by": "lint",
+      "note": "18.4 s cut, within the 20.0 s target.",
+      "at": null
+    },
+    {
+      "name": "auto: moments inside the source and in order",
+      "passed": true,
+      "basis": "derived",
+      "by": "lint",
+      "note": "6 moments inside the source, no overlaps",
+      "at": null
+    },
+    {
+      "name": "auto: captions cover the speech",
+      "passed": true,
+      "basis": "derived",
+      "by": "lint",
+      "note": "100% of 17.1 s of speech has a caption",
+      "at": null
+    },
+    {
+      "name": "auto: requested edits applied",
+      "passed": true,
+      "basis": "derived",
+      "by": "brief-parser",
+      "note": "The brief asked for no specific edits.",
+      "at": null
+    },
+    {
+      "name": "auto: hero word sits behind the subject",
+      "passed": false,
+      "basis": "derived",
+      "by": "lint",
+      "note": "\u201coak\u201d: no subject matte was made for its window",
+      "at": 1.08
+    }
+  ],
+  "passed": 5,
+  "total": 6,
+  "review": {
+    "director": "muse-wonder",
+    "model": null,
+    "verdict": "",
+    "error": "A Muse Wonder review can cost up to $0.3277 (its 16,384-token output allowance alone, before the video is counted, at $4 in and $20 out per million tokens, Standard mode only). $0.3920 of the $0.6000 campaign budget is already reserved. Raise the campaign budget to at least $0.72, or choose Muse Spark as the director."
+  },
+  "patches": [],
+  "meta_calls_route": {
+    "ok": true,
+    "status": "complete",
+    "totals": {
+      "calls": 6,
+      "running": 0,
+      "spent_usd": 0.116561,
+      "held_usd": 0.3920019,
+      "api_calls": 6,
+      "local_calls": 0,
+      "budget_usd": 0.6,
+      "remaining_usd": 0.2079981
+    }
+  },
+  "meta_calls_rows": [
+    {
+      "operation": "tracking",
+      "model": "sam-3.1",
+      "purpose": "Cut out \u201cthe speaker\u201d",
+      "status": "done",
+      "seconds": 7.69,
+      "cost_usd": 0.012,
+      "reserved_usd": 0.0124,
+      "runs_on": "meta-api",
+      "runtime": null
+    },
+    {
+      "operation": "hero_word",
+      "model": "muse-spark-1.3-contributor",
+      "purpose": "Pick the hero word",
+      "status": "done",
+      "seconds": 17.9,
+      "cost_usd": 0.000566,
+      "reserved_usd": 0.0034107,
+      "runs_on": "meta-api",
+      "runtime": null
+    },
+    {
+      "operation": "emphasis",
+      "model": "muse-spark-1.3-contributor",
+      "purpose": "Pick the punch word in up to 2 of 6 caption lines",
+      "status": "done",
+      "seconds": 16.46,
+      "cost_usd": 0.0004574,
+      "reserved_usd": 0.0033593,
+      "runs_on": "meta-api",
+      "runtime": null
+    },
+    {
+      "operation": "review",
+      "model": "muse-wonder-1.0",
+      "purpose": "Review the finished cut with Muse Wonder (watch and listen)",
+      "status": "done",
+      "seconds": 27.18,
+      "cost_usd": 0.09994,
+      "reserved_usd": 0.366092,
+      "runs_on": "meta-api",
+      "runtime": null
+    },
+    {
+      "operation": "story",
+      "model": "muse-spark-1.3-contributor",
+      "purpose": "Plan the story",
+      "status": "done",
+      "seconds": 15.06,
+      "cost_usd": 0.0015976,
+      "reserved_usd": 0.0046899,
+      "runs_on": "meta-api",
+      "runtime": null
+    },
+    {
+      "operation": "transcribe",
+      "model": "muse-voice-transcribe-1.0",
+      "purpose": "Transcribe speech for captions",
+      "status": "done",
+      "seconds": 10.15,
+      "cost_usd": 0.002,
+      "reserved_usd": 0.00205,
+      "runs_on": "meta-api",
+      "runtime": null
+    }
+  ],
+  "ledger": {
+    "rows": 6,
+    "total_usd": 0.116561,
+    "local_rows": 0
+  },
+  "budget": {
+    "cap_usd": 0.6,
+    "reserved_usd": 0.3920019,
+    "remaining_usd": 0.2079981,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0046899,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0124,
+        "calls": 1,
+        "model": "sam-3.1"
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.00205,
+        "calls": 1,
+        "model": "muse-voice-transcribe-1.0"
+      },
+      "review": {
+        "reserved_usd": 0.366092,
+        "calls": 1,
+        "model": "muse-wonder-1.0"
+      },
+      "patch": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "translate": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "emphasis": {
+        "reserved_usd": 0.0033593,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "hero_word": {
+        "reserved_usd": 0.0034107,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      }
+    }
+  },
+  "video_bytes": 3527041,
+  "contact_sheet": "/Users/ankit_aubric/GitHub/briefcut_aubric/docs/evidence/live-integration/run3-v3-contact.jpg"
+}

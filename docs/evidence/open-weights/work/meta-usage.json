@@ -2,103 +2,108 @@
   "prices_as_of": "2026-10-29",
   "calls": [
     {
-      "id": "fe7a3eab38fb4d03a62daa996a6362b1",
+      "id": "e808420e961d4bbdbc092eca7e01d107",
       "operation": "patch",
       "model": "meta-models/Muse-Glimmer-30B",
       "reserved_usd": 0.0,
       "budget_usd": 0.25,
       "status": "completed",
-      "started_at": 1793817004.547613,
-      "runtime": "llama.cpp",
-      "local": true,
+      "started_at": 1793819617.370701,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
       "usage": {
         "estimated_max_usd": 0.0,
         "cached": false,
         "cost_usd": 0.0,
         "local": true,
-        "input_tokens": 1535,
-        "output_tokens": 2036,
-        "total_tokens": 3571
+        "input_tokens": 1553,
+        "output_tokens": 1747,
+        "total_tokens": 3300
       }
     },
     {
-      "id": "bb0dc8906164470da36e26e1f4204d99",
+      "id": "48f5e11df92648c28a22ce726edf7a44",
       "operation": "patch",
       "model": "meta-models/Muse-Glimmer-30B",
       "reserved_usd": 0.0,
       "budget_usd": 0.25,
       "status": "completed",
-      "started_at": 1793817106.266845,
-      "runtime": "llama.cpp",
-      "local": true,
+      "started_at": 1793819712.8326058,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
       "usage": {
         "estimated_max_usd": 0.0,
         "cached": false,
         "cost_usd": 0.0,
         "local": true,
-        "input_tokens": 1585,
-        "output_tokens": 1304,
-        "total_tokens": 2889
+        "input_tokens": 1603,
+        "output_tokens": 1201,
+        "total_tokens": 2804
       }
     },
     {
-      "id": "7a90ec791fa74d2ba7e37e1a868c3754",
+      "id": "e02dad9d25ff4b26a740dc4373869761",
       "operation": "translate",
       "model": "meta-models/Muse-Glimmer-30B",
       "reserved_usd": 0.0,
       "budget_usd": 0.25,
       "status": "completed",
-      "started_at": 1793817164.603304,
-      "runtime": "llama.cpp",
-      "local": true,
+      "started_at": 1793819770.7906601,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
       "usage": {
         "estimated_max_usd": 0.0,
         "cached": false,
         "cost_usd": 0.0,
         "local": true,
         "input_tokens": 326,
-        "output_tokens": 780,
-        "total_tokens": 1106
+        "output_tokens": 772,
+        "total_tokens": 1098
       }
     },
     {
-      "id": "0ce61259bce74b6c86894c8395381892",
+      "id": "f1ead4b0e5f94415b0df4eee946e180a",
       "operation": "translate",
       "model": "meta-models/Muse-Glimmer-30B",
       "reserved_usd": 0.0,
       "budget_usd": 0.25,
       "status": "completed",
-      "started_at": 1793817195.986746,
-      "runtime": "llama.cpp",
-      "local": true,
+      "started_at": 1793819802.060821,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
       "usage": {
         "estimated_max_usd": 0.0,
         "cached": false,
         "cost_usd": 0.0,
         "local": true,
         "input_tokens": 326,
-        "output_tokens": 868,
-        "total_tokens": 1194
+        "output_tokens": 840,
+        "total_tokens": 1166
       }
     },
     {
-      "id": "d96af9244c30421eac417dd95e59d275",
+      "id": "c79e8b584d824bb6b69a3e1d9ccefb13",
       "operation": "script",
       "model": "meta-models/Muse-Glimmer-30B",
       "reserved_usd": 0.0,
       "budget_usd": 0.25,
       "status": "completed",
-      "started_at": 1793817233.704737,
-      "runtime": "llama.cpp",
-      "local": true,
+      "started_at": 1793819840.8734238,
+      "runs_on": "local",
+      "runtime": "llama.cpp b11669-620d2225c",
+      "weights": "Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf",
       "usage": {
         "estimated_max_usd": 0.0,
         "cached": false,
         "cost_usd": 0.0,
         "local": true,
         "input_tokens": 274,
-        "output_tokens": 845,
-        "total_tokens": 1119
+        "output_tokens": 914,
+        "total_tokens": 1188
       }
     }
   ]

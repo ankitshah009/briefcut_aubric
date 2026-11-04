@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import re
 import shutil
+import unicodedata
 import signal
 import subprocess
 import sys
@@ -45,12 +47,40 @@ _PLAYABLE_TIMEOUT_SECONDS = 60.0
 _UNKNOWN_CODECS = frozenset({"", "unknown", "none"})
 _HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
 _INTERLACED_ORDERS = frozenset({"tt", "bb", "tb", "bt"})
-# Mobius keeps midtones and skin where they are. Hable darkens a phone clip by a third.
-_TONEMAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+# BT.2408 puts HDR reference white at 203 nits, which is SDR white. Measured on the iPhone
+# HLG clips: npl=100 left 13 to 23% of pixels at Y >= 235 and lifted mid-tones 20 to 27%;
+# npl=203 leaves none clipped, mid-tones within 8% of the signal. tonemap's default desat=2
+# bleaches bright colour to white, so it is off. Mobius is linear below its knee, so skin
+# keeps its level; hable at the same white point darkens phone footage by about a fifth.
+HDR_REFERENCE_WHITE = 203
+_HDR_TAIL = "format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 # FFmpeg's stream names for a matrix, and what the scale filter calls the same thing.
 _SCALE_MATRICES = {"smpte170m": "smpte170m", "bt470bg": "bt470bg", "smpte240m": "smpte240m", "fcc": "fcc", "bt2020nc": "bt2020", "bt2020c": "bt2020"}
 _RGB_PIXELS = ("rgb", "bgr", "gbr", "argb", "abgr")
 _IMAGE_CODECS = frozenset({"png", "bmp", "tiff", "webp", "jpeg2000", "jpegls"})
+# A transport or program stream seeks to a nearby keyframe, which can land past
+# the request and leave nothing to decode. Read in early; decoding finds the moment.
+LOOSE_SEEK_FORMATS = frozenset({"mpegts", "mpeg", "mpegvideo"})
+SEEK_LEAD_IN_SECONDS = 3.0
+# Rates players and platforms expect. Footage is conformed to the nearest; nothing exports above 60.
+STANDARD_RATES = (24000 / 1001, 24.0, 25.0, 30000 / 1001, 30.0, 50.0, 60000 / 1001, 60.0)
+DEFAULT_RATE = 30.0
+
+
+def standard_rate(fps: float | None) -> float:
+    """The standard frame rate nearest to ``fps`` (by ratio, so 23.976 and 24 stay apart), at most 60. Unknown is 30."""
+    if fps is None or not math.isfinite(fps) or fps <= 0:
+        return DEFAULT_RATE
+    wanted = min(float(fps), STANDARD_RATES[-1])
+    return min(STANDARD_RATES, key=lambda rate: abs(math.log(wanted / rate)))
+
+
+def rate_text(fps: float) -> str:
+    """A frame rate as FFmpeg's exact fraction, so 29.97 means 30000/1001 and never drifts."""
+    from fractions import Fraction
+
+    exact = Fraction(fps).limit_denominator(1001)
+    return str(exact.numerator) if exact.denominator == 1 else f"{exact.numerator}/{exact.denominator}"
 _CANCEL_POLL_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
 # Nested helpers must not orphan their independent groups when cancelled.
@@ -90,22 +120,93 @@ def resolve_ffprobe() -> str:
     return found
 
 
-def resolve_font() -> Path:
-    env = os.environ.get("VEDIT_FONT")
-    if env and Path(env).is_file():
-        return Path(env)
-    for candidate in (DEFAULT_FONT, HELVETICA, *LINUX_FONTS):
-        if candidate.is_file():
-            return candidate
+# Fonts for the scripts a Latin default lacks, on macOS and on Linux (Noto). resolve_font(text)
+# checks each file's character map, so a missing or partial font is simply passed over.
+_FONT_DIRS = ("/usr/share/fonts/opentype/noto", "/usr/share/fonts/noto-cjk", "/usr/share/fonts/google-noto-cjk", "/usr/share/fonts/truetype/noto",
+              "/usr/share/fonts/noto", "/usr/share/fonts/google-noto")
+SCRIPT_FONTS = {
+    "ja": ("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc", "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+           *(f"{root}/NotoSansCJK-Bold.ttc" for root in _FONT_DIRS), *(f"{root}/NotoSansCJK-Regular.ttc" for root in _FONT_DIRS)),
+    "zh": ("/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Medium.ttc"),
+    "ko": ("/System/Library/Fonts/AppleSDGothicNeo.ttc",),
+    "other": ("/System/Library/Fonts/Kohinoor.ttc", "/System/Library/Fonts/Supplemental/DevanagariMT.ttc", "/System/Library/Fonts/Supplemental/Ayuthaya.ttf",
+              "/System/Library/Fonts/Supplemental/Tahoma.ttf", "/System/Library/Fonts/GeezaPro.ttc", "/System/Library/Fonts/SFHebrew.ttf",
+              *(f"{root}/NotoSans{script}-{weight}.ttf" for script in ("Devanagari", "Thai", "Arabic", "Hebrew", "Bengali", "Tamil", "Telugu", "Gujarati",
+                                                                         "Gurmukhi", "Kannada", "Malayalam", "Khmer", "Lao", "Myanmar", "Georgian", "Armenian", "Ethiopic", "Sinhala")
+                for weight in ("Bold", "Regular") for root in _FONT_DIRS),
+              "/Library/Fonts/Arial Unicode.ttf"),
+}
+
+
+def _font_order(text: str) -> list[str]:
+    """Script fonts in the order this text wants them: kana means Japanese, Hangul Korean, other Han Chinese."""
+    codes = [ord(char) for char in text]
+    kana = any(0x3040 <= code <= 0x30FF or 0x31F0 <= code <= 0x31FF for code in codes)
+    hangul = any(0xAC00 <= code <= 0xD7AF or 0x1100 <= code <= 0x11FF or 0x3130 <= code <= 0x318F for code in codes)
+    first = ["ja", "zh", "ko"] if kana else ["ko", "ja", "zh"] if hangul else ["zh", "ja", "ko"]
+    return [path for group in (*first, "other") for path in SCRIPT_FONTS[group]]
+
+
+def _uncovered(path: Path, needed: set[str]) -> set[str] | None:
+    """The characters of ``needed`` this font file cannot draw, or None when it cannot be read."""
+    from vedit.caption_styles import font_face  # the sfnt reader lives with the caption layout that also needs it
+
+    face = font_face(str(path))
+    return None if face is None else {char for char in needed if face.advance(char) is None}
+
+
+def _fc_font(char: str) -> Path | None:
+    """The font fontconfig picks for one character, when fontconfig is installed."""
     fc = shutil.which("fc-match")
-    if fc:
-        result = run_command([fc, "-f", "%{file}", "sans"])
-        text = (result.stdout or "").strip().split(":")[0].strip()
-        if text:
-            found = Path(text)
-            if found.is_file():
-                return found
-    raise BinaryMissing("No usable font. Set VEDIT_FONT to a .ttf/.otf file.")
+    if not fc:
+        return None
+    result = run_command([fc, "-f", "%{file}", f"sans:charset={ord(char):x}"])
+    found = Path((result.stdout or "").strip().split(":")[0].strip() or ".")
+    return found if found.is_file() else None
+
+
+def resolve_font(text: str = "") -> Path:
+    """The font file to draw ``text`` with, for renderers that take a single file and have no fallback.
+
+    ``VEDIT_FONT`` wins whenever it can draw the text. With no text, or text the
+    default font covers, the default stands. Otherwise the font that covers the
+    most of the text's letters wins, from the script fonts on this machine and
+    then fontconfig, so Japanese, Hindi or Thai never burn as empty boxes.
+    """
+    env = os.environ.get("VEDIT_FONT")
+    base: Path | None = Path(env) if env and Path(env).is_file() else None
+    for candidate in (DEFAULT_FONT, HELVETICA, *LINUX_FONTS):
+        if base is None and candidate.is_file():
+            base = candidate
+    if base is None:
+        fc = shutil.which("fc-match")
+        if fc:
+            result = run_command([fc, "-f", "%{file}", "sans"])
+            found = (result.stdout or "").strip().split(":")[0].strip()
+            if found and Path(found).is_file():
+                base = Path(found)
+    if base is None:
+        raise BinaryMissing("No usable font. Set VEDIT_FONT to a .ttf/.otf file.")
+    needed = {char for char in text if unicodedata.category(char)[0] in "LN"}
+    if not needed:
+        return base
+    best, gap = base, _uncovered(base, needed)
+    if gap is None:
+        best, gap = base, needed
+    for candidate in (DEFAULT_FONT, HELVETICA, *LINUX_FONTS, *map(Path, _font_order(text))):
+        if not gap:
+            break
+        if candidate.is_file() and (missing := _uncovered(candidate, needed)) is not None and len(missing) < len(gap):
+            best, gap = candidate, missing
+    for _attempt in range(3):
+        if not gap:
+            break
+        found = _fc_font(min(gap))
+        missing = _uncovered(found, needed) if found else None
+        if found is None or missing is None or len(missing) >= len(gap):
+            break
+        best, gap = found, missing
+    return best
 
 
 def find_whisper_cli() -> str | None:
@@ -170,6 +271,8 @@ class MediaInfo:
     streams: tuple[StreamInfo, ...]
     # The container's own length. ``duration`` stops where the picture stops.
     file_duration: float = 0.0
+    # Black bars found at ingest, as ``(width, height, x, y)`` of the picture inside the upright frame.
+    crop: tuple[int, int, int, int] | None = None
 
     def _of_type(self, kind: str) -> list[StreamInfo]:
         return [s for s in self.streams if s.codec_type == kind]
@@ -224,22 +327,40 @@ class MediaInfo:
         return int(self.video.height) if self.video and self.video.height else 0
 
     @property
-    def display_width(self) -> int:
-        """Width after FFmpeg applies a phone video's display rotation."""
+    def frame_width(self) -> int:
+        """Width of the whole frame after FFmpeg applies a phone video's display rotation, bars and all."""
         return self.height if self.video and round(self.video.rotation) % 180 == 90 else self.width
 
     @property
-    def display_height(self) -> int:
+    def frame_height(self) -> int:
         return self.width if self.video and round(self.video.rotation) % 180 == 90 else self.height
+
+    @property
+    def display_width(self) -> int:
+        """Width of the picture the edit uses: upright, and inside any black bars ``source_filters`` crops."""
+        return self.crop[0] if self.crop else self.frame_width
+
+    @property
+    def display_height(self) -> int:
+        return self.crop[1] if self.crop else self.frame_height
 
     @property
     def square_width(self) -> int:
         """Width once pixels are square, which is the shape ``SQUARE_PIXELS`` gives the picture."""
-        return int(self.display_width * self.video.sample_aspect_ratio) if self.video else self.display_width
+        if not self.video:
+            return self.display_width
+        aspect = self.video.sample_aspect_ratio
+        # Turning the picture on its side turns its pixels too: FFmpeg's transpose inverts the aspect.
+        return int(self.display_width / aspect) if round(self.video.rotation) % 180 == 90 else int(self.display_width * aspect)
 
     @property
     def fps(self) -> float:
         return float(self.video.fps) if self.video and self.video.fps else 30.0
+
+    @property
+    def seek_lead_in(self) -> float:
+        """Seconds to read before a seek target so the frame there decodes; 0 for exact-seeking containers."""
+        return SEEK_LEAD_IN_SECONDS if set(self.format_name.split(",")) & LOOSE_SEEK_FORMATS else 0.0
 
 
 def _to_float(value: Any) -> float | None:
@@ -408,7 +529,159 @@ def probe(path: str | Path) -> MediaInfo:
     )
     # A clip ends with its picture: past that point there is nothing to cut to.
     end = ends.get(info.video.index) if info.has_video and info.video else None
-    return replace(info, duration=end) if end and end < length else info
+    if end and end < length:
+        info = replace(info, duration=end)
+    # Border detection decodes frames, so it runs once at ingest; every later probe reads its answer.
+    known = _cached_borders(src) if info.has_video else None
+    return replace(info, crop=known[0]) if known else info
+
+
+# ---------------------------------------------------------------------------
+# Letterbox and pillarbox bars
+# ---------------------------------------------------------------------------
+
+BORDER_SAMPLES = 5
+_BORDER_FRAMES = 4  # per sample; cropdetect keeps the widest picture it saw across them
+_BORDER_MIN_SHARE = 0.04  # bars thinner than this, both sides together, are left alone
+# Never crop to less than this share of the frame: a small subject on flat black is not a picture in bars.
+# Archival film windowboxed in an HD frame, the smallest seen, keeps 9%.
+_BORDER_MIN_PICTURE = 0.08
+_BORDER_FLAT = 30  # brightest bar pixel, 8-bit limited luma: bars sit at 16, a dark scene does not stay under this
+_BORDER_SKEW = 0.25  # bars come in pairs: the two sides may differ by this share of the larger one
+_CROP_LINE = re.compile(r"crop=(-?\d+):(-?\d+):(-?\d+):(-?\d+)")
+
+
+def _borders_cache(src: Path) -> Path:
+    stat = src.stat()
+    key = hashlib.sha256(f"{src}|{stat.st_size}|{stat.st_mtime_ns}".encode()).hexdigest()[:32]
+    home = os.environ.get("VEDIT_HOME", "").strip()
+    return (Path(home).expanduser() if home else Path.home() / ".vedit") / "cache" / "borders" / f"{key}.json"
+
+
+def _cached_borders(src: Path) -> tuple[tuple[int, int, int, int] | None] | None:
+    """``(crop,)`` when this exact file was checked, None when it never was."""
+    try:
+        data = json.loads(_borders_cache(src).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    crop = data.get("crop") if isinstance(data, dict) else None
+    if isinstance(crop, list) and len(crop) == 4 and all(isinstance(value, int) and value >= 0 for value in crop) and crop[0] > 0 and crop[1] > 0:
+        return (tuple(crop),)  # type: ignore[return-value]
+    return (None,) if isinstance(data, dict) and "crop" in data else None
+
+
+def _sample_times(info: MediaInfo) -> list[float]:
+    seconds = max(0.0, info.duration - 0.05)
+    return [round(seconds * (index + 0.5) / BORDER_SAMPLES, 3) for index in range(BORDER_SAMPLES)]
+
+
+def _seek(info: MediaInfo, at: float) -> list[str]:
+    begin = max(0.0, at - info.seek_lead_in)
+    return ["-ss", f"{begin:.3f}", "-i", str(info.path)] + (["-ss", f"{at - begin:.3f}"] if at > begin else [])
+
+
+def _active_area(info: MediaInfo, at: float) -> tuple[int, int, int, int] | None:
+    """The non-black box cropdetect finds in a few frames from ``at``. None for a frame that is black throughout."""
+    argv = [resolve_ffmpeg(), "-hide_banner", "-nostats", *_seek(info, at), "-map", f"0:v:{info.video_map}", "-an", "-frames:v", str(_BORDER_FRAMES),
+            "-vf", "cropdetect=round=2:reset=0:skip=0", "-f", "null", "-"]
+    try:
+        found = _CROP_LINE.findall(run_command(argv, timeout=_PLAYABLE_TIMEOUT_SECONDS).stderr)
+    except RenderError:
+        return None
+    if not found:
+        return None
+    width, height, x, y = (int(value) for value in found[-1])
+    return (width, height, x, y) if width > 0 and height > 0 else None
+
+
+def _bars_are_flat(info: MediaInfo, times: list[float], box: tuple[int, int, int, int]) -> bool:
+    """Bars are uniformly dark. A night scene that cropdetect also reads as black has texture somewhere."""
+    full_w, full_h = info.frame_width, info.frame_height
+    small_w, small_h = max(2, full_w // 8 * 2), max(2, full_h // 8 * 2)  # a quarter, kept even
+    sx, sy = small_w / full_w, small_h / full_h
+    width, height, x, y = box
+    margin = 2
+    bands = [(0, 0, int(x * sx) - margin, small_h), (int((x + width) * sx) + margin, 0, small_w, small_h),
+             (0, 0, small_w, int(y * sy) - margin), (0, int((y + height) * sy) + margin, small_w, small_h)]
+    for at in times:
+        argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", *_seek(info, at), "-map", f"0:v:{info.video_map}", "-an", "-frames:v", "1",
+                "-vf", f"scale={small_w}:{small_h}:flags=neighbor,format=yuv420p", "-f", "rawvideo", "-"]
+        try:
+            # Raw pixels: run_command decodes its output as text.
+            raw = subprocess.run(argv, capture_output=True, timeout=_PLAYABLE_TIMEOUT_SECONDS, check=False).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if len(raw) < small_w * small_h:
+            return False
+        for left, top, right, bottom in bands:
+            left, right, top, bottom = max(0, left), min(small_w, right), max(0, top), min(small_h, bottom)
+            if right <= left or bottom <= top:
+                continue  # no bar on this side
+            for row in range(top, bottom):
+                if max(raw[row * small_w + left: row * small_w + right]) > _BORDER_FLAT:
+                    return False
+    return True
+
+
+def detect_borders(info: MediaInfo) -> tuple[int, int, int, int] | None:
+    """The picture inside stable black bars, as ``(width, height, x, y)``; None when there are none.
+
+    Conservative by design. A side counts as a bar only when it is black in every
+    sampled frame across the clip (the union of what cropdetect sees), the two
+    sides of an axis roughly match, the bars are flat rather than a dark scene,
+    and what is left is a real share of the frame. The answer is cached by file,
+    so ``probe`` reports it from then on.
+    """
+    if not info.has_video or info.video is None or info.duration <= 0:
+        return None
+    known = _cached_borders(info.path)
+    if known is not None:
+        return known[0]
+    crop = _measure_borders(info)
+    try:
+        cache = _borders_cache(info.path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"crop": list(crop) if crop else None}), encoding="utf-8")
+    except OSError:
+        pass
+    return crop
+
+
+def _measure_borders(info: MediaInfo) -> tuple[int, int, int, int] | None:
+    full_w, full_h = info.frame_width, info.frame_height
+    if full_w < 16 or full_h < 16:
+        return None
+    times = _sample_times(info)
+    boxes = [box for box in (_active_area(info, at) for at in times) if box is not None]
+    if len(boxes) < min(3, len(times)):
+        return None
+    left = min(x for _, _, x, _ in boxes)
+    top = min(y for _, _, _, y in boxes)
+    right = full_w - max(x + width for width, _, x, _ in boxes)
+    bottom = full_h - max(y + height for _, height, _, y in boxes)
+    sides = []
+    for low, high, span in ((left, right, full_w), (top, bottom, full_h)):
+        low, high = max(0, low), max(0, high)
+        paired = abs(low - high) <= max(8, _BORDER_SKEW * max(low, high))
+        sides.append((low, high) if low + high >= _BORDER_MIN_SHARE * span and paired else (0, 0))
+    (left, right), (top, bottom) = sides
+    if not (left or right or top or bottom):
+        return None
+    # Even sizes and offsets keep 4:2:0 chroma aligned.
+    x, y = left // 2 * 2, top // 2 * 2
+    width, height = (full_w - x - right) // 2 * 2, (full_h - y - bottom) // 2 * 2
+    if width * height < _BORDER_MIN_PICTURE * full_w * full_h:
+        return None
+    box = (width, height, x, y)
+    return box if _bars_are_flat(info, times, box) else None
+
+
+def with_borders(info: MediaInfo) -> MediaInfo:
+    """``info`` with its black bars measured, once per file."""
+    if info.crop is not None or not info.has_video:
+        return info
+    crop = detect_borders(info)
+    return replace(info, crop=crop) if crop else info
 
 
 @dataclass
@@ -762,7 +1035,8 @@ def source_filters(info: MediaInfo) -> str:
     video = info.video
     if video is None:
         return ""
-    return ",".join(part for part in (_deinterlace(video), _to_rec709(video)) if part)
+    bars = f"crop={info.crop[0]}:{info.crop[1]}:{info.crop[2]}:{info.crop[3]}" if info.crop else ""
+    return ",".join(part for part in (_deinterlace(video), bars, _to_rec709(video)) if part)
 
 
 def _deinterlace(video: StreamInfo) -> str:
@@ -773,9 +1047,29 @@ def _deinterlace(video: StreamInfo) -> str:
     return f"{name}=mode=send_frame:deint=interlaced" if name else ""
 
 
+def tone_map(video: StreamInfo | None = None) -> str:
+    """The one HDR-to-SDR chain, for single clips and projects alike: PQ or HLG to 8-bit limited BT.709.
+
+    A stream's own tags are passed in, and a missing primaries or matrix tag is read
+    as BT.2020 (PQ and HLG are defined on it), so zscale always has a path. Empty
+    when this FFmpeg has no zscale or tonemap.
+    """
+    if not (has_filter("zscale") and has_filter("tonemap")):
+        return ""
+    given: list[str] = []
+    if video is not None:
+        if video.color_trc in _HDR_TRANSFERS:
+            given.append(f"tin={video.color_trc}")
+        if video.color_primaries in (None, "", "unknown"):
+            given += ["pin=bt2020", "p=bt2020"]  # the output keeps the input's primaries, so name them both
+        if video.color_space in (None, "", "unknown"):
+            given.append("min=bt2020nc")
+    return "zscale=" + ":".join([*given, "t=linear", f"npl={HDR_REFERENCE_WHITE}"]) + "," + _HDR_TAIL
+
+
 def _to_rec709(video: StreamInfo) -> str:
     if video.hdr:
-        return _TONEMAP if has_filter("zscale") and has_filter("tonemap") else ""
+        return tone_map(video)
     options: list[str] = []
     matrix = _SCALE_MATRICES.get(video.color_space or "")
     if matrix:
@@ -841,7 +1135,14 @@ def check_playable(info: MediaInfo) -> None:
 
     A truncated MP4 with its index at the front still probes at full length,
     and would otherwise only fail once the render reaches the missing footage.
+    This is the ingest check, so it also measures black bars once; ``probe``
+    reports them from then on.
     """
+    _check_ends(info)
+    detect_borders(info)
+
+
+def _check_ends(info: MediaInfo) -> None:
     if not _frame_decodes(info, 0.0):
         raise ProbeError(
             f"no frame decodes at the start of {info.path}",
@@ -891,7 +1192,7 @@ def plain_failure(exc: BaseException) -> str:
     if isinstance(exc, BinaryMissing):
         return f"A program Briefcut needs is missing. Run vedit doctor to see what to install, then retry. {RETRY_SAVED}"
     if isinstance(exc, CaptionError):
-        return f"The local speech model stopped before captions were finished. Run vedit doctor, or turn captions off to render now. {RETRY_SAVED}"
+        return f"The captions could not be written into the video. Run vedit doctor, or turn captions off to render now. {RETRY_SAVED}"
     if isinstance(exc, AnalysisError):
         if "audio track" in detail:
             return f"This clip has no sound, so pauses cannot be trimmed. Remove that instruction from the goal, then retry. {RETRY_SAVED}"

@@ -40,7 +40,8 @@ def test_a_plain_plan_keeps_the_fused_center_crop(tmp_path) -> None:
     assert _names(ops) == ["reframe", "select_ranges", "loudnorm", "thumbnail", "export"]
     assert ops[0] == {"op": "reframe", "aspect": "9:16", "mode": "fill"}
     assert ops[1] == {"op": "select_ranges", "ranges": [{"start": 1.0, "end": 2.0}]}
-    assert ops[-1] == {"op": "export", "preset": "shorts_9x16", "path": str(tmp_path / "video.mp4")}
+    # The default rate matches the source, which only the compiler can read, so it always travels.
+    assert ops[-1] == {"op": "export", "preset": "shorts_9x16", "path": str(tmp_path / "video.mp4"), "fps": "source"}
     assert ops[-2]["at"] == pytest.approx(1 / 3) and ops[-2]["path"].endswith("cover.jpg")
 
 
@@ -154,7 +155,8 @@ def test_a_muted_clip_keeps_only_its_music_bed(tmp_path) -> None:
 
 
 def test_delivery_reads_the_export_choice() -> None:
-    assert delivery_preset("shorts_9x16", default_edit()).name == "shorts_9x16"
+    untouched = delivery_preset("shorts_9x16", default_edit())
+    assert untouched.name == "export_1080x1920_source_mp4" and untouched.canvas.fps == 0  # 0: the compiler sets the source's rate
     chosen = delivery_preset("shorts_9x16", merge_edit(default_edit(), {"export": {"quality": "4k", "fps": 60}}))
     assert (chosen.canvas.width, chosen.canvas.height, chosen.canvas.fps) == (2160, 3840, 60)
 

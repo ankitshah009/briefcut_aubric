@@ -34,6 +34,7 @@
     music: "M8 15V5l8-2v10M8 15a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM16 13a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
     image: "M3 4h14v12H3zM3 13l4-4 3 3 3-2 4 4M13 7h.01",
     film: "M3 4h14v12H3zM7 4v12M13 4v12M3 8h4M3 12h4M13 8h4M13 12h4",
+    effects: "M8 2.5 9.6 7 14 8.6 9.6 10.2 8 14.6 6.4 10.2 2 8.6 6.4 7 8 2.5ZM15 12l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z",
   };
 
   function el(tag, props, ...children) {
@@ -302,7 +303,7 @@
   /* ---------- Media bin state ---------- */
   const bin = {
     items: [], assets: {}, thumbs: {}, uploads: 0, built: false, previewing: 0,
-    find: { query: "", moments: null, busy: false, error: "" },
+    find: { query: "", moments: null, busy: false, error: "", verification: null, dropped: [] },
     script: { busy: false, error: "", jobId: "" },
     picker: null, lastJob: "", dragging: null,
   };
@@ -507,13 +508,19 @@
     event.preventDefault();
     const query = bin.find.query.trim();
     if (!job() || !query || bin.find.busy) return;
-    bin.find.busy = true; bin.find.error = ""; bin.find.moments = null; bin.find.warnings = [];
+    bin.find.busy = true; bin.find.error = ""; bin.find.moments = null; bin.find.warnings = []; bin.find.verification = null; bin.find.dropped = [];
     paintFind();
     try {
-      const data = await api("/find", { method: "POST", body: { query }, timeout: 60000 });
-      bin.find.moments = Array.isArray(data.moments) ? data.moments.filter((moment) => moment && Number.isFinite(Number(moment.start)) && Number.isFinite(Number(moment.end))) : [];
+      // SAM 3.1 checks each moment Muse Spark saw, so the search can take a little longer.
+      const data = await api("/find", { method: "POST", body: { query }, timeout: 90000 });
+      const timed = (list) => (Array.isArray(list) ? list.filter((moment) => moment && Number.isFinite(Number(moment.start)) && Number.isFinite(Number(moment.end))) : []);
+      bin.find.moments = timed(data.moments);
       bin.find.warnings = Array.isArray(data.warnings) ? data.warnings.filter((item) => typeof item === "string") : [];
-      announce(plural(bin.find.moments.length, "moment") + " found.");
+      bin.find.verification = data.verification && typeof data.verification === "object" ? data.verification : null;
+      bin.find.dropped = timed(bin.find.verification && bin.find.verification.dropped);
+      const seen = bin.find.moments.filter((moment) => moment.verified === true).length;
+      const missed = bin.find.moments.filter(unseen).length;
+      announce(plural(bin.find.moments.length, "moment") + " found." + (seen || missed ? " SAM 3.1 saw " + seen + " of " + (seen + missed) + "." : ""));
     } catch (error) { bin.find.error = error.message; }
     bin.find.busy = false;
     paintFind();
@@ -528,6 +535,41 @@
     const label = bin.find.query.trim().slice(0, 80) || "Found moment";
     const added = edit("Add moment", (_, story) => { story.segments.push({ start: Number(moment.start), end: Number(moment.end), label, reason: moment.reason || "Found by search." }); }, { coalesce: false });
     if (added) toast("Added to the end of the story.");
+  }
+  /* ---------- What SAM 3.1 saw ---------- */
+  const UNSEEN_HINT = "SAM 3.1 looked for it and did not find it. SAM can miss stylised or unnamed objects, so preview it to check.";
+  function sameOriginArtifact(value) {
+    if (typeof value !== "string" || !value) return "";
+    try { const url = new URL(value, location.href); return url.origin === location.origin && url.pathname.startsWith("/api/") ? url.href : ""; } catch (_) { return ""; }
+  }
+  function coverageText(value) { const share = Number(value); return Number.isFinite(share) ? Math.round(clamp(share, 0, 1) * 100) + "%" : ""; }
+  /* verified is true, false, or null. null means nothing was checked, as for a spoken match, so no badge.
+     A flagged moment is one SAM did not see that is kept, ranked last, so it stays clickable. */
+  function unseen(moment) { return moment.verified === false || moment.verified !== true && moment.flagged === true; }
+  function seenBadge(moment) {
+    const detail = typeof moment.verification === "string" && moment.verification ? " " + moment.verification : "";
+    if (moment.verified === true) {
+      const share = coverageText(moment.coverage);
+      return el("span", { class: "mb-seen is-seen", title: ("SAM 3.1 found it on screen" + (share ? " in " + share + " of the frames it checked" : "") + "." + detail).trim() },
+        el("span", { class: "mb-seen-mark", "aria-hidden": "true", text: "\u2713" }), "Seen by SAM 3.1" + (share ? " \u00b7 " + share : ""));
+    }
+    if (unseen(moment)) {
+      return el("span", { class: "mb-seen is-unseen", title: UNSEEN_HINT + detail },
+        el("span", { class: "mb-seen-mark", "aria-hidden": "true", text: "!" }), "SAM 3.1 did not see it", el("span", { class: "sr", text: ". " + UNSEEN_HINT }));
+    }
+    return null;
+  }
+  function verificationNote(verification) {
+    if (!verification) return null;
+    const receipt = verification.receipt && typeof verification.receipt === "object" ? verification.receipt : null;
+    const text = receipt && typeof receipt.note === "string" && receipt.note ? receipt.note
+      : typeof verification.phrase === "string" && verification.phrase ? "SAM 3.1 checked each moment for \u201c" + verification.phrase + "\u201d." : "";
+    const spend = verification.spend;
+    const spent = Number.isFinite(Number(verification.spent_usd)) ? Number(verification.spent_usd)
+      : Array.isArray(spend) ? spend.reduce((total, item) => total + finite(item && item.cost_usd, 0), 0)
+      : spend && typeof spend === "object" ? finite(spend.cost_usd !== undefined ? spend.cost_usd : spend.reserved_usd, NaN) : Number(spend);
+    if (!text && !Number.isFinite(spent)) return null;
+    return el("p", { class: "mb-note mb-verify-note" }, text, Number.isFinite(spent) && spent > 0 ? " " + (spent < .01 ? "Under $0.01." : "$" + spent.toFixed(2) + ".") : "");
   }
   function previewMoment(moment) {
     const source = $("preview-source");
@@ -871,7 +913,7 @@
   function paintFind() {
     if (!nodes.find) return;
     const hasStory = !!job() && !!draft();
-    const key = JSON.stringify([hasStory, bin.find.busy, bin.find.error, bin.find.moments, bin.find.warnings, locked()]);
+    const key = JSON.stringify([hasStory, bin.find.busy, bin.find.error, bin.find.moments, bin.find.warnings, bin.find.verification, locked()]);
     if (nodes.find.dataset.key === key) return;
     nodes.find.dataset.key = key;
     const disabled = !hasStory || bin.find.busy;
@@ -881,30 +923,51 @@
       el("label", { for: "mb-find-input", text: "Find a moment" }),
       el("div", { class: "mb-find-row" }, input, submit));
     const rows = [form];
-    if (bin.find.busy) rows.push(el("p", { class: "mb-note", role: "status", text: "Searching your footage." }));
+    if (bin.find.busy) rows.push(el("p", { class: "mb-note", role: "status", text: "Muse Spark is searching your footage. SAM 3.1 then checks what it finds." }));
     if (bin.find.error) rows.push(el("p", { class: "mb-note is-error", role: "alert", text: bin.find.error }));
     (bin.find.warnings || []).forEach((warning) => rows.push(el("p", { class: "mb-note", text: warning })));
     if (Array.isArray(bin.find.moments)) {
       if (!bin.find.moments.length) rows.push(el("p", { class: "mb-note", text: "No moments matched. Try a word that was said." }));
       else {
-        const list = el("ul", { class: "mb-results" });
-        bin.find.moments.forEach((moment) => {
-          const image = el("img", { alt: "", hidden: true });
-          frameAt(Number(moment.start)).then((frame) => { if (frame) { image.src = frame; image.hidden = false; } });
-          list.append(el("li", {},
-            el("span", { class: "mb-thumb" }, image),
-            el("div", { class: "mb-clip-text" }, el("strong", { text: clock(moment.start) + " to " + clock(moment.end) }), el("span", { class: "mb-status", text: moment.reason || "" })),
-            el("div", { class: "mb-clip-actions" },
-              el("button", { type: "button", class: "mb-text-button", text: "Preview", "aria-label": "Preview the moment at " + clock(moment.start), on: { click: () => previewMoment(moment) } }),
-              el("button", { type: "button", class: "mb-text-button is-strong", text: "Add to story", "aria-label": "Add the moment at " + clock(moment.start) + " to the story", disabled: locked(), on: { click: () => addMoment(moment) } }))));
-        });
-        rows.push(list);
+        rows.push(verificationNote(bin.find.verification));
+        rows.push(resultList(bin.find.moments, true));
+      }
+      if (bin.find.dropped.length) {
+        rows.push(el("details", { class: "mb-dropped" },
+          el("summary", { text: plural(bin.find.dropped.length, "moment") + " SAM 3.1 did not see, left out" }),
+          resultList(bin.find.dropped, false)));
       }
     }
     const active = document.activeElement;
     const refocus = active && active.id === "mb-find-input";
-    nodes.find.replaceChildren(...rows);
+    // verificationNote answers null when SAM checked nothing; append would print that as the word "null".
+    nodes.find.replaceChildren(...rows.filter(Boolean));
     if (refocus && !input.disabled) input.focus();
+  }
+
+  /* One row per moment: its time, what Muse Spark saw, and what SAM 3.1 saw. The thumbnail
+     is SAM's own frame when it sent one, with the mask drawn, else a frame of the footage. */
+  function resultList(moments, addable) {
+    const list = el("ul", { class: "mb-results" });
+    moments.forEach((moment) => {
+      const image = el("img", { alt: "", hidden: true, loading: "lazy" });
+      const sam = sameOriginArtifact(moment.thumbnail_url);
+      const fallback = () => frameAt(Number(moment.start)).then((frame) => { if (frame) { image.src = frame; image.hidden = false; } });
+      if (sam) { image.addEventListener("load", () => { image.hidden = false; }, { once: true }); image.addEventListener("error", fallback, { once: true }); image.src = sam; }
+      else fallback();
+      const when = clock(moment.start) + " to " + clock(moment.end);
+      const badge = seenBadge(moment);
+      list.append(el("li", { class: unseen(moment) ? "is-unseen" : moment.verified === true ? "is-seen" : "" },
+        el("button", { type: "button", class: "mb-thumb mb-thumb-button", title: "Preview " + when, "aria-label": "Preview the moment from " + when, on: { click: () => previewMoment(moment) } }, image),
+        el("div", { class: "mb-clip-text" },
+          el("strong", {}, el("button", { type: "button", class: "mb-time-button", text: when, title: "Go to " + clock(moment.start), on: { click: () => previewMoment(moment) } })),
+          moment.reason ? el("span", { class: "mb-status mb-reason" }, el("span", { class: "sr", text: "Muse Spark: " }), moment.reason) : null,
+          badge),
+        el("div", { class: "mb-clip-actions" },
+          el("button", { type: "button", class: "mb-text-button", text: "Preview", "aria-label": "Preview the moment from " + when, on: { click: () => previewMoment(moment) } }),
+          addable ? el("button", { type: "button", class: "mb-text-button is-strong", text: "Add to story", "aria-label": "Add the moment from " + when + " to the story", disabled: locked(), on: { click: () => addMoment(moment) } }) : null)));
+    });
+    return list;
   }
 
   function buildScript() {

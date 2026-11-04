@@ -1,0 +1,307 @@
+{
+  "run": "A2",
+  "title": "flower (960x540, 5 s, silent track) to 16:9",
+  "path": "MCP stdio, the exact .mcp.json command, isolated VEDIT_WORKSPACE",
+  "command": [
+    "uv",
+    "run",
+    "--no-dev",
+    "--extra",
+    "mcp",
+    "--extra",
+    "sam",
+    "vedit",
+    "mcp"
+  ],
+  "started_at": "2026-11-04T11:27:23-0800",
+  "code": {
+    "head": "7b1cc73",
+    "working_tree_diff_sha256": "9ae67c3a2181cfc3"
+  },
+  "job_id": "3eb092bc0f23451cab70ebcd003d26a3",
+  "request": {
+    "clips": [
+      "flower.mp4"
+    ],
+    "goal": "A calm 4-second nature loop of the red flower opening. Fade out at the end.",
+    "aspect": "16:9",
+    "target_duration": 4,
+    "budget_usd": 0.1,
+    "captions": true,
+    "steps": []
+  },
+  "meta_mode": "contributor",
+  "tools_listed": 21,
+  "plan": {
+    "title": "Red Flower Opening - Calm Nature Loop",
+    "caption": "Watch this tiny red bloom slowly open. A calm 4-second moment of nature. Fade to soft close.",
+    "hashtags": [
+      "#natureloop",
+      "#floweropening",
+      "#macroflower",
+      "#calmmoments"
+    ],
+    "duration": 4.0,
+    "decisions": [
+      "Fade out 0.5 s"
+    ],
+    "warnings": [
+      "This clip's sound track is silent, so moments follow the picture."
+    ],
+    "provider": "meta",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 4.0,
+        "label": "red bud opening to bloom",
+        "reason": "Close-up shows central red-orange bud among green leaves with purple edges gradually unfolding petals to reveal yellow center, documenting the opening action",
+        "kind": "scene"
+      }
+    ]
+  },
+  "source": {
+    "name": "flower.mp4",
+    "duration": 5.005,
+    "width": 960,
+    "height": 540,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "flower.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 5.005
+      }
+    ],
+    "filmstrip": {
+      "columns": 3,
+      "rows": 1,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 3,
+      "seconds_per_tile": 2.0,
+      "url": "filmstrip"
+    },
+    "waveform": {
+      "url": "waveform",
+      "count": 52,
+      "seconds_per_peak": 0.0983
+    }
+  },
+  "plan_seconds": 25.1,
+  "render_seconds": 3.1,
+  "renders": [
+    {
+      "what": "first render",
+      "receipts": {
+        "revision": 1,
+        "passed": 5,
+        "total": 5,
+        "proof": {
+          "duration": 4.0,
+          "width": 1920,
+          "height": 1080,
+          "fps": 30.0,
+          "has_audio": true,
+          "has_video": true,
+          "color_space": "bt709",
+          "color_range": "tv",
+          "color_primaries": "bt709",
+          "color_transfer": "bt709",
+          "size_bytes": 637362
+        },
+        "checks": [
+          {
+            "name": "auto: cuts land on sentence boundaries",
+            "passed": true,
+            "note": "no transcript",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: duration matches the target",
+            "passed": true,
+            "note": "4.0 s cut vs 4.0 s target",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: moments inside the source and in order",
+            "passed": true,
+            "note": "1 moment inside the source, no overlaps",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: captions cover the speech",
+            "passed": true,
+            "note": "not requested",
+            "basis": "derived",
+            "by": "lint"
+          },
+          {
+            "name": "auto: requested edits applied",
+            "passed": true,
+            "note": "Applied: Fade out 0.5 s.",
+            "basis": "derived",
+            "by": "brief-parser"
+          }
+        ],
+        "warnings": [
+          "This clip's sound track is silent, so moments follow the picture.",
+          "Meta heard no speech in these moments. This video has no captions.",
+          "The source is 960x540, so this 1920x1080 export is upscaled and gains no detail."
+        ],
+        "patches": [],
+        "review": null,
+        "versions": [
+          {
+            "revision": 1,
+            "status": "verified",
+            "source": "approved",
+            "passed": 5,
+            "total": 5,
+            "duration": 4.0
+          }
+        ]
+      },
+      "own_ffprobe": {
+        "duration": 4.0,
+        "size_bytes": 637362,
+        "video": {
+          "codec_name": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "color_range": "tv",
+          "r_frame_rate": "30/1"
+        },
+        "audio_streams": [
+          {
+            "codec_name": "aac",
+            "sample_rate": "48000",
+            "channels": 2
+          }
+        ]
+      },
+      "probe_agrees_with_ffprobe": {
+        "duration": true,
+        "width": true,
+        "height": true,
+        "has_audio": true,
+        "color_transfer": true
+      }
+    }
+  ],
+  "tool_log": [
+    {
+      "tool": "briefcut_status",
+      "seconds": 0.15,
+      "error": false
+    },
+    {
+      "tool": "briefcut_import_clip",
+      "seconds": 0.08,
+      "error": false
+    },
+    {
+      "tool": "briefcut_create_story",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 25.11,
+      "error": false
+    },
+    {
+      "tool": "briefcut_timeline",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_render",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_wait",
+      "seconds": 3.08,
+      "error": false
+    },
+    {
+      "tool": "briefcut_receipts",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_artifact_path",
+      "seconds": 0.0,
+      "error": false
+    },
+    {
+      "tool": "briefcut_get",
+      "seconds": 0.0,
+      "error": false
+    }
+  ],
+  "wall_seconds_total": 29.0,
+  "meta": {
+    "calls": [
+      {
+        "operation": "story",
+        "model": "muse-spark-1.3-contributor",
+        "purpose": "Plan the story",
+        "status": "done",
+        "seconds": 10.77,
+        "reserved_usd": 0.0033238,
+        "cost_usd": 0.00047,
+        "size": {
+          "input_tokens": 1550,
+          "output_tokens": 1575
+        },
+        "request_id": "resp_6aeb872f946742d750b24e6e",
+        "runs_on": "meta-api"
+      }
+    ],
+    "totals": {
+      "calls": 1,
+      "running": 0,
+      "spent_usd": 0.00047,
+      "held_usd": 0.0033238,
+      "api_calls": 1,
+      "local_calls": 0,
+      "budget_usd": 0.1,
+      "remaining_usd": 0.0966762
+    },
+    "spent_usd": 0.00047,
+    "reserved_usd": 0.003324
+  },
+  "contact_sheets": [
+    "a2-v1.jpg"
+  ],
+  "findings": [
+    "5 of 5. The bloom plays in order and the fade-out shows in the last frame. Same 'Meta heard no speech' and 'not requested' wording as A1. One Spark call, $0.00047.",
+    "The first attempt at 11:23 failed because another agent's edit left meta.py with NameError: name '_base_url' is not defined (meta.py:155). Over MCP the agent saw only 'Error executing tool briefcut_status'. Record: a2-first-attempt-broken-tree.json."
+  ]
+}

@@ -1,15 +1,19 @@
 #!/usr/bin/env zsh
-# Local baseline on real footage: plan, render, probe, read the receipts.
-# Nothing here leaves the machine; the provider is always local.
+# Baseline on real footage: plan, render, probe, read the receipts.
+# Briefcut runs on Meta models only, so every clip is uploaded to Meta and spends
+# Meta credits. Only list clips you may send to an API.
 #
 #   zsh scripts/real_baseline.sh <work-dir>
 #
+# BRIEFCUT_SAMPLES is the folder of public sample clips (default below; missing clips are skipped).
 # Add clips by listing them in BRIEFCUT_CLIPS, one "name|path|goal|target" per line.
 set -u
 work=${1:?usage: real_baseline.sh <work-dir>}
 repo=${0:A:h:h}
-samples=$HOME/GitHub/verified-video-search/data/previews
-export VEDIT_FFMPEG=${VEDIT_FFMPEG:-/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg}
+samples=${BRIEFCUT_SAMPLES:-$HOME/GitHub/verified-video-search/data/previews}
+if [[ -z ${VEDIT_FFMPEG:-} && -x /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg ]]; then
+  export VEDIT_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
+fi
 cd $repo
 
 run() {
@@ -18,10 +22,10 @@ run() {
   local dir=$work/$name
   rm -rf $dir; mkdir -p $dir/ev
   echo "=== $name"
-  uv run python scripts/demo_run.py --provider local --clip "$clip" --goal "$goal" --target $target --workspace $dir --evidence-dir $dir/ev 2>&1 | grep -E "Plan .*Render|failed" | tail -2
+  uv run python scripts/demo_run.py --clip "$clip" --goal "$goal" --target $target --workspace $dir --evidence-dir $dir/ev 2>&1 | grep -E "Plan .*Render|failed" | tail -2
   uv run python - $dir/ev <<'PY'
 import glob, json, sys
-records = sorted(glob.glob(sys.argv[1] + "/2026*.json"))
+records = sorted(glob.glob(sys.argv[1] + "/[0-9]*T*Z.json"))  # demo_run stamps: YYYYMMDDTHHMMSSZ.json
 if not records:
     print("NO RECORD")
     raise SystemExit
@@ -37,7 +41,6 @@ PY
 run wanrong "$samples/wanrong-walk.mp4" "Make a short vertical walking recap with the best moments." 10
 run whitehouse "$samples/whitehouse-walk.mp4" "Make a 4-second clip of the people walking." 4
 run flower "$samples/flower.mp4" "Make a short vertical clip of the flower." 5
-run adflow "$HOME/Downloads/Aubric_AdFlow_Demo_v17_23_oct_2026.mp4" "Make a 30-second vertical product story: open with the strongest claim, then show how it works." 30
 for line in ${(f)${BRIEFCUT_CLIPS:-}}; do
   run ${(s:|:)line}
 done

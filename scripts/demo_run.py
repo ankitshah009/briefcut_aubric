@@ -8,9 +8,12 @@ video, and writes ``docs/evidence/<timestamp>.json`` plus
 ``docs/evidence/latest.md``. Timings are wall-clock measurements of this run on
 this machine. Standard library only.
 
+Briefcut runs on Meta models only, so this needs a Meta API key
+(MODEL_API_KEY with VEDIT_META_ENABLED=1, or a key saved in Settings).
+
     uv run python scripts/demo_run.py --clip examples/demo/workshop.mp4
-    uv run python scripts/demo_run.py --provider meta --subject "oak bowl" --effect float
-    uv run python scripts/demo_run.py --provider meta --auto-refine 2
+    uv run python scripts/demo_run.py --subject "oak bowl" --effect float
+    uv run python scripts/demo_run.py --auto-refine 2
 """
 
 from __future__ import annotations
@@ -33,6 +36,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 EVIDENCE = REPO / "docs" / "evidence"
 ACTIVE = {"queued", "analyzing", "rendering"}
+# The bundled demo clip has its own brief. Any other clip gets a brief that names no subject,
+# so a run on someone else's footage never asks Meta for a bowl that is not there.
+WORKSHOP = REPO / "examples" / "demo" / "workshop.mp4"
+WORKSHOP_GOAL = "Make a {target:g}-second vertical story about the oak bowl: open with the finished bowl, then show how it is made."
+WORKSHOP_NOTE = "Hold the finished bowl a beat longer before the first cut."
+GENERIC_GOAL = "Make a {target:g}-second story from this footage: open on the strongest moment, then show what happens, in order."
+GENERIC_NOTE = "Hold the opening shot a beat longer before the first cut."
+
+
+def default_brief(clip: Path, target: float) -> tuple[str, str]:
+    """The goal and director's note used when none is given: the demo's own for the demo clip, neutral for any other."""
+    try:
+        demo = Path(clip).resolve() == WORKSHOP.resolve()
+    except OSError:
+        demo = False
+    goal, note = (WORKSHOP_GOAL, WORKSHOP_NOTE) if demo else (GENERIC_GOAL, GENERIC_NOTE)
+    return goal.format(target=target), note
 
 
 class DemoError(RuntimeError):
@@ -72,25 +92,22 @@ def _download(url: str, dest: Path, timeout: float = 120) -> Path:
     return dest
 
 
-def _find_whisper_model(repo: Path) -> Path | None:
-    """Prefer the shared ~/.vedit/models/ (VEDIT_MODELS_DIR), then the checkout's .vedit-models/."""
-    homes = [Path(os.environ.get("VEDIT_MODELS_DIR") or Path.home() / ".vedit" / "models"), repo / ".vedit-models"]
-    for home in homes:
-        for name in ("ggml-base.en.bin", "ggml-base.bin"):
-            candidate = home / name
-            if candidate.is_file() and candidate.stat().st_size > 1_000_000:
-                return candidate
-        for candidate in sorted(home.glob("ggml-*.bin")) if home.is_dir() else []:
-            if candidate.stat().st_size > 1_000_000:
-                return candidate
-    return None
-
-
 def _command(argv: list[str]) -> str:
     try:
         return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=30).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+def _memory_bytes() -> int:
+    """Physical memory: sysctl on macOS, sysconf on Linux, 0 when neither answers."""
+    value = _command(["sysctl", "-n", "hw.memsize"])
+    if value.isdigit():
+        return int(value)
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+    except (AttributeError, OSError, ValueError):
+        return 0
 
 
 def _machine(python: str) -> dict:
@@ -101,7 +118,7 @@ def _machine(python: str) -> dict:
         "os": f"{platform.system()} {platform.mac_ver()[0] or platform.release()}",
         "machine": platform.machine(),
         "cpu": _command(["sysctl", "-n", "machdep.cpu.brand_string"]) or platform.processor(),
-        "memory_bytes": int(_command(["sysctl", "-n", "hw.memsize"]) or 0),
+        "memory_bytes": _memory_bytes(),
         "python": _command([python, "--version"]),
         "ffmpeg": ffmpeg_version[0] if ffmpeg_version else ffmpeg,
         "vedit": _command([python, "-c", "import vedit; print(vedit.__version__)"]),
@@ -139,9 +156,10 @@ def _wait_for_loop(base: str, job_id: str, *, timeout: float, on_update=None) ->
 
 
 def run(args: argparse.Namespace) -> dict:
-    python = args.python or str(REPO / ".venv" / "bin" / "python")
+    venv_python = REPO / ".venv" / "bin" / "python"
+    python = args.python or (str(venv_python) if venv_python.is_file() else sys.executable)
     if not Path(python).is_file():
-        raise DemoError(f"Python not found at {python}. Create the environment with uv first: uv venv --python 3.13 .venv")
+        raise DemoError(f"Python not found at {python}. Create the environment with uv first: uv sync")
     clip = Path(args.clip).resolve()
     if not clip.is_file():
         raise DemoError(f"Clip not found: {clip}")
@@ -151,11 +169,6 @@ def run(args: argparse.Namespace) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.setdefault("PYTHONUNBUFFERED", "1")
-    if not env.get("VEDIT_WHISPER_MODEL"):
-        # Match scripts/studio.sh: the shared ~/.vedit/models/ first, then the checkout.
-        model = _find_whisper_model(REPO)
-        if model is not None:
-            env["VEDIT_WHISPER_MODEL"] = str(model)
     if not env.get("VEDIT_FFMPEG") and Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg").is_file():
         env["VEDIT_FFMPEG"] = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
     log_path = workspace / "studio.log"
@@ -171,7 +184,7 @@ def run(args: argparse.Namespace) -> dict:
         "stages": [],
         "notes": [
             "Timings are wall-clock measurements of this single run, including HTTP polling at 0.5 s intervals.",
-            "A local plan is deterministic signal analysis, not model understanding. Meta mode requires live credentials.",
+            "Every model call is a Meta model: Muse Spark plans, Meta Voice Transcribe captions. Live credentials are required.",
         ],
     }
     try:
@@ -187,20 +200,19 @@ def run(args: argparse.Namespace) -> dict:
                 time.sleep(0.2)
         capabilities = _json(f"{base}/api/capabilities")
         record["capabilities"] = {
-            "local_ready": capabilities["local"]["ready"],
-            "local_captions": capabilities["local"]["captions"],
+            "render_ready": capabilities["render"]["ready"],
             "meta_available": bool(capabilities.get("meta", {}).get("available")),
             "effects_supported": capabilities.get("effects", {}).get("supported"),
         }
         provider = args.provider
-        if provider == "meta" and not record["capabilities"]["meta_available"]:
-            raise DemoError("Meta mode requested but the server reports Meta unavailable: " + str(capabilities.get("meta", {}).get("reason")))
+        if not record["capabilities"]["meta_available"]:
+            raise DemoError("Briefcut needs Meta, and the server reports it unavailable: " + str(capabilities.get("meta", {}).get("reason")))
 
         started = time.monotonic()
         upload = _json(f"{base}/api/upload?name={urllib.request.quote(clip.name)}", method="POST", body=clip.read_bytes(), content_type="application/octet-stream", timeout=300)
         record["timings_seconds"]["upload"] = round(time.monotonic() - started, 3)
 
-        captions = bool(args.captions) and (capabilities["local"]["captions"] or args.caption_provider == "meta")
+        captions = bool(args.captions)
         request = {
             "paths": upload["paths"],
             "goal": args.goal,
@@ -209,13 +221,12 @@ def run(args: argparse.Namespace) -> dict:
             "aspect": args.aspect,
             "captions": captions,
             "language": args.language,
-            "subject": args.subject if provider == "meta" else "",
+            "subject": args.subject,
             "budget_usd": args.budget,
-            "generate_cover": bool(args.generate_cover and provider == "meta"),
+            "generate_cover": bool(args.generate_cover),
             "effect": {"preset": args.effect, "intensity": args.effect_intensity, "start": 0, "duration": args.effect_duration} if args.effect else None,
         }
-        if args.caption_provider != "local":
-            request["caption_provider"] = args.caption_provider
+        request["caption_provider"] = args.caption_provider
         if args.review or args.auto_refine:
             request["review"] = True
         if args.auto_refine:
@@ -264,7 +275,7 @@ def run(args: argparse.Namespace) -> dict:
             "warnings": result.get("warnings"),
             "cover_kind": result.get("cover_kind"),
             "provider": result.get("provider"),
-            "caption_provider": result.get("caption_provider", "local" if captions else None),
+            "caption_provider": result.get("caption_provider", "meta" if captions else None),
             "effect": result.get("effect"),
             "tracked_subject": result.get("tracked_subject"),
             "revision": result.get("revision"),
@@ -389,7 +400,6 @@ def write_markdown(record: dict, path: Path) -> None:
         "## Plan",
         "",
         f"Provider `{plan.get('provider')}`, analysis `{plan.get('analysis_method') or 'none recorded'}`. "
-        + ("A local plan is deterministic signal analysis, not model understanding. " if plan.get("provider") == "local" else "")
         + f"{len(plan.get('segments') or [])} segment(s), {plan.get('duration')} s.",
         "",
         "| # | Source range | Label | Reason |", "| --- | --- | --- | --- |",
@@ -410,8 +420,7 @@ def write_markdown(record: dict, path: Path) -> None:
         f"| Color | {proof.get('color_space')} / {proof.get('color_range')} ({proof.get('color_primaries')}/{proof.get('color_transfer')}) | not reported by `vedit probe`; see report.json |",
         f"| Bytes | {proof.get('size_bytes')} | {(record.get('downloaded') or {}).get('video_bytes')} |",
         "",
-        f"Meta spend reserved: ${float(budget.get('reserved_usd', 0) or 0):.4f} of a ${float(budget.get('cap_usd', 0) or 0):.2f} cap. "
-        "Local mode makes no model calls.",
+        f"Meta spend reserved: ${float(budget.get('reserved_usd', 0) or 0):.4f} of a ${float(budget.get('cap_usd', 0) or 0):.2f} cap.",
         "",
         "Warnings from the render: " + ("; ".join((record.get("result") or {}).get("warnings") or []) or "none"),
         "",
@@ -467,15 +476,15 @@ def write_markdown(record: dict, path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--clip", default=str(REPO / "examples" / "demo" / "workshop.mp4"))
-    parser.add_argument("--goal", default="Make a 25-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.")
-    parser.add_argument("--provider", choices=["local", "meta"], default="local")
+    parser.add_argument("--clip", default=str(WORKSHOP))
+    parser.add_argument("--goal", default=None, help="editorial brief (default: the demo's brief for the demo clip, a neutral one for any other clip)")
+    parser.add_argument("--provider", choices=["meta"], default="meta", help="always meta: Briefcut runs on Meta models only")
     parser.add_argument("--target", type=float, default=25)
-    parser.add_argument("--aspect", choices=["9:16", "16:9", "1:1"], default="9:16")
-    parser.add_argument("--captions", type=lambda value: value.lower() not in {"0", "false", "no"}, default=True, help="request captions when a transcriber is available (default true)")
-    parser.add_argument("--caption-provider", choices=["local", "meta"], default="local")
+    parser.add_argument("--aspect", choices=["9:16", "16:9", "1:1", "4:5"], default="9:16")
+    parser.add_argument("--captions", type=lambda value: value.lower() not in {"0", "false", "no"}, default=True, help="captions by Meta Voice Transcribe (default true)")
+    parser.add_argument("--caption-provider", choices=["meta"], default="meta", help="always meta")
     parser.add_argument("--language", default="en")
-    parser.add_argument("--subject", default="", help="Meta mode only: subject to keep in frame")
+    parser.add_argument("--subject", default="", help="subject for SAM 3.1 to keep in frame")
     parser.add_argument("--budget", type=float, default=0.25)
     parser.add_argument("--generate-cover", action="store_true")
     parser.add_argument("--review", action="store_true", help="ask Muse Spark for director's notes on the finished cut (Meta credentials required)")
@@ -483,13 +492,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--effect-intensity", type=float, default=0.55)
     parser.add_argument("--effect-duration", type=float, default=3)
     parser.add_argument("--revise", choices=["auto", "director", "note"], default=None, help="after the first verified render, apply fixes and render the next version")
-    parser.add_argument("--note", default="Hold the finished bowl a beat longer before the first cut.", help="director's note for --revise note")
+    parser.add_argument("--note", default=None, help="director's note for --revise note (default follows --goal's rule)")
     parser.add_argument("--auto-refine", type=int, choices=[0, 1, 2, 3], default=0, help="after a verified render, let the worker apply the fixes and render up to this many more versions (turns --review on)")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--workspace", default=None, help="server workspace (default: a fresh temp dir)")
     parser.add_argument("--python", default=None, help="interpreter (default: .venv/bin/python)")
     parser.add_argument("--evidence-dir", default=str(EVIDENCE))
     args = parser.parse_args(argv)
+    goal, note = default_brief(Path(args.clip), args.target)
+    args.goal = args.goal or goal
+    args.note = args.note or note
 
     evidence = Path(args.evidence_dir)
     evidence.mkdir(parents=True, exist_ok=True)

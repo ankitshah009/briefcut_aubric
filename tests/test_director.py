@@ -44,6 +44,8 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> None:
 def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
     monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    # Meta-mode plans hear the source with Meta Voice Transcribe; these tests are about other calls.
+    monkeypatch.setattr(meta, "transcribe_audio", lambda wav, **kwargs: {"cues": [], "provider": "meta", "usage": {"cost_usd": 0}})
 
 
 def story(*ranges: tuple[float, float], **extra: Any) -> dict[str, Any]:
@@ -461,7 +463,7 @@ def reviews(monkeypatch: pytest.MonkeyPatch, answers: list[dict[str, Any]]) -> l
     """A scripted Muse Spark: the next verdict each time a finished cut is reviewed."""
     seen: list[dict[str, Any]] = []
 
-    def fake(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float) -> dict[str, Any]:
+    def fake(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float, **kwargs: Any) -> dict[str, Any]:
         seen.append({"plan": plan, "video": video})
         answer = answers[min(len(seen) - 1, len(answers) - 1)]
         if isinstance(answer, Exception):
@@ -589,7 +591,7 @@ def test_a_real_ledger_runs_out_mid_loop(manager: CampaignManager, clip: Path, e
     """The reservation is the real one: two reviews fit under the cap and a third does not."""
     calls = {"review": 0}
 
-    def fake(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float) -> dict[str, Any]:
+    def fake(video: Path, *, goal: str, plan: dict, work_dir: Path, language: str, budget_usd: float, **kwargs: Any) -> dict[str, Any]:
         calls["review"] += 1
         meta._reserve(Path(work_dir), "review", "muse-spark-1.3", 0.03, budget_usd)
         return {"verdict": "Reviewed.", "strengths": [], "fixes": [], "caption_suggestion": "", "hook_score": 3, "provider": "meta", "usage": {"cost_usd": 0.03}, "warnings": [], **tighter(2.8 - 0.2 * calls["review"])}
@@ -838,6 +840,8 @@ def test_meta_shorts_share_one_answer_and_each_takes_its_own_hook(manager: Campa
     source.parent.mkdir(parents=True)
     load_helpers()._make_clip(source, seconds=12, color="navy")
     monkeypatch.setattr(meta, "plan_story", lambda *a, **k: {"title": "Bowl", "summary": "s", "caption": "c", "cover_prompt": "p", "hashtags": [], "segments": [{"start": 0.0, "end": 2.0, "label": "A", "reason": "r"}], "usage": {}, "warnings": []})
+    heard: list[Path] = []
+    monkeypatch.setattr(meta, "transcribe_audio", lambda wav, **kwargs: heard.append(wav) or {"cues": [{"start": 1.0, "end": 2.0, "text": "The blank is rough."}], "provider": "meta", "usage": {"cost_usd": 0}})
     job = manager.create({"paths": [str(source)], "goal": "Show the bowl", "provider": "meta", "target_duration": 3, "captions": False})
     manager.process(job["id"])
     http = Http({"shorts": [_short("First hook", (3.0, 5.0)), _short("Second hook", (6.0, 8.0))]})
@@ -849,6 +853,8 @@ def test_meta_shorts_share_one_answer_and_each_takes_its_own_hook(manager: Campa
     assert [item["plan"]["title"] for item in done[:2]] == ["First hook", "Second hook"]
     assert done[0]["plan"]["provider"] == "meta" and done[0]["plan"]["segments"][0]["start"] == 3.0
     assert http.count("/responses") == 1, "one Spark call for the family"
+    assert len(heard) == 1, "the family's source is heard by Meta once; each short reuses the transcript"
+    assert done[0]["plan"]["analysis"]["transcript"][0]["text"] == "The blank is rough." and done[0]["plan"]["analysis"]["transcribed_by"] == "meta-voice-transcribe"
     assert done[2]["status"] == "failed" and "found 2 distinct shorts" in done[2]["error"]
     assert done[0]["budget"]["operations"]["shorts"]["calls"] == 1 and done[1]["budget"]["reserved_usd"] == 0
 
@@ -903,27 +909,12 @@ def test_a_scene_nothing_lined_up_with_still_gets_sentences() -> None:
     assert [(cue["start"], cue["end"]) for cue in sentences] == [(0.0, 1.0), (1.0, 2.0)]
 
 
-def test_capabilities_say_whether_narration_exists(monkeypatch: pytest.MonkeyPatch) -> None:
-    director._say_voices.cache_clear()
-    monkeypatch.setattr("vedit.director.shutil.which", lambda name: None)
-    silent = director.narration_status()
-    assert silent["available"] is False and silent["voices"] == [] and "silent with captions" in silent["reason"]
-    assert capabilities()["script"]["narration"] is False
-    director._say_voices.cache_clear()
-    monkeypatch.setattr("vedit.director.shutil.which", lambda name: "/usr/bin/say")
-    listing = "Samantha            en_US    # Hello!\nDaniel (English (UK)) en_GB    # Hello!\nBad News            en_US    # Hi\nAlice               it_IT    # Ciao\n"
-    monkeypatch.setattr("vedit.director.subprocess.run", lambda *a, **k: type("Done", (), {"stdout": listing})())
-    spoken = director.narration_status()
-    assert spoken["available"] is True and spoken["default_voice"] == "Samantha"
-    assert [row["id"] for row in spoken["voices"]] == ["Samantha", "Daniel (English (UK))", "Alice"]
-    director._say_voices.cache_clear()
-
-
-def test_a_spanish_script_gets_a_spanish_voice() -> None:
-    status = {"default_voice": "Samantha", "voices": [{"id": "Samantha", "language": "en_US"}, {"id": "Mónica", "language": "es_ES"}]}
-    assert director.voice_for("es", status) == "Mónica"
-    assert director.voice_for("en", status) == "Samantha" and director.voice_for("auto", status) == "Samantha"
-    assert director.voice_for("ja", status) == "Samantha", "no voice for the language falls back rather than failing"
+def test_nothing_narrates_a_script() -> None:
+    """Meta has no text-to-speech and Briefcut calls only Meta models, so no voice is offered or made."""
+    script = capabilities()["script"]
+    assert script["narration"] is False and script["voices"] == [] and script["default_voice"] is None
+    assert "caption-led" in script["reason"] and "no synthetic voice" in script["reason"]
+    assert not any(hasattr(director, name) for name in ("narrate", "narration_status", "voice_for", "_say_voices"))
 
 
 def test_a_script_refuses_politely_without_meta_or_images(manager: CampaignManager, tmp_path: Path) -> None:
@@ -958,21 +949,10 @@ def script_answers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scenes: int)
     return calls
 
 
-def fake_voice(monkeypatch: pytest.MonkeyPatch, seconds: float = 1.2) -> None:
-    monkeypatch.setattr("vedit.campaign.narration_status", lambda: {"available": True, "voices": [{"id": "Samantha", "language": "en_US"}], "default_voice": "Samantha", "reason": "ready"})
-
-    def speak(text: str, *, path: Path, voice: str | None = None) -> Path:
-        path = Path(path).with_suffix(".wav")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        run_ffmpeg(["-f", "lavfi", "-i", f"sine=frequency=330:sample_rate=48000:duration={seconds}", "-c:a", "pcm_s16le", str(path)])
-        return path
-
-    monkeypatch.setattr("vedit.campaign.narrate", speak)
-
-
 def test_a_script_becomes_a_normal_editable_project(manager: CampaignManager, tmp_path: Path, enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = script_answers(monkeypatch, tmp_path, 2)
-    fake_voice(monkeypatch)
+    first = director.reading_seconds("The blank is rough.")
+    total = first + director.reading_seconds("The lathe shapes it.")
     job = manager.create_script({"script": "The blank is rough.\n\nThe lathe shapes it.", "aspect": "9:16", "voice": None})
     assert job["status"] == "queued" and job["request"]["paths"] == []
     manager.process(job["id"])
@@ -980,32 +960,31 @@ def test_a_script_becomes_a_normal_editable_project(manager: CampaignManager, tm
     assert planned["status"] == "planned", planned["error"]
     assert [segment["label"] for segment in planned["plan"]["segments"]] == ["Beat 1", "Beat 2"]
     assert all("picture generated by Muse Image" in segment["reason"] for segment in planned["plan"]["segments"])
-    assert planned["plan"]["segments"][0]["start"] == 0 and planned["plan"]["segments"][1]["start"] == pytest.approx(1.2, abs=0.1)
+    assert planned["plan"]["segments"][0]["start"] == 0 and planned["plan"]["segments"][1]["start"] == pytest.approx(first, abs=0.1)
     record = planned["plan"]["script"]
-    assert [scene["image"] for scene in record["scenes"]] == ["generated", "generated"] and record["narrated"] is True and record["voice"] == "Samantha"
+    assert [scene["image"] for scene in record["scenes"]] == ["generated", "generated"] and record["narrated"] is False and record["voice"] is None
     assert record["scenes"][0]["prompt"].endswith(director.IMAGE_RULE) and record["model"] == "muse-image-1.0"
     assert any("generated by Muse Image" in warning and "None of it is real footage" in warning for warning in planned["plan"]["warnings"])
     assert calls["images"][0][1] == "1024x1792"
-    assert planned["source"]["has_audio"] is True and planned["request"]["target_duration"] == pytest.approx(2.4, abs=0.1)
+    assert planned["source"]["has_audio"] is False and planned["request"]["target_duration"] == pytest.approx(total, abs=0.1)
     assert planned["plan"]["edit"]["zoom"]["mode"] == "slow", "a still moves"
     manager.render(job["id"], {})
     manager.process(job["id"])
     done = manager.get(job["id"])
     assert done["status"] == "complete", done["error"]
-    assert done["result"]["proof"]["has_audio"] is True and abs(done["result"]["proof"]["duration"] - 2.4) < 0.3
+    assert abs(done["result"]["proof"]["duration"] - total) < 0.3
     assert done["result"]["proof"]["height"] == 1920
 
 
-def test_a_script_without_say_is_silent_with_captions_and_says_so(manager: CampaignManager, tmp_path: Path, enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_script_is_caption_led_and_says_so(manager: CampaignManager, tmp_path: Path, enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
     script_answers(monkeypatch, tmp_path, 2)
-    monkeypatch.setattr("vedit.campaign.narration_status", lambda: {"available": False, "voices": [], "default_voice": None, "reason": "Narration uses the macOS say command, which is not available here. Script videos are silent with captions."})
     job = manager.create_script({"script": "The blank is rough and heavy.\n\nThe lathe shapes it."})
     manager.process(job["id"])
     planned = manager.get(job["id"])
     assert planned["status"] == "planned", planned["error"]
     assert planned["source"]["has_audio"] is False and planned["plan"]["script"]["narrated"] is False
-    assert any("silent with captions" in warning for warning in planned["plan"]["warnings"])
-    assert "Silent, with captions." in planned["plan"]["summary"]
+    assert any("caption-led" in warning and "no synthetic voice" in warning for warning in planned["plan"]["warnings"])
+    assert "Caption-led, with no narration." in planned["plan"]["summary"]
     cues = planned["plan"]["analysis"]["transcript"]
     assert [cue["text"] for cue in cues] == ["The blank is rough and heavy.", "The lathe shapes it."]
     manager.render(job["id"], {})
@@ -1018,7 +997,6 @@ def test_a_script_without_say_is_silent_with_captions_and_says_so(manager: Campa
 
 def test_a_script_runs_on_your_own_images_without_meta(manager: CampaignManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     image = write_png(tmp_path / "vedit-sessions" / "mine" / "inbox" / "photo.png", "green")
-    fake_voice(monkeypatch)
     job = manager.create_script({"script": "One thing.\n\nAnother thing.", "provider": "local", "images": [str(image)]})
     manager.process(job["id"])
     planned = manager.get(job["id"])
@@ -1070,27 +1048,42 @@ def settle(port: int, ident: str) -> dict[str, Any]:
     pytest.fail("the campaign did not settle")
 
 
-def test_routes_for_find_shorts_and_script(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_routes_for_find_shorts_and_script(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, enabled: None) -> None:
+    # Studio is Meta-only: the project goes through the product route with Meta stubbed at the adapter.
+    monkeypatch.setattr(meta, "plan_story", lambda *a, **k: {"title": "Bowl", "summary": "s", "caption": "c", "cover_prompt": "p", "hashtags": [], "segments": [{"start": 0.0, "end": 2.0, "label": "A", "reason": "r"}], "usage": {}, "warnings": []})
+    searched: list[str] = []
+    monkeypatch.setattr(meta, "find_moments", lambda *a, query, **k: searched.append(query) or {"moments": [], "warnings": []})
+    monkeypatch.setattr(meta, "plan_shorts", lambda *a, **k: {"shorts": [_short("First hook", (0.0, 1.8)), _short("Second hook", (2.0, 3.8))]})
     clip = load_helpers()._make_clip(tmp_path / "up.mp4", seconds=4, color="olive")
     connection = http.client.HTTPConnection("127.0.0.1", server, timeout=10)
     connection.request("POST", "/api/upload?name=up.mp4", body=clip.read_bytes(), headers={"Content-Type": "application/octet-stream"})
     paths = json.loads(connection.getresponse().read())["paths"]
     connection.close()
+    status, body = call(server, "POST", "/api/campaigns", {"paths": paths, "goal": "Show the bowl", "captions": False, "target_duration": 2, "provider": "local"})
+    assert status == 400 and "Meta models only" in body["error"]
     status, body = call(server, "POST", "/api/campaigns", {"paths": paths, "goal": "Show the bowl", "captions": False, "target_duration": 2})
-    assert status == 202
+    assert status == 202, body
+    assert body["job"]["request"]["provider"] == "meta" and body["job"]["request"]["caption_provider"] == "meta"
     ident = body["job"]["id"]
-    assert settle(server, ident)["status"] == "planned"
+    planned = settle(server, ident)
+    assert planned["status"] == "planned", planned.get("error")
+    assert planned["plan"]["provider"] == "meta"
     status, body = call(server, "POST", f"/api/campaigns/{ident}/find", {"query": "bowl"})
     assert status == 200 and body["ok"] is True and body["moments"] == [] and body["budget"]["reserved_usd"] == 0
+    assert searched == ["bowl"] and "footage" in body["searched"]
     status, body = call(server, "POST", f"/api/campaigns/{ident}/find", {"query": ""})
     assert status == 400 and body["ok"] is False
     status, body = call(server, "POST", f"/api/campaigns/{ident}/shorts", {"count": 2, "auto_render": False})
     assert status == 202 and len(body["jobs"]) == 2
     first = settle(server, body["jobs"][0]["id"])
-    assert first["status"] == "planned" and first["family"][0] == {"id": ident, "role": "source", "index": 0, "title": first["family"][0]["title"], "status": "planned"}
+    assert first["status"] == "planned", first.get("error")
+    assert first["plan"]["title"] == "First hook" and first["family"][0] == {"id": ident, "role": "source", "index": 0, "title": first["family"][0]["title"], "status": "planned"}
     assert call(server, "POST", f"/api/campaigns/{ident}/shorts", {"count": 9})[0] == 400
     status, body = call(server, "POST", "/api/script", {})
     assert status == 400, "the route exists and refuses an empty script"
+    status, body = call(server, "POST", "/api/script", {"script": "A short line.", "provider": "local"})
+    assert status == 400 and "Meta models only" in body["error"]
+    monkeypatch.setenv("VEDIT_META_ENABLED", "0")
     status, body = call(server, "POST", "/api/script", {"script": "A short line.", "aspect": "9:16"})
     assert status == 409 and "needs Meta" in body["error"]
     assert call(server, "GET", f"/api/campaigns/{ident}/find")[0] == 405

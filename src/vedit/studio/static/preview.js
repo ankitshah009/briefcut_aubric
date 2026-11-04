@@ -321,6 +321,35 @@
     const cue = cues[low];
     return cue && cue.start <= time ? cue : null;
   }
+  /* Punch words: the draft's picks, else the ones Muse Spark made for the last render.
+     A pick counts only while its line still has that word at that place, as in the render. */
+  function punchPicks() {
+    const captions = draftEdit && draftEdit.captions || {};
+    if (captions.emphasize !== true) return [];
+    const own = Array.isArray(captions.emphasis) ? captions.emphasis : [];
+    if (own.length) return own;
+    const job = Editor.job();
+    const result = job && job.result;
+    return result && Array.isArray(result.emphasis) ? result.emphasis : [];
+  }
+  function wordKey(text) { return String(text || "").replace(/^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_]+$/gu, "").toLowerCase(); }
+  function punchIndexes(cue, words) {
+    const picks = punchPicks();
+    const marked = [];
+    if (!picks.length) return marked;
+    const key = cue.key !== undefined && cue.key !== null ? String(cue.key) : String(Math.round(Number(cue.source_start !== undefined ? cue.source_start : cue.start) * 1000));
+    const tokens = String(cue.text || "").split(/\s+/).filter(Boolean);
+    picks.forEach((pick) => {
+      if (!pick || String(pick.cue_key) !== key) return;
+      const index = Number(pick.word_index), target = wordKey(pick.word);
+      if (!target || !Number.isInteger(index) || index < 0 || index >= tokens.length || wordKey(tokens[index]) !== target) return;
+      if (words.length === tokens.length && wordKey(words[index].text) === target) { marked.push(index); return; }
+      const nth = tokens.slice(0, index).filter((token) => wordKey(token) === target).length;
+      let seen = 0;
+      for (let at = 0; at < words.length; at += 1) { if (wordKey(words[at].text) !== target) continue; if (seen === nth) { marked.push(at); break; } seen += 1; }
+    });
+    return marked;
+  }
   function chunkOf(words, index) {
     const size = 3;
     const begin = Math.floor(Math.max(0, index) / size) * size;
@@ -338,12 +367,13 @@
     for (let index = 0; index < words.length; index += 1) { if (words[index].start <= time) current = index; else break; }
     const pop = style === "pop";
     const range = pop ? chunkOf(words, current) : [0, words.length];
-    const key = cue.start + "|" + range[0] + "|" + style + "|" + cue.text;
+    const punch = punchIndexes(cue, words);
+    const key = cue.start + "|" + range[0] + "|" + style + "|" + cue.text + "|" + punch.join(",");
     if (engine.cue !== key) {
       engine.cue = key; engine.word = -2;
       const line = element("p", "pv-line");
       words.slice(range[0], range[1]).forEach((word, index) => {
-        const node = element("span", "pv-word"); node.textContent = word.text;
+        const node = element("span", punch.includes(index + range[0]) ? "pv-word is-punch" : "pv-word"); node.textContent = word.text;
         if (index) line.append(" ");
         line.append(node);
       });
@@ -451,6 +481,7 @@
     root.style.setProperty("--cap-scale", String(Number(captions.scale) || 1));
     root.style.setProperty("--cap-color", captions.color || "#FFFFFF");
     root.style.setProperty("--cap-high", captions.highlight || "#FFD60A");
+    root.style.setProperty("--cap-punch", captions.emphasis_color || "#3CE88C");
     engine.cue = null;
     const transition = edit.transition || {};
     engine.type = transition.type || "none";

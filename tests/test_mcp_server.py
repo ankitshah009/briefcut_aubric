@@ -234,23 +234,47 @@ def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path,
             assert len(shorts["jobs"]) == 2
             script = _payload(await client.call_tool("briefcut_script_to_video", {
                 "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
-                "provider": "meta", "budget_usd": 0.5, "language": "en", "voice": "en_US-lessac-medium",
+                "provider": "meta", "budget_usd": 0.5, "language": "en",
                 "images": ["/tmp/scene.png"], "review": True, "auto_refine": 1,
                 "template": "tutorial", "edit": {"captions": {"style": "bold"}},
             }))
             assert script["job"]["id"] == "script-1"
 
     _run(flow())
-    assert calls[0] == ("find", ("a" * 32, {"query": "the bowl"}))
+    assert calls[0] == ("find", ("a" * 32, {"query": "the bowl", "verify": True, "drop_unseen": False}))
     assert calls[1][0] == "shorts" and calls[1][1][1] == {
         "count": 2, "target_duration": 12.0, "aspect": "9:16", "auto_render": False, "budget_usd": 0.5,
     }
     assert calls[2] == ("script", ({
         "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
         "provider": "meta", "budget_usd": 0.5, "language": "en", "images": ["/tmp/scene.png"],
-        "review": True, "auto_refine": 1, "template": "tutorial", "voice": "en_US-lessac-medium",
+        "review": True, "auto_refine": 1, "template": "tutorial",
         "edit": {"captions": {"style": "bold"}}, "caption_provider": "meta",
     },))
+
+
+def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[Any] = []
+
+    class Stub:
+        _closed = False
+
+        def create_script(self, value: dict[str, Any]) -> dict[str, Any]:
+            called.append(value)
+            return {"id": "script-1", "status": "queued"}
+
+    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    server = mcp_server.build_server()
+
+    async def flow() -> tuple[Any, str]:
+        async with Client(server) as client:
+            refused = _payload(await client.call_tool("briefcut_script_to_video", {"script": "One line.", "voice": "en_US-lessac-medium"}))
+            listed = {item.name: item for item in (await client.list_tools()).tools}
+            return refused, listed["briefcut_script_to_video"].description
+
+    refused, description = _run(flow())
+    assert "caption-led" in refused["tool_error"] and "no text-to-speech" in refused["tool_error"] and not called
+    assert "narrat" not in description.lower() and "caption-led" in description
 
 
 # ---------------------------------------------------------------------------
@@ -694,3 +718,63 @@ def test_status_reads_the_real_capabilities_and_names_meta_as_the_requirement(wo
     assert any(line.startswith("Meta:") and "https://dev.meta.ai" in line for line in status["missing"])
     assert status["render"] == {"ready": real["render"]["ready"], "reason": real["render"]["reason"]}
     assert "whisper" not in json.dumps(status).lower()
+
+
+def test_director_verified_find_and_hero_word_reach_the_manager(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, Any]] = []
+
+    class Stub:
+        _closed = False
+
+        def create(self, value: dict[str, Any]) -> dict[str, Any]:
+            calls.append(("create", value))
+            return {"id": JOB, "status": "queued"}
+
+        def revise(self, job_id: str, value: dict[str, Any]) -> dict[str, Any]:
+            calls.append(("revise", value))
+            return {"id": job_id, "status": "queued"}
+
+        def find(self, job_id: str, value: dict[str, Any]) -> dict[str, Any]:
+            calls.append(("find", value))
+            return {"moments": [{"start": 1.0, "end": 2.0, "verified": True, "coverage": 0.8, "flagged": False, "thumbnail": "bowl-1000.jpg",
+                                 "thumbnail_url": f"/api/campaigns/{job_id}/find-thumbnail?name=bowl-1000.jpg"}],
+                    "searched": ["footage"], "warnings": [], "budget": {}, "verification": {"status": "verified", "phrase": "bowl", "receipt": None, "dropped": [], "spend": []}}
+
+        def suggest_hero_word(self, job_id: str, **kwargs: Any) -> dict[str, Any]:
+            calls.append(("hero", kwargs))
+            if kwargs.get("font") == "comic":
+                raise CampaignError("Choose a hero word font: heavy, condensed, rounded.")
+            return {"hero_word": {"word": "oak", "start": 0.2, "end": 1.0}, "proposal": {"word": "oak"}, "adjusted": [], "usage": {}}
+
+        def suggest_motion_card(self, job_id: str, **kwargs: Any) -> dict[str, Any]:
+            calls.append(("card", kwargs))
+            return {"motion_card": {"kind": kwargs["kind"], "text": "Oak Bowl"}, "proposal": {}, "usage": {}, "poster": None}
+
+    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    server = mcp_server.build_server()
+
+    async def flow() -> None:
+        async with Client(server) as client:
+            created = _payload(await client.call_tool("briefcut_create_story", {"paths": ["/tmp/a.mp4"], "goal": "Bowl", "review": True, "director": "wonder"}))
+            assert created["id"] == JOB
+            await client.call_tool("briefcut_revise", {"job_id": JOB, "mode": "director", "director": "spark"})
+            found = _payload(await client.call_tool("briefcut_find_moments", {"job_id": JOB, "query": "the bowl", "verify": False, "drop_unseen": True}))
+            assert found["moments"][0]["verified"] is True and found["verification"]["phrase"] == "bowl"
+            hero = _payload(await client.call_tool("briefcut_hero_word", {"job_id": JOB, "subject": "the bowl", "color": "#FFD60A"}))
+            assert hero["hero_word"]["word"] == "oak" and "briefcut_edit" in hero["next"]
+            refused = _payload(await client.call_tool("briefcut_hero_word", {"job_id": JOB, "font": "comic"}))
+            assert "tool_error" in refused and "hero word font" in refused["tool_error"]
+            status = _payload(await client.call_tool("briefcut_status", {}))
+            assert status["editor"]["choices"]["hero_word.font"] == ["heavy", "condensed", "rounded"]
+            assert "#FFFFFF" in status["editor"]["choices"]["hero_word.color"] and status["director"]["choices"] == ["spark", "wonder"]
+            assert "intro_title" in status["editor"]["choices"]["motion_card.kind"] and isinstance(status["motion_cards"], bool)
+            assert status["meta"]["private"]["enabled"] is False and status["meta"]["directors"]["wonder"] == "muse-wonder-1.0"
+            card = _payload(await client.call_tool("briefcut_motion_card", {"job_id": JOB, "kind": "end_card", "backdrop": False}))
+            assert card["motion_card"]["kind"] == "end_card" and "briefcut_edit" in card["next"]
+
+    _run(flow())
+    assert calls[0][0] == "create" and calls[0][1]["director"] == "wonder" and calls[0][1]["provider"] == "meta"
+    assert calls[1] == ("revise", {"mode": "director", "director": "spark"})
+    assert calls[2] == ("find", {"query": "the bowl", "verify": False, "drop_unseen": True})
+    assert calls[3] == ("hero", {"subject": "the bowl", "color": "#FFD60A"})
+    assert calls[-1] == ("card", {"kind": "end_card", "backdrop": False})

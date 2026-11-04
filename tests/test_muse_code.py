@@ -30,3 +30,16 @@ def test_the_documented_server_runs_the_same_command_as_mcp_json() -> None:
     project = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["briefcut"]
     assert [server["command"], *args] == [project["command"], *project["args"]]
     assert "MODEL_API_KEY" not in json.dumps(settings), "the key never goes in settings.json"
+
+
+def test_the_mcp_server_reads_the_checkout_key_file_before_serving(monkeypatch) -> None:
+    """Muse Code starts `vedit mcp` with its own environment, so the server reads .env.local itself."""
+    import argparse
+
+    from vedit import cli, mcp_server, settings
+
+    order: list[str] = []
+    monkeypatch.setattr(settings, "load_checkout_env", lambda: order.append("env") or [])
+    monkeypatch.setattr(mcp_server, "serve_stdio", lambda: order.append("serve") or 0)
+    assert cli.cmd_mcp(argparse.Namespace()) == 0
+    assert order == ["env", "serve"]

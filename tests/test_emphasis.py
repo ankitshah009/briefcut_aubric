@@ -41,7 +41,7 @@ def timed(text: str, start: float = 1.0, each: float = 0.3) -> Cue:
 
 
 def story() -> list[Cue]:
-    return [timed(text, start) for text, start in zip(SPOKEN, STARTS)]
+    return [timed(text, start) for text, start in zip(SPOKEN, STARTS, strict=True)]
 
 
 def pick(key: str, index: int, word: str, why: str = "It carries the line.") -> dict[str, Any]:
@@ -242,7 +242,7 @@ def test_an_answer_that_fails_validation_is_recorded_as_failed(enabled: None, tm
     with pytest.raises(MetaError, match="did not match"):
         suggest_emphasis(story(), GOAL, work_dir=tmp_path, budget_usd=.05)
     assert [call["status"] for call in ledger(tmp_path)] == ["failed_or_incomplete"], "the charge stays on the ledger"
-    assert not list((tmp_path / "meta-cache").glob("emphasis-*")) if (tmp_path / "meta-cache").exists() else True
+    assert not list(tmp_path.glob("meta-cache/emphasis-*")), "a refused answer is never cached"
 
 
 def test_malformed_json_changes_nothing(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,7 +345,7 @@ def test_the_most_emphasis_an_edit_can_hold_validates() -> None:
 
 @pytest.mark.parametrize("style", STYLES)
 @pytest.mark.parametrize("size", [TALL, WIDE, SQUARE])
-def test_every_style_draws_the_punch_word_and_nothing_else_changes(style: str, size: tuple[int, int]) -> None:
+def test_every_style_draws_the_punch_word_and_nothing_else_changes(style: str, size: tuple[int, int], arial_width_captions: Path) -> None:
     cues = story()
     plain = events(render_ass(cues, width=size[0], height=size[1], settings={"style": style}))
     punched = events(render_ass(cues, width=size[0], height=size[1], settings=on(*GOOD, style=style)))
@@ -364,7 +364,7 @@ def test_every_style_draws_the_punch_word_and_nothing_else_changes(style: str, s
     assert any("\\b1" in text for _, _, text in punched) is not look.bold, "a light style makes the punch word bold; a bold one needs nothing"
     if look.highlight:
         assert [(start, end) for start, end, _ in punched] == [(start, end) for start, end, _ in plain], "one event per word, at the same times"
-        for (_, _, before), (_, _, after) in zip(plain, punched):
+        for (_, _, before), (_, _, after) in zip(plain, punched, strict=True):
             assert active(after) == active(before) and len(active(after)) == 1, "the spoken-word highlight moves exactly as before"
             assert spoken(after) == spoken(before), "the page does not reflow when the highlight passes"
 

@@ -304,14 +304,14 @@ def test_mixed_items_share_one_canvas_clock_and_sound(tmp_path: Path) -> None:
 
     info = probe(dest)
     assert (info.width, info.height) == (640, 360) and (result["width"], result["height"]) == (640, 360)
-    assert info.fps == pytest.approx(30, abs=0.01)
+    assert info.fps == pytest.approx(25, abs=0.01)  # the first clip's rate: 25 fps footage keeps its motion
     assert (info.audio.sample_rate, info.audio.channels, info.audio.codec_name) == (48000, 2, "aac")
     assert info.video.codec_name == "h264" and info.video.pix_fmt == "yuv420p"
     assert (info.video.color_space, info.video.color_range) == ("bt709", "tv")
     clips = result["clips"]
     assert [clip["kind"] for clip in clips] == ["video", "video", "photo", "video"]
     assert [clip["name"] for clip in clips] == ["wide.mp4", "tall.mp4", "still.png", "last.mp4"]
-    assert frames_in(dest) == round(clips[-1]["end"] * 30)
+    assert frames_in(dest) == round(clips[-1]["end"] * 25)
     assert info.duration == pytest.approx(clips[-1]["end"], abs=0.02)
     decoded = subprocess.run([resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(dest), "-f", "null", "-"], capture_output=True, text=True)
     assert decoded.returncode == 0 and decoded.stderr == "", "joined clips must decode cleanly end to end"
@@ -979,14 +979,24 @@ def test_form_uploads_stay_small_because_they_sit_in_memory() -> None:
 
 @needs_ffmpeg
 @render
-def test_a_project_over_http_end_to_end(server: int, tmp_path: Path) -> None:
+def test_a_project_over_http_end_to_end(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Studio's routes are Meta-only: enable Meta with a fake key and stub the two calls planning makes.
+    from vedit import meta
+
+    monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
+    monkeypatch.setenv("VEDIT_META_ENABLED", "1")
+    monkeypatch.setattr(meta, "transcribe_audio", lambda wav, **kwargs: {"cues": [], "provider": "meta", "usage": {"cost_usd": 0}})
+    monkeypatch.setattr(meta, "plan_story", lambda *a, **k: {"title": "The day", "summary": "s", "caption": "c", "cover_prompt": "p", "hashtags": [],
+                                                           "segments": [{"start": 0.0, "end": 1.5, "label": "Open", "reason": "r"},
+                                                                        {"start": 2.2, "end": 3.0, "label": "Still", "reason": "r"}],
+                                                           "usage": {}, "warnings": []})
     media = tmp_path / "made"
     paths = []
     for file in (make_clip(media / "open.mp4", size="320x180", seconds=2, color="teal"), make_photo(media / "still.png", size="300x300", color="orange"), make_clip(media / "close.mp4", size="180x320", seconds=2, tone=None, color="purple")):
         status, body = upload(server, file)
         assert status == 201
         paths.append(body["paths"][0])
-    status, _, raw = call(server, "POST", "/api/campaigns", {"paths": paths, "goal": "Show the day", "target_duration": 3, "aspect": "16:9"})
+    status, _, raw = call(server, "POST", "/api/campaigns", {"paths": paths, "goal": "Show the day", "target_duration": 3, "aspect": "16:9", "consent": True})
     assert status == 202
     job = wait_for(server, json.loads(raw)["job"]["id"], {"planned", "failed"})
     assert job["status"] == "planned", job["error"]
