@@ -8,7 +8,7 @@ version = "1.2.0"
 description = "Briefcut by Aubric, Inc.: local video editing with inspectable stories and spatial effects."
 readme = "README.md"
 requires-python = ">=3.13"
-license = { file = "LICENSE" }
+license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "Ankit Shah" }]
 keywords = ["video", "ffmpeg", "nle", "editor", "captions", "meta", "mcp", "agents"]
 classifiers = [

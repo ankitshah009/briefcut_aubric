@@ -25,7 +25,7 @@ They pick Briefcut when they need to check, script, or audit an edit; the others
 
 ## Why it grows Meta's model adoption
 
-Every project runs on Meta's models, at $0.0005 to $0.08 per project in the [scenario matrix](evidence/scenario-matrix/README.md), so usage grows with each video. One MCP server makes any agent, Muse Code first, a video editor on Meta's models. Receipts give teams the audit trail they need before a model edits what they publish. The public source is a reference for Meta's models checking each other, and private mode shows Muse Glimmer doing real work on a laptop. Voice Transcribe hears 25 languages. The [README](../README.md#why-this-grows-metas-model-adoption) gives each point with its evidence.
+Every project runs on Meta's models, at $0.0005 to $0.08 per project in the [scenario matrix](evidence/scenario-matrix/README.md), so usage grows with each video. One MCP server makes any agent, Muse Code first, a video editor on Meta's models. Receipts give teams the audit trail they need before a model edits what they publish. The open-source code (AGPL-3.0) is a reference for Meta's models checking each other, and private mode shows Muse Glimmer doing real work on a laptop. Voice Transcribe hears 25 languages. The [README](../README.md#why-this-grows-metas-model-adoption) gives each point with its evidence.
 
 ## What is new
 
