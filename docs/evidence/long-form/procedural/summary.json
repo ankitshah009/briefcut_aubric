@@ -1,0 +1,230 @@
+{
+ "source": {
+  "made_from": [
+   "examples/demo/workshop.mp4",
+   "examples/demo/talk.mp4"
+  ],
+  "repeats": 21,
+  "duration": 903.721,
+  "width": 1280,
+  "height": 720,
+  "has_audio": true
+ },
+ "mode": "standard",
+ "budget_usd": {
+  "story": 0.6,
+  "each_short": 0.1
+ },
+ "wall_seconds": {
+  "plan": 556.0,
+  "render": 23.6,
+  "shorts": 118.9,
+  "total": 698.5
+ },
+ "windows": [
+  [
+   0.0,
+   453.568
+  ],
+  [
+   453.568,
+   903.721
+  ]
+ ],
+ "candidates": 22,
+ "picked": [
+  "w1-1",
+  "w1-2",
+  "w1-3",
+  "w1-4",
+  "w1-5",
+  "w1-8",
+  "w1-9",
+  "w1-10"
+ ],
+ "editor": "muse-spark",
+ "editor_model": "muse-spark-1.3",
+ "editor_calls": [
+  {
+   "project": "story",
+   "id": "0f9be21f52c94bb98f1b391882a431c0",
+   "operation": "edit",
+   "model": "muse-spark-1.3",
+   "reserved_usd": 0.07773325,
+   "budget_usd": 0.6,
+   "status": "completed",
+   "started_at": 1793830566.319948,
+   "runs_on": "meta-api",
+   "usage": {
+    "estimated_max_usd": 0.07773325,
+    "cached": false,
+    "input_tokens": 6210,
+    "output_tokens": 3187,
+    "total_tokens": 9397,
+    "cost_usd": 0.02130725
+   },
+   "request_id": "resp_6aebaebc33d63c96aa084374"
+  },
+  {
+   "project": "short-1",
+   "id": "a15fd4d14284460fa0972ef7040b182c",
+   "operation": "edit",
+   "model": "muse-spark-1.3",
+   "reserved_usd": 0.0770645,
+   "budget_usd": 0.1,
+   "status": "completed",
+   "started_at": 1793830661.1436539,
+   "runs_on": "meta-api",
+   "usage": {
+    "estimated_max_usd": 0.0770645,
+    "cached": false,
+    "input_tokens": 5641,
+    "output_tokens": 3977,
+    "total_tokens": 9618,
+    "cost_usd": 0.0239535
+   },
+   "request_id": "resp_6aebaf24716a0c6038a74067"
+  }
+ ],
+ "input_ceiling_tokens": 1048576,
+ "transcript_words": 2155,
+ "transcript_lines": 388,
+ "story": {
+  "status": "complete",
+  "error": null,
+  "duration": 54.292,
+  "segments": [
+   [
+    0.2,
+    7.1
+   ],
+   [
+    8.2,
+    14.7
+   ],
+   [
+    16.401,
+    22.94
+   ],
+   [
+    24.2,
+    31.34
+   ],
+   [
+    32.4,
+    39.26
+   ],
+   [
+    59.434,
+    65.98
+   ],
+   [
+    67.44,
+    74.54
+   ],
+   [
+    75.433,
+    82.14
+   ]
+  ],
+  "render": {
+   "duration": 54.287567,
+   "width": 1920,
+   "height": 1080,
+   "has_audio": true,
+   "has_video": true
+  },
+  "checks_passed": 6,
+  "checks_total": 6
+ },
+ "shorts": [
+  {
+   "status": "planned",
+   "error": null,
+   "title": "Fallen Tree to Finished Oak Bowl",
+   "duration": 21.756,
+   "segments": [
+    [
+     474.6,
+     481.868
+    ],
+    [
+     490.68,
+     497.868
+    ],
+    [
+     506.52,
+     513.82
+    ]
+   ]
+  },
+  {
+   "status": "planned",
+   "error": null,
+   "title": "Wet Blank to Glowing Grain",
+   "duration": 25.571,
+   "segments": [
+    [
+     560.76,
+     572.168
+    ],
+    [
+     585.065,
+     592.168
+    ],
+    [
+     592.985,
+     600.045
+    ]
+   ]
+  },
+  {
+   "status": "planned",
+   "error": null,
+   "title": "Grain to Glow Finish",
+   "duration": 21.476,
+   "segments": [
+    [
+     482.44,
+     489.168
+    ],
+    [
+     498.6,
+     505.968
+    ],
+    [
+     862.985,
+     870.365
+    ]
+   ]
+  }
+ ],
+ "spend_usd": {
+  "story": 0.31903,
+  "short-1": 0.023953
+ },
+ "total_spend_usd": 0.342983,
+ "report_keys": [
+  "approved_plan",
+  "budget",
+  "caption_provider",
+  "checks",
+  "cutout",
+  "edit",
+  "effect",
+  "emphasis",
+  "ffmpeg",
+  "hero_word",
+  "name",
+  "outputs",
+  "passed",
+  "patches",
+  "proof",
+  "steps",
+  "timeline",
+  "total",
+  "tracked_subject",
+  "warnings",
+  "work_dir"
+ ]
+}

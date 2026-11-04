@@ -104,7 +104,7 @@ sequenceDiagram
   S-->>U: 202 with the job
   Note over M: worker thread<br/>process, then _plan
   M->>F: probe, combine clips
-  Note over M: refuse over 10 minutes<br/>check free disk, before upload
+  Note over M: check length, budget<br/>and free disk, before upload
   M->>A: transcribe a 16 kHz WAV
   A->>C: Voice Transcribe, once
   C-->>A: timed turns
@@ -512,6 +512,29 @@ flowchart TB
 ```
 
 Only the model call moves. The callers in `meta.py` keep their prompts, schemas, validators, and caches, and the call goes through the same ledger and call log at $0. Video, SAM, Voice Transcribe, and Muse Image still need the Meta API. [Live proof](docs/evidence/open-weights/README.md): five calls ran with `meta._request` replaced by a function that fails the run, so nothing could reach the Meta API.
+
+### 8g. Long videos: watch in parts, decide once
+
+```mermaid
+flowchart LR
+  src["Long recording<br/>10 minutes to 2 hours"] --> heard["Meta Voice Transcribe<br/>heard once, in pieces<br/>cut at pauses"]
+  heard --> parts["story.long_windows<br/>parts of 10 minutes or less,<br/>cut between sentences"]
+  parts --> p1["Muse Spark<br/>part 1: candidate moments"]
+  parts --> p2["Muse Spark<br/>part 2: candidate moments"]
+  parts --> pn["Muse Spark<br/>part N: candidate moments"]
+  p1 & p2 & pn --> editor["One editor call<br/>Muse Spark, or Muse Wonder<br/>reads the whole transcript<br/>and every candidate"]
+  editor --> check{{"Code checks every pick<br/>each id must be a candidate,<br/>times come from the candidate"}}
+  check --> snap["Snap to sentences and clips,<br/>lint, budget"]
+  snap --> plan["Editable plan:<br/>one story or several shorts"]
+  classDef meta fill:#fdecea,stroke:#c62828,color:#3b0a0a
+  classDef code fill:#e8f5e9,stroke:#2e7d32,color:#0b2410
+  classDef io fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a
+  class heard,p1,p2,pn,editor meta
+  class parts,check,snap code
+  class src,plan io
+```
+
+**Why it is built this way.** One Meta call watches at most 10 minutes of proxy video, so a longer source is read in parts (`story.long_windows`, cut at sentence ends, then pauses, then scene cuts). Muse Spark logs up to 12 candidate moments per part through `meta.plan_candidates`, three parts at a time, and each answer is saved as it lands so a retry reads only what is missing. The decision is made once, in `meta.edit_long_story`: a text-only call that reads the whole transcript and every candidate, by Muse Spark or by Muse Wonder when it is the director. That is where the long view matters: Meta gives both models a 1,048,576-token context, and on Tears of Steel the editor used 0.31% of it. The model answers with candidate ids only. An unknown, repeated, or overlapping id refuses the whole answer, and every time comes from the candidate, never from the model. Shorts reuse the same candidates through `meta.pick_long_shorts`, so nothing is watched twice. `_long_affordable` prices the whole plan before anything is sent and refuses with the amount to raise the budget to. [Live proof](docs/evidence/long-form/README.md).
 
 ## 9. The agent surface
 

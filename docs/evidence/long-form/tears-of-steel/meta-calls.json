@@ -1,0 +1,290 @@
+{
+ "logs": {
+  "story": {
+   "calls": [
+    {
+     "id": "b55173c6d1a64a689a977b1a0f9537d0",
+     "started_at": 1793831560.265193,
+     "operation": "edit",
+     "model": "muse-spark-1.3",
+     "purpose": "Pick the story from 24 candidates with Muse Spark",
+     "status": "done",
+     "seconds": 14.45,
+     "size": {
+      "input_tokens": 2937,
+      "output_tokens": 2080
+     },
+     "reserved_usd": 0.073642,
+     "cost_usd": 0.01251125,
+     "request_id": "resp_6aebb2962137af32064a4b9d",
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    },
+    {
+     "id": "3ccbdeba8eeb4dc2811e12d5c1ee5279",
+     "started_at": 1793831504.354222,
+     "operation": "candidates",
+     "model": "muse-spark-1.3",
+     "purpose": "Find candidate moments in 0:00 to 6:06",
+     "status": "done",
+     "seconds": 36.0,
+     "size": {
+      "input_tokens": 84625,
+      "output_tokens": 3095
+     },
+     "reserved_usd": 0.219117,
+     "cost_usd": 0.118935,
+     "request_id": "resp_6aebb27450d56d334fbb449a",
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    },
+    {
+     "id": "197332ff811d4a92bb4747a3095f2529",
+     "started_at": 1793831498.3270972,
+     "operation": "candidates",
+     "model": "muse-spark-1.3",
+     "purpose": "Find candidate moments in 6:06 to 12:14",
+     "status": "done",
+     "seconds": 57.31,
+     "size": {
+      "input_tokens": 83510,
+      "output_tokens": 5310
+     },
+     "reserved_usd": 0.21876075,
+     "cost_usd": 0.126955,
+     "request_id": "resp_6aebb283c6eb081540534dd0",
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    },
+    {
+     "id": "326bf38ab917427ba53abb61c0db175c",
+     "started_at": 1793831357.5979168,
+     "operation": "transcribe",
+     "model": "muse-voice-transcribe-1.0",
+     "purpose": "Transcribe speech for captions",
+     "status": "done",
+     "seconds": 18.82,
+     "size": {
+      "audio_seconds": 177.0
+     },
+     "reserved_usd": 0.0089,
+     "cost_usd": 0.00885,
+     "request_id": null,
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    },
+    {
+     "id": "ab05086f64cd475a920b7ca51d23e400",
+     "started_at": 1793831287.0795698,
+     "operation": "transcribe",
+     "model": "muse-voice-transcribe-1.0",
+     "purpose": "Transcribe speech for captions",
+     "status": "done",
+     "seconds": 69.97,
+     "size": {
+      "audio_seconds": 556.0
+     },
+     "reserved_usd": 0.02785,
+     "cost_usd": 0.0278,
+     "request_id": null,
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    }
+   ],
+   "totals": {
+    "calls": 5,
+    "running": 0,
+    "spent_usd": 0.29505125,
+    "held_usd": 0.29505125,
+    "api_calls": 5,
+    "local_calls": 0,
+    "budget_usd": 0.8,
+    "remaining_usd": 0.50494875
+   }
+  },
+  "short-1": {
+   "calls": [
+    {
+     "id": "5aab30987e7b4b15a6c910daea6ef0d0",
+     "started_at": 1793831609.902889,
+     "operation": "edit",
+     "model": "muse-spark-1.3",
+     "purpose": "Pick 3 shorts from 17 candidates with Muse Spark",
+     "status": "done",
+     "seconds": 71.73,
+     "size": {
+      "input_tokens": 2428,
+      "output_tokens": 9647
+     },
+     "reserved_usd": 0.07304825,
+     "cost_usd": 0.04403475,
+     "request_id": "resp_6aebb301ccc619df1bdc4b77",
+     "runs_on": "meta-api",
+     "runtime": null,
+     "weights": null,
+     "cost_kind": "actual"
+    }
+   ],
+   "totals": {
+    "calls": 1,
+    "running": 0,
+    "spent_usd": 0.04403475,
+    "held_usd": 0.04403475,
+    "api_calls": 1,
+    "local_calls": 0,
+    "budget_usd": 0.1,
+    "remaining_usd": 0.05596525
+   }
+  },
+  "short-2": {
+   "calls": [],
+   "totals": {
+    "calls": 0,
+    "running": 0,
+    "spent_usd": 0.0,
+    "held_usd": 0.0,
+    "api_calls": 0,
+    "local_calls": 0,
+    "budget_usd": 0.1,
+    "remaining_usd": 0.1
+   }
+  },
+  "short-3": {
+   "calls": [],
+   "totals": {
+    "calls": 0,
+    "running": 0,
+    "spent_usd": 0.0,
+    "held_usd": 0.0,
+    "api_calls": 0,
+    "local_calls": 0,
+    "budget_usd": 0.1,
+    "remaining_usd": 0.1
+   }
+  }
+ },
+ "ledgers": {
+  "story": [
+   {
+    "id": "ab05086f64cd475a920b7ca51d23e400",
+    "operation": "transcribe",
+    "model": "muse-voice-transcribe-1.0",
+    "reserved_usd": 0.02785,
+    "budget_usd": 0.8,
+    "status": "completed",
+    "started_at": 1793831287.0795698,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.02785,
+     "cached": false,
+     "audio_seconds": 556,
+     "cost_usd": 0.0278
+    }
+   },
+   {
+    "id": "326bf38ab917427ba53abb61c0db175c",
+    "operation": "transcribe",
+    "model": "muse-voice-transcribe-1.0",
+    "reserved_usd": 0.0089,
+    "budget_usd": 0.8,
+    "status": "completed",
+    "started_at": 1793831357.5979168,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.0089,
+     "cached": false,
+     "audio_seconds": 177,
+     "cost_usd": 0.00885
+    }
+   },
+   {
+    "id": "197332ff811d4a92bb4747a3095f2529",
+    "operation": "candidates",
+    "model": "muse-spark-1.3",
+    "reserved_usd": 0.21876075,
+    "budget_usd": 0.8,
+    "status": "completed",
+    "started_at": 1793831498.3270972,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.21876075,
+     "cached": false,
+     "input_tokens": 83510,
+     "output_tokens": 5310,
+     "total_tokens": 88820,
+     "cost_usd": 0.126955
+    },
+    "request_id": "resp_6aebb283c6eb081540534dd0"
+   },
+   {
+    "id": "3ccbdeba8eeb4dc2811e12d5c1ee5279",
+    "operation": "candidates",
+    "model": "muse-spark-1.3",
+    "reserved_usd": 0.219117,
+    "budget_usd": 0.8,
+    "status": "completed",
+    "started_at": 1793831504.354222,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.219117,
+     "cached": false,
+     "input_tokens": 84625,
+     "output_tokens": 3095,
+     "total_tokens": 87720,
+     "cost_usd": 0.118935
+    },
+    "request_id": "resp_6aebb27450d56d334fbb449a"
+   },
+   {
+    "id": "b55173c6d1a64a689a977b1a0f9537d0",
+    "operation": "edit",
+    "model": "muse-spark-1.3",
+    "reserved_usd": 0.073642,
+    "budget_usd": 0.8,
+    "status": "completed",
+    "started_at": 1793831560.265193,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.073642,
+     "cached": false,
+     "input_tokens": 2937,
+     "output_tokens": 2080,
+     "total_tokens": 5017,
+     "cost_usd": 0.01251125
+    },
+    "request_id": "resp_6aebb2962137af32064a4b9d"
+   }
+  ],
+  "short-1": [
+   {
+    "id": "5aab30987e7b4b15a6c910daea6ef0d0",
+    "operation": "edit",
+    "model": "muse-spark-1.3",
+    "reserved_usd": 0.07304825,
+    "budget_usd": 0.1,
+    "status": "completed",
+    "started_at": 1793831609.902889,
+    "runs_on": "meta-api",
+    "usage": {
+     "estimated_max_usd": 0.07304825,
+     "cached": false,
+     "input_tokens": 2428,
+     "output_tokens": 9647,
+     "total_tokens": 12075,
+     "cost_usd": 0.04403475
+    },
+    "request_id": "resp_6aebb301ccc619df1bdc4b77"
+   }
+  ]
+ }
+}

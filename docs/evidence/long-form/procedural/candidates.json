@@ -1,0 +1,245 @@
+{
+ "brief": "Cut a 60-second highlight of this long workshop recording: open on the strongest moment, show the making steps clearly, and end on the finished piece.",
+ "windows": [
+  [
+   0.0,
+   453.568
+  ],
+  [
+   453.568,
+   903.721
+  ]
+ ],
+ "candidates": [
+  {
+   "start": 0.2,
+   "end": 7.1,
+   "label": "Finished bowl opener",
+   "reason": "Opens with 'This is the finished oak bowl, oiled and ready for the table.' then 'It started as a rough blank from a fallen tree.' Strongest hook for 60-second highlight.",
+   "score": 1.0,
+   "id": "w1-1",
+   "window": 1
+  },
+  {
+   "start": 8.2,
+   "end": 14.7,
+   "label": "Raw blank intro",
+   "reason": "Says 'Here is the raw oak blank still wet and heavy.' then 'the grain tells me where the bowl wants to be.' Establishes starting material.",
+   "score": 0.8,
+   "id": "w1-2",
+   "window": 1
+  },
+  {
+   "start": 16.4,
+   "end": 22.9,
+   "label": "Lathe shaping demo",
+   "reason": "Says 'On the lathe the shape appears in long steady cuts.' then 'I keep the wall wall thickness even from rim to base.' Clear making step.",
+   "score": 0.9,
+   "id": "w1-3",
+   "window": 1
+  },
+  {
+   "start": 24.2,
+   "end": 31.3,
+   "label": "Sanding glow turn",
+   "reason": "Says 'Sanding goes from coarse to fine with the lathe turning slowly.' then 'this is where the grain starts to glow' Turning point in finish.",
+   "score": 0.9,
+   "id": "w1-4",
+   "window": 1
+  },
+  {
+   "start": 32.4,
+   "end": 39.3,
+   "label": "Oiled ready ending",
+   "reason": "Says 'a coat of food safe oil brings out the color.' then '24 hours later the bowl is ready to use' Ideal ending on finished piece.",
+   "score": 1.0,
+   "id": "w1-5",
+   "window": 1
+  },
+  {
+   "start": 43.4,
+   "end": 50.3,
+   "label": "Alternate opener",
+   "reason": "Says 'this is the finished oak bowl oiled and ready for the table' then 'it started as started as a rough blank from a fallen tree.' Backup strong opening.",
+   "score": 0.8,
+   "id": "w1-6",
+   "window": 1
+  },
+  {
+   "start": 51.5,
+   "end": 57.7,
+   "label": "Raw and grain",
+   "reason": "Says 'here is the raw oak blank still wet and heavy.' then 'the grain tells me where the bowl wants to be.'",
+   "score": 0.7,
+   "id": "w1-7",
+   "window": 1
+  },
+  {
+   "start": 59.5,
+   "end": 66.0,
+   "label": "Cut and thickness",
+   "reason": "Says 'on the lathe lathe the shape appears in long steady cuts.' then 'I keep the wall thickness even from rim to base.'",
+   "score": 0.7,
+   "id": "w1-8",
+   "window": 1
+  },
+  {
+   "start": 67.4,
+   "end": 74.5,
+   "label": "Sanding to glow",
+   "reason": "Says 'sanding goes from course to fine with the lathe turning slowly.' then 'this is where the grain starts to glow.'",
+   "score": 0.8,
+   "id": "w1-9",
+   "window": 1
+  },
+  {
+   "start": 75.4,
+   "end": 82.1,
+   "label": "Oil to ready",
+   "reason": "Says 'a coat of food safe oil brings out the color.' then '24 hours later the bowl is ready to use.' Works alone as short ending.",
+   "score": 0.8,
+   "id": "w1-10",
+   "window": 1
+  },
+  {
+   "start": 86.7,
+   "end": 93.3,
+   "label": "Repeat opener",
+   "reason": "Says 'this is the finished oak bowl oiled and ready for the table.' then 'It started as a rough blank from a fallen tree.'",
+   "score": 0.6,
+   "id": "w1-11",
+   "window": 1
+  },
+  {
+   "start": 94.5,
+   "end": 100.7,
+   "label": "Blank and grain repeat",
+   "reason": "Says 'Here is the raw oak blank, still wet wet and heavy.' then 'The grain tells me where the bowl wants to be.'",
+   "score": 0.6,
+   "id": "w1-12",
+   "window": 1
+  },
+  {
+   "start": 475.068,
+   "end": 481.868,
+   "label": "Finished Bowl Strong Opening",
+   "reason": "Speaker states the finished oak bowl oiled and ready for the table, then that it started as a rough blank from a fallen tree.",
+   "score": 1.0,
+   "id": "w2-1",
+   "window": 2
+  },
+  {
+   "start": 482.968,
+   "end": 489.168,
+   "label": "Raw Blank Intro",
+   "reason": "Speaker presents the raw oak blank still wet and heavy and says the grain tells where the bowl wants to be.",
+   "score": 0.8,
+   "id": "w2-2",
+   "window": 2
+  },
+  {
+   "start": 491.168,
+   "end": 497.868,
+   "label": "Lathe Shaping Demo",
+   "reason": "Speaker describes shape appearing in long steady cuts on the lathe and keeping wall thickness even from rim to base.",
+   "score": 0.9,
+   "id": "w2-3",
+   "window": 2
+  },
+  {
+   "start": 499.068,
+   "end": 505.968,
+   "label": "Sanding To Glow",
+   "reason": "Speaker describes sanding from coarse to fine with lathe turning slowly where the grain starts to glow.",
+   "score": 0.8,
+   "id": "w2-4",
+   "window": 2
+  },
+  {
+   "start": 507.068,
+   "end": 513.868,
+   "label": "Oiling And Ready",
+   "reason": "Speaker describes a coat of food safe oil bringing out the color and the bowl ready to use after 24 hours.",
+   "score": 0.8,
+   "id": "w2-5",
+   "window": 2
+  },
+  {
+   "start": 561.268,
+   "end": 572.168,
+   "label": "Mid Video Recap Opener",
+   "reason": "Speaker repeats finished oak bowl ready for the table, origin from fallen tree, and raw blank still wet and heavy.",
+   "score": 0.7,
+   "id": "w2-6",
+   "window": 2
+  },
+  {
+   "start": 577.468,
+   "end": 584.168,
+   "label": "Shaping Repeat",
+   "reason": "Speaker repeats shape appearing in long steady cuts and keeping wall thickness even from rim to base.",
+   "score": 0.6,
+   "id": "w2-7",
+   "window": 2
+  },
+  {
+   "start": 585.568,
+   "end": 592.168,
+   "label": "Sanding Glow Repeat",
+   "reason": "Speaker repeats sanding coarse to fine with lathe turning slowly and grain starting to glow.",
+   "score": 0.6,
+   "id": "w2-8",
+   "window": 2
+  },
+  {
+   "start": 593.468,
+   "end": 600.068,
+   "label": "Finish Steps Repeat",
+   "reason": "Speaker repeats coat of food safe oil bringing out color and bowl ready to use after 24 hours.",
+   "score": 0.7,
+   "id": "w2-9",
+   "window": 2
+  },
+  {
+   "start": 863.468,
+   "end": 870.368,
+   "label": "Final Finished Ending",
+   "reason": "Speaker states finished oak bowl oiled and ready for the table and that it started as a rough blank from a fallen tree.",
+   "score": 1.0,
+   "id": "w2-10",
+   "window": 2
+  }
+ ],
+ "calls": [
+  {
+   "window": 1,
+   "start": 0.0,
+   "end": 453.568,
+   "moments": 12,
+   "model": "muse-spark-1.3",
+   "usage": {
+    "estimated_max_usd": 0.2587245,
+    "cached": false,
+    "input_tokens": 89302,
+    "output_tokens": 4314,
+    "total_tokens": 93616,
+    "cost_usd": 0.129962
+   }
+  },
+  {
+   "window": 2,
+   "start": 453.568,
+   "end": 903.721,
+   "moments": 10,
+   "model": "muse-spark-1.3",
+   "usage": {
+    "estimated_max_usd": 0.25728825,
+    "cached": false,
+    "input_tokens": 89199,
+    "output_tokens": 2591,
+    "total_tokens": 91790,
+    "cost_usd": 0.1225105
+   }
+  }
+ ]
+}

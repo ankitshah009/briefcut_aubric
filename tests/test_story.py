@@ -150,9 +150,11 @@ def test_build_plan_fallbacks_are_explicit() -> None:
     assert silent["segments"][0]["kind"] == "opening" and silent["segments"][0]["start"] == 0
     assert any("opening of the clip" in w for w in silent["warnings"])
     # Oversized analysis is bounded, not rejected.
-    big = build_plan(goal="Show it", duration=1000, target_duration=10, scenes=[float(i) for i in range(1, 999)], silences=[], transcript=[{"start": i, "end": i + 0.5, "text": "x" * 300} for i in range(900)], has_audio=True)
-    assert len(big["analysis"]["scenes"]) <= 400 and len(big["analysis"]["transcript"]) <= 600
-    assert sum(len(c["text"]) for c in big["analysis"]["transcript"]) <= 60_000
+    from vedit.story import MAX_CUES, MAX_SCENES, MAX_TRANSCRIPT_BYTES
+
+    big = build_plan(goal="Show it", duration=3000, target_duration=10, scenes=[float(i) for i in range(1, 2999)], silences=[], transcript=[{"start": i / 3, "end": i / 3 + 0.2, "text": "x" * 300} for i in range(MAX_CUES + 500)], has_audio=True)
+    assert len(big["analysis"]["scenes"]) == MAX_SCENES and len(big["analysis"]["transcript"]) <= MAX_CUES
+    assert sum(len(c["text"]) for c in big["analysis"]["transcript"]) <= MAX_TRANSCRIPT_BYTES
 
 
 @pytest.mark.render

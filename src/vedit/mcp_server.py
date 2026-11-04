@@ -463,6 +463,14 @@ def build_server() -> MCPServer:
         it; ``meta.languages`` in briefcut_status lists the codes (``heard`` marks
         the ones Voice Transcribe hears). Leave ``language`` and ``budget_usd``
         out to use the defaults saved in Studio Settings.
+        Long sources work, up to the 2-hour project limit (talks, podcasts,
+        lectures, vlogs). Past 10 minutes, Muse Spark watches the footage in
+        parts of up to 10 minutes and logs candidate moments, then one text-only
+        editor call (Muse Wonder when ``director`` is ``wonder``) picks them over
+        the whole transcript. The expected Meta cost is worked out first: a
+        ``budget_usd`` that cannot cover it fails the job with the amount to
+        raise it to, before anything is sent. ``job.message`` names the part
+        being read ("Planning 3 of 9: 20:00 to 30:00").
         Planning runs in the background: call briefcut_wait until the status is
         ``planned``, then read ``job.plan`` and render it.
         """
@@ -522,6 +530,9 @@ def build_server() -> MCPServer:
 
         With ``auto_render`` true (the default), each queued short renders after
         its plan is made. Wait on the returned job ids and inspect their receipts.
+        Long sources (up to 2 hours) work: the shorts reuse the candidate moments
+        the story's plan already logged, and one text-only call picks shorts that
+        never overlap each other or the story, each opening on its own hook.
         """
         payload: dict[str, Any] = {"count": count, "target_duration": target_duration, "aspect": aspect, "auto_render": auto_render}
         if budget_usd is not None:

@@ -1,0 +1,4387 @@
+{
+ "title": "From Fallen Tree to Finished Oak Bowl",
+ "summary": "Opens on the finished oak bowl, then follows raw blank to lathe shaping, sanding glow, and food-safe oiling to the ready-to-use piece.",
+ "segments": [
+  {
+   "start": 0.2,
+   "end": 7.1,
+   "label": "Finished bowl opener",
+   "reason": "Opens with 'This is the finished oak bowl, oiled and ready for the table.' then 'It started as a rough blank from a fallen tree.' Strongest hook for 60-second highlight. Editor: Opens strong on the finished oiled bowl to hook, then teases it started as a rough blank.",
+   "score": 1.0,
+   "kind": "speech"
+  },
+  {
+   "start": 8.2,
+   "end": 14.7,
+   "label": "Raw blank intro",
+   "reason": "Says 'Here is the raw oak blank still wet and heavy.' then 'the grain tells me where the bowl wants to be.' Establishes starting material. Editor: Establishes the starting material as wet heavy raw oak blank.",
+   "score": 0.8,
+   "kind": "speech"
+  },
+  {
+   "start": 16.401,
+   "end": 22.94,
+   "label": "Lathe shaping demo",
+   "reason": "Says 'On the lathe the shape appears in long steady cuts.' then 'I keep the wall wall thickness even from rim to base.' Clear making step. Editor: Shows first making step with long steady lathe cuts and even walls.",
+   "score": 0.9,
+   "kind": "speech"
+  },
+  {
+   "start": 24.2,
+   "end": 31.34,
+   "label": "Sanding glow turn",
+   "reason": "Says 'Sanding goes from coarse to fine with the lathe turning slowly.' then 'this is where the grain starts to glow' Turning point in finish. Editor: Shows next making step where coarse-to-fine sanding makes grain glow.",
+   "score": 0.9,
+   "kind": "speech"
+  },
+  {
+   "start": 32.4,
+   "end": 39.26,
+   "label": "Oiled ready ending",
+   "reason": "Says 'a coat of food safe oil brings out the color.' then '24 hours later the bowl is ready to use' Ideal ending on finished piece. Editor: Shows oiling step bringing out color and bowl ready after 24 hours.",
+   "score": 1.0,
+   "kind": "speech"
+  },
+  {
+   "start": 59.434,
+   "end": 65.98,
+   "label": "Cut and thickness",
+   "reason": "Says 'on the lathe lathe the shape appears in long steady cuts.' then 'I keep the wall thickness even from rim to base.' Editor: Reinforces lathe shaping detail to keep making steps clear; start moved back to sentence start at 59.4 s.",
+   "score": 0.7,
+   "kind": "speech"
+  },
+  {
+   "start": 67.44,
+   "end": 74.54,
+   "label": "Sanding to glow",
+   "reason": "Says 'sanding goes from course to fine with the lathe turning slowly.' then 'this is where the grain starts to glow.' Editor: Reinforces sanding-to-glow turning point before final finish.",
+   "score": 0.8,
+   "kind": "speech"
+  },
+  {
+   "start": 75.433,
+   "end": 82.14,
+   "label": "Oil to ready",
+   "reason": "Says 'a coat of food safe oil brings out the color.' then '24 hours later the bowl is ready to use.' Works alone as short ending. Editor: Ends closed on the finished oiled bowl ready to use.",
+   "score": 0.8,
+   "kind": "speech"
+  }
+ ],
+ "caption": "Watch a wet oak blank from a fallen tree turn, glow, and shine — finished bowl ready for the table in under a minute.",
+ "hashtags": [
+  "#woodworking",
+  "#bowlturning",
+  "#oakbowl",
+  "#handmade"
+ ],
+ "cover_prompt": "Use moment w1-1: finished oiled oak bowl ready for the table, warm wood glow as closing hook thumbnail",
+ "provider": "meta",
+ "usage": {
+  "cost_usd": 0.27377975,
+  "calls": 3
+ },
+ "source_duration": 903.721355,
+ "duration": 54.292,
+ "warnings": [],
+ "script": null,
+ "analysis": {
+  "method": "meta",
+  "scenes": [
+   40.055,
+   83.088,
+   126.121,
+   169.155,
+   212.188,
+   255.221,
+   298.255,
+   341.288,
+   384.321,
+   427.355,
+   470.388,
+   513.421,
+   556.455,
+   599.488,
+   642.521,
+   685.555,
+   728.588,
+   771.621,
+   814.655,
+   857.688,
+   900.721
+  ],
+  "speech": [
+   {
+    "start": 0.554,
+    "end": 3.744
+   },
+   {
+    "start": 4.756,
+    "end": 7.1
+   },
+   {
+    "start": 8.579,
+    "end": 11.34
+   },
+   {
+    "start": 12.434,
+    "end": 14.7
+   },
+   {
+    "start": 16.551,
+    "end": 19.334
+   },
+   {
+    "start": 20.361,
+    "end": 22.94
+   },
+   {
+    "start": 24.557,
+    "end": 28.06
+   },
+   {
+    "start": 29.258,
+    "end": 31.34
+   },
+   {
+    "start": 32.55,
+    "end": 35.02
+   },
+   {
+    "start": 36.15,
+    "end": 39.203
+   },
+   {
+    "start": 43.587,
+    "end": 46.778
+   },
+   {
+    "start": 47.79,
+    "end": 50.3
+   },
+   {
+    "start": 51.612,
+    "end": 54.3
+   },
+   {
+    "start": 55.467,
+    "end": 57.74
+   },
+   {
+    "start": 59.584,
+    "end": 62.367
+   },
+   {
+    "start": 63.394,
+    "end": 65.98
+   },
+   {
+    "start": 67.59,
+    "end": 71.02
+   },
+   {
+    "start": 72.291,
+    "end": 74.445
+   },
+   {
+    "start": 75.583,
+    "end": 78.06
+   },
+   {
+    "start": 79.184,
+    "end": 82.14
+   },
+   {
+    "start": 86.621,
+    "end": 89.66
+   },
+   {
+    "start": 90.823,
+    "end": 93.26
+   },
+   {
+    "start": 94.645,
+    "end": 97.34
+   },
+   {
+    "start": 98.501,
+    "end": 100.7
+   },
+   {
+    "start": 102.617,
+    "end": 105.401
+   },
+   {
+    "start": 106.428,
+    "end": 109.151
+   },
+   {
+    "start": 110.624,
+    "end": 114.293
+   },
+   {
+    "start": 115.325,
+    "end": 117.34
+   },
+   {
+    "start": 118.617,
+    "end": 121.183
+   },
+   {
+    "start": 122.217,
+    "end": 125.269
+   },
+   {
+    "start": 129.654,
+    "end": 132.844
+   },
+   {
+    "start": 133.856,
+    "end": 136.421
+   },
+   {
+    "start": 137.679,
+    "end": 140.503
+   },
+   {
+    "start": 141.534,
+    "end": 143.905
+   },
+   {
+    "start": 145.651,
+    "end": 148.434
+   },
+   {
+    "start": 149.461,
+    "end": 152.185
+   },
+   {
+    "start": 153.657,
+    "end": 157.327
+   },
+   {
+    "start": 158.358,
+    "end": 160.512
+   },
+   {
+    "start": 161.65,
+    "end": 164.216
+   },
+   {
+    "start": 165.25,
+    "end": 168.303
+   },
+   {
+    "start": 172.687,
+    "end": 175.878
+   },
+   {
+    "start": 176.89,
+    "end": 179.454
+   },
+   {
+    "start": 180.712,
+    "end": 183.536
+   },
+   {
+    "start": 184.567,
+    "end": 186.938
+   },
+   {
+    "start": 188.684,
+    "end": 191.467
+   },
+   {
+    "start": 192.494,
+    "end": 195.218
+   },
+   {
+    "start": 196.69,
+    "end": 200.36
+   },
+   {
+    "start": 201.391,
+    "end": 203.545
+   },
+   {
+    "start": 204.683,
+    "end": 207.25
+   },
+   {
+    "start": 208.284,
+    "end": 211.336
+   },
+   {
+    "start": 215.721,
+    "end": 218.911
+   },
+   {
+    "start": 219.923,
+    "end": 222.487
+   },
+   {
+    "start": 223.745,
+    "end": 226.57
+   },
+   {
+    "start": 227.601,
+    "end": 229.971
+   },
+   {
+    "start": 231.8,
+    "end": 234.501
+   },
+   {
+    "start": 235.528,
+    "end": 238.251
+   },
+   {
+    "start": 239.8,
+    "end": 243.393
+   },
+   {
+    "start": 244.44,
+    "end": 246.579
+   },
+   {
+    "start": 247.72,
+    "end": 250.283
+   },
+   {
+    "start": 251.4,
+    "end": 254.369
+   },
+   {
+    "start": 258.84,
+    "end": 261.944
+   },
+   {
+    "start": 262.956,
+    "end": 265.521
+   },
+   {
+    "start": 266.779,
+    "end": 269.603
+   },
+   {
+    "start": 270.634,
+    "end": 273.005
+   },
+   {
+    "start": 274.751,
+    "end": 277.533
+   },
+   {
+    "start": 278.68,
+    "end": 281.285
+   },
+   {
+    "start": 282.84,
+    "end": 286.427
+   },
+   {
+    "start": 287.56,
+    "end": 289.612
+   },
+   {
+    "start": 290.92,
+    "end": 293.316
+   },
+   {
+    "start": 294.35,
+    "end": 297.403
+   },
+   {
+    "start": 301.96,
+    "end": 304.978
+   },
+   {
+    "start": 305.99,
+    "end": 308.554
+   },
+   {
+    "start": 309.96,
+    "end": 312.636
+   },
+   {
+    "start": 313.88,
+    "end": 316.038
+   },
+   {
+    "start": 317.96,
+    "end": 320.567
+   },
+   {
+    "start": 321.8,
+    "end": 324.318
+   },
+   {
+    "start": 325.88,
+    "end": 329.46
+   },
+   {
+    "start": 330.6,
+    "end": 332.645
+   },
+   {
+    "start": 334.04,
+    "end": 336.35
+   },
+   {
+    "start": 337.56,
+    "end": 340.436
+   },
+   {
+    "start": 345.16,
+    "end": 348.011
+   },
+   {
+    "start": 349.32,
+    "end": 351.587
+   },
+   {
+    "start": 353.0,
+    "end": 355.67
+   },
+   {
+    "start": 357.0,
+    "end": 359.071
+   },
+   {
+    "start": 361.24,
+    "end": 363.6
+   },
+   {
+    "start": 364.84,
+    "end": 367.351
+   },
+   {
+    "start": 369.24,
+    "end": 372.493
+   },
+   {
+    "start": 373.72,
+    "end": 375.679
+   },
+   {
+    "start": 377.16,
+    "end": 379.383
+   },
+   {
+    "start": 380.68,
+    "end": 383.47
+   },
+   {
+    "start": 388.2,
+    "end": 391.044
+   },
+   {
+    "start": 392.28,
+    "end": 394.621
+   },
+   {
+    "start": 396.2,
+    "end": 398.703
+   },
+   {
+    "start": 399.96,
+    "end": 402.105
+   },
+   {
+    "start": 404.28,
+    "end": 406.634
+   },
+   {
+    "start": 407.96,
+    "end": 410.385
+   },
+   {
+    "start": 412.52,
+    "end": 415.527
+   },
+   {
+    "start": 417.0,
+    "end": 418.712
+   },
+   {
+    "start": 420.28,
+    "end": 422.416
+   },
+   {
+    "start": 423.96,
+    "end": 426.503
+   },
+   {
+    "start": 427.255,
+    "end": 427.34
+   },
+   {
+    "start": 431.48,
+    "end": 434.078
+   },
+   {
+    "start": 435.56,
+    "end": 437.654
+   },
+   {
+    "start": 439.4,
+    "end": 441.736
+   },
+   {
+    "start": 443.24,
+    "end": 445.138
+   },
+   {
+    "start": 447.48,
+    "end": 449.667
+   },
+   {
+    "start": 451.08,
+    "end": 453.418
+   },
+   {
+    "start": 455.48,
+    "end": 458.56
+   },
+   {
+    "start": 460.44,
+    "end": 461.745
+   },
+   {
+    "start": 463.48,
+    "end": 465.45
+   },
+   {
+    "start": 467.24,
+    "end": 469.536
+   },
+   {
+    "start": 470.288,
+    "end": 470.78
+   },
+   {
+    "start": 474.6,
+    "end": 477.111
+   },
+   {
+    "start": 478.6,
+    "end": 480.687
+   },
+   {
+    "start": 482.44,
+    "end": 484.77
+   },
+   {
+    "start": 486.44,
+    "end": 488.171
+   },
+   {
+    "start": 490.68,
+    "end": 492.7
+   },
+   {
+    "start": 494.28,
+    "end": 496.451
+   },
+   {
+    "start": 498.6,
+    "end": 501.593
+   },
+   {
+    "start": 503.48,
+    "end": 504.779
+   },
+   {
+    "start": 506.52,
+    "end": 508.483
+   },
+   {
+    "start": 510.44,
+    "end": 512.57
+   },
+   {
+    "start": 513.321,
+    "end": 513.82
+   },
+   {
+    "start": 517.72,
+    "end": 520.144
+   },
+   {
+    "start": 521.8,
+    "end": 523.721
+   },
+   {
+    "start": 525.56,
+    "end": 527.803
+   },
+   {
+    "start": 529.4,
+    "end": 531.205
+   },
+   {
+    "start": 533.64,
+    "end": 535.733
+   },
+   {
+    "start": 537.0,
+    "end": 537.34
+   },
+   {
+    "start": 537.4,
+    "end": 539.485
+   },
+   {
+    "start": 541.8,
+    "end": 544.627
+   },
+   {
+    "start": 546.52,
+    "end": 547.812
+   },
+   {
+    "start": 549.64,
+    "end": 551.516
+   },
+   {
+    "start": 554.12,
+    "end": 555.603
+   },
+   {
+    "start": 556.355,
+    "end": 557.02
+   },
+   {
+    "start": 560.76,
+    "end": 563.178
+   },
+   {
+    "start": 565.0,
+    "end": 566.754
+   },
+   {
+    "start": 568.84,
+    "end": 570.836
+   },
+   {
+    "start": 572.68,
+    "end": 574.238
+   },
+   {
+    "start": 576.985,
+    "end": 578.767
+   },
+   {
+    "start": 580.585,
+    "end": 582.518
+   },
+   {
+    "start": 585.065,
+    "end": 587.66
+   },
+   {
+    "start": 588.691,
+    "end": 590.845
+   },
+   {
+    "start": 592.985,
+    "end": 594.55
+   },
+   {
+    "start": 596.505,
+    "end": 598.636
+   },
+   {
+    "start": 599.388,
+    "end": 600.045
+   },
+   {
+    "start": 604.025,
+    "end": 606.211
+   },
+   {
+    "start": 608.265,
+    "end": 609.787
+   },
+   {
+    "start": 611.945,
+    "end": 613.87
+   },
+   {
+    "start": 615.945,
+    "end": 617.271
+   },
+   {
+    "start": 620.105,
+    "end": 621.801
+   },
+   {
+    "start": 623.785,
+    "end": 625.551
+   },
+   {
+    "start": 628.105,
+    "end": 630.693
+   },
+   {
+    "start": 631.725,
+    "end": 632.445
+   },
+   {
+    "start": 633.245,
+    "end": 633.879
+   },
+   {
+    "start": 635.017,
+    "end": 635.565
+   },
+   {
+    "start": 635.945,
+    "end": 637.583
+   },
+   {
+    "start": 639.545,
+    "end": 641.669
+   },
+   {
+    "start": 642.421,
+    "end": 643.245
+   },
+   {
+    "start": 647.225,
+    "end": 649.244
+   },
+   {
+    "start": 651.305,
+    "end": 652.821
+   },
+   {
+    "start": 655.065,
+    "end": 656.903
+   },
+   {
+    "start": 657.934,
+    "end": 658.685
+   },
+   {
+    "start": 659.645,
+    "end": 660.305
+   },
+   {
+    "start": 663.065,
+    "end": 664.833
+   },
+   {
+    "start": 666.905,
+    "end": 668.585
+   },
+   {
+    "start": 671.385,
+    "end": 673.727
+   },
+   {
+    "start": 674.758,
+    "end": 675.405
+   },
+   {
+    "start": 676.445,
+    "end": 676.912
+   },
+   {
+    "start": 678.05,
+    "end": 678.605
+   },
+   {
+    "start": 679.145,
+    "end": 680.616
+   },
+   {
+    "start": 682.825,
+    "end": 684.703
+   },
+   {
+    "start": 685.455,
+    "end": 686.605
+   },
+   {
+    "start": 690.425,
+    "end": 692.278
+   },
+   {
+    "start": 694.425,
+    "end": 695.854
+   },
+   {
+    "start": 698.345,
+    "end": 699.936
+   },
+   {
+    "start": 700.967,
+    "end": 701.885
+   },
+   {
+    "start": 702.685,
+    "end": 703.338
+   },
+   {
+    "start": 706.345,
+    "end": 707.867
+   },
+   {
+    "start": 710.185,
+    "end": 711.618
+   },
+   {
+    "start": 714.425,
+    "end": 716.76
+   },
+   {
+    "start": 717.791,
+    "end": 718.525
+   },
+   {
+    "start": 719.565,
+    "end": 719.945
+   },
+   {
+    "start": 721.083,
+    "end": 721.565
+   },
+   {
+    "start": 722.265,
+    "end": 723.65
+   },
+   {
+    "start": 725.945,
+    "end": 727.736
+   },
+   {
+    "start": 728.488,
+    "end": 729.565
+   },
+   {
+    "start": 733.385,
+    "end": 735.311
+   },
+   {
+    "start": 736.323,
+    "end": 737.165
+   },
+   {
+    "start": 738.125,
+    "end": 738.887
+   },
+   {
+    "start": 740.145,
+    "end": 740.605
+   },
+   {
+    "start": 741.385,
+    "end": 742.97
+   },
+   {
+    "start": 744.001,
+    "end": 744.925
+   },
+   {
+    "start": 745.885,
+    "end": 746.371
+   },
+   {
+    "start": 748.117,
+    "end": 748.205
+   },
+   {
+    "start": 749.545,
+    "end": 750.901
+   },
+   {
+    "start": 751.928,
+    "end": 752.845
+   },
+   {
+    "start": 753.805,
+    "end": 754.651
+   },
+   {
+    "start": 756.124,
+    "end": 756.685
+   },
+   {
+    "start": 757.545,
+    "end": 759.793
+   },
+   {
+    "start": 760.825,
+    "end": 762.979
+   },
+   {
+    "start": 764.117,
+    "end": 765.085
+   },
+   {
+    "start": 765.965,
+    "end": 766.683
+   },
+   {
+    "start": 767.717,
+    "end": 768.685
+   },
+   {
+    "start": 769.145,
+    "end": 770.769
+   },
+   {
+    "start": 771.521,
+    "end": 772.685
+   },
+   {
+    "start": 776.585,
+    "end": 778.344
+   },
+   {
+    "start": 779.356,
+    "end": 780.285
+   },
+   {
+    "start": 781.245,
+    "end": 781.921
+   },
+   {
+    "start": 783.179,
+    "end": 784.045
+   },
+   {
+    "start": 784.585,
+    "end": 786.003
+   },
+   {
+    "start": 787.034,
+    "end": 787.628
+   },
+   {
+    "start": 787.728,
+    "end": 788.125
+   },
+   {
+    "start": 788.925,
+    "end": 789.405
+   },
+   {
+    "start": 791.151,
+    "end": 791.485
+   },
+   {
+    "start": 792.745,
+    "end": 793.934
+   },
+   {
+    "start": 794.961,
+    "end": 795.965
+   },
+   {
+    "start": 796.845,
+    "end": 797.685
+   },
+   {
+    "start": 799.157,
+    "end": 799.725
+   },
+   {
+    "start": 800.585,
+    "end": 802.827
+   },
+   {
+    "start": 803.858,
+    "end": 804.765
+   },
+   {
+    "start": 807.15,
+    "end": 808.285
+   },
+   {
+    "start": 809.085,
+    "end": 809.716
+   },
+   {
+    "start": 810.75,
+    "end": 811.805
+   },
+   {
+    "start": 812.185,
+    "end": 813.803
+   },
+   {
+    "start": 814.555,
+    "end": 816.045
+   },
+   {
+    "start": 819.705,
+    "end": 821.378
+   },
+   {
+    "start": 822.39,
+    "end": 823.485
+   },
+   {
+    "start": 826.212,
+    "end": 827.005
+   },
+   {
+    "start": 830.067,
+    "end": 831.325
+   },
+   {
+    "start": 832.285,
+    "end": 832.438
+   },
+   {
+    "start": 834.184,
+    "end": 834.365
+   },
+   {
+    "start": 835.945,
+    "end": 836.967
+   },
+   {
+    "start": 837.994,
+    "end": 839.005
+   },
+   {
+    "start": 840.205,
+    "end": 840.718
+   },
+   {
+    "start": 842.19,
+    "end": 842.845
+   },
+   {
+    "start": 843.865,
+    "end": 845.86
+   },
+   {
+    "start": 846.891,
+    "end": 848.285
+   },
+   {
+    "start": 850.183,
+    "end": 851.085
+   },
+   {
+    "start": 853.784,
+    "end": 854.845
+   },
+   {
+    "start": 857.588,
+    "end": 859.005
+   },
+   {
+    "start": 862.985,
+    "end": 864.411
+   },
+   {
+    "start": 865.423,
+    "end": 867.987
+   },
+   {
+    "start": 869.245,
+    "end": 870.365
+   },
+   {
+    "start": 873.101,
+    "end": 874.285
+   },
+   {
+    "start": 877.217,
+    "end": 877.725
+   },
+   {
+    "start": 881.028,
+    "end": 882.445
+   },
+   {
+    "start": 883.245,
+    "end": 883.751
+   },
+   {
+    "start": 885.224,
+    "end": 886.365
+   },
+   {
+    "start": 886.985,
+    "end": 888.893
+   },
+   {
+    "start": 889.925,
+    "end": 891.165
+   },
+   {
+    "start": 893.217,
+    "end": 894.285
+   },
+   {
+    "start": 896.817,
+    "end": 898.125
+   },
+   {
+    "start": 900.621,
+    "end": 902.445
+   }
+  ],
+  "transcript": [
+   {
+    "start": 0.22,
+    "end": 2.596,
+    "text": "This is the finished oak bowl, oiled and"
+   },
+   {
+    "start": 2.596,
+    "end": 3.82,
+    "text": "ready for the table."
+   },
+   {
+    "start": 4.38,
+    "end": 6.742,
+    "text": "It started as a rough blank from a fallen"
+   },
+   {
+    "start": 6.742,
+    "end": 7.1,
+    "text": "tree."
+   },
+   {
+    "start": 8.22,
+    "end": 10.834,
+    "text": "Here is the raw oak blank still wet and"
+   },
+   {
+    "start": 10.834,
+    "end": 11.34,
+    "text": "heavy."
+   },
+   {
+    "start": 12.14,
+    "end": 14.492,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 14.492,
+    "end": 14.7,
+    "text": "be."
+   },
+   {
+    "start": 16.38,
+    "end": 18.565,
+    "text": "On the lathe the shape appears in long"
+   },
+   {
+    "start": 18.565,
+    "end": 19.34,
+    "text": "steady cuts."
+   },
+   {
+    "start": 20.06,
+    "end": 22.27,
+    "text": "I keep the wall wall thickness even from"
+   },
+   {
+    "start": 22.27,
+    "end": 22.94,
+    "text": "rim to base."
+   },
+   {
+    "start": 24.22,
+    "end": 26.683,
+    "text": "Sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 26.683,
+    "end": 28.06,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 28.94,
+    "end": 31.34,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 32.38,
+    "end": 34.58,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 34.58,
+    "end": 35.02,
+    "text": "color."
+   },
+   {
+    "start": 35.9,
+    "end": 39.26,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 43.42,
+    "end": 45.66,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 45.66,
+    "end": 46.78,
+    "text": "ready for the table"
+   },
+   {
+    "start": 47.58,
+    "end": 49.374,
+    "text": "it started as started as a rough blank"
+   },
+   {
+    "start": 49.374,
+    "end": 50.3,
+    "text": "from a fallen tree."
+   },
+   {
+    "start": 51.5,
+    "end": 53.846,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 53.846,
+    "end": 54.3,
+    "text": "heavy."
+   },
+   {
+    "start": 55.42,
+    "end": 57.552,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 57.552,
+    "end": 57.74,
+    "text": "be."
+   },
+   {
+    "start": 59.5,
+    "end": 61.461,
+    "text": "on the lathe lathe the shape appears in"
+   },
+   {
+    "start": 61.461,
+    "end": 62.38,
+    "text": "long steady cuts."
+   },
+   {
+    "start": 63.34,
+    "end": 65.642,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 65.642,
+    "end": 65.98,
+    "text": "base."
+   },
+   {
+    "start": 67.42,
+    "end": 69.729,
+    "text": "sanding goes from course to fine with the"
+   },
+   {
+    "start": 69.729,
+    "end": 71.02,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 72.3,
+    "end": 74.54,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 75.42,
+    "end": 77.62,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 77.62,
+    "end": 78.06,
+    "text": "color."
+   },
+   {
+    "start": 79.02,
+    "end": 82.14,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 86.7,
+    "end": 88.633,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 88.633,
+    "end": 89.66,
+    "text": "ready for the table."
+   },
+   {
+    "start": 90.78,
+    "end": 92.934,
+    "text": "It started as a rough blank from a fallen"
+   },
+   {
+    "start": 92.934,
+    "end": 93.26,
+    "text": "tree."
+   },
+   {
+    "start": 94.54,
+    "end": 96.725,
+    "text": "Here is the raw oak blank, still wet wet"
+   },
+   {
+    "start": 96.725,
+    "end": 97.34,
+    "text": "and heavy."
+   },
+   {
+    "start": 98.46,
+    "end": 100.518,
+    "text": "The grain tells me where the bowl wants to"
+   },
+   {
+    "start": 100.518,
+    "end": 100.7,
+    "text": "be."
+   },
+   {
+    "start": 102.7,
+    "end": 104.826,
+    "text": "On the lathe the shape appears in long"
+   },
+   {
+    "start": 104.826,
+    "end": 105.58,
+    "text": "steady cuts."
+   },
+   {
+    "start": 106.54,
+    "end": 108.842,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 108.842,
+    "end": 109.18,
+    "text": "base."
+   },
+   {
+    "start": 110.78,
+    "end": 113.141,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 113.141,
+    "end": 114.46,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 115.42,
+    "end": 117.34,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 118.7,
+    "end": 120.833,
+    "text": "A coat of food safe oil brings out the"
+   },
+   {
+    "start": 120.833,
+    "end": 121.26,
+    "text": "color."
+   },
+   {
+    "start": 122.38,
+    "end": 125.42,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 129.82,
+    "end": 131.74,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 131.74,
+    "end": 132.94,
+    "text": "and ready for the table."
+   },
+   {
+    "start": 133.82,
+    "end": 136.252,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 136.252,
+    "end": 136.62,
+    "text": "tree."
+   },
+   {
+    "start": 137.9,
+    "end": 140.179,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 140.179,
+    "end": 140.62,
+    "text": "heavy."
+   },
+   {
+    "start": 141.74,
+    "end": 143.798,
+    "text": "The grain tells me where the bowl wants to"
+   },
+   {
+    "start": 143.798,
+    "end": 143.98,
+    "text": "be."
+   },
+   {
+    "start": 145.82,
+    "end": 147.828,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 147.828,
+    "end": 148.54,
+    "text": "steady cuts."
+   },
+   {
+    "start": 149.5,
+    "end": 151.871,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 151.871,
+    "end": 152.22,
+    "text": "base."
+   },
+   {
+    "start": 153.9,
+    "end": 156.261,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 156.261,
+    "end": 157.58,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 158.54,
+    "end": 160.78,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 161.82,
+    "end": 164.087,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 164.087,
+    "end": 164.54,
+    "text": "color."
+   },
+   {
+    "start": 165.5,
+    "end": 168.38,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 173.02,
+    "end": 175.214,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 175.214,
+    "end": 176.38,
+    "text": "ready for the table."
+   },
+   {
+    "start": 177.1,
+    "end": 179.532,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 179.532,
+    "end": 179.9,
+    "text": "tree."
+   },
+   {
+    "start": 181.1,
+    "end": 183.245,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 183.245,
+    "end": 183.66,
+    "text": "heavy."
+   },
+   {
+    "start": 184.86,
+    "end": 186.715,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 186.715,
+    "end": 187.26,
+    "text": "wants to be."
+   },
+   {
+    "start": 189.02,
+    "end": 191.087,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 191.087,
+    "end": 191.82,
+    "text": "steady cuts."
+   },
+   {
+    "start": 192.62,
+    "end": 194.769,
+    "text": "I keep the wall thickness even from from"
+   },
+   {
+    "start": 194.769,
+    "end": 195.42,
+    "text": "rim to base."
+   },
+   {
+    "start": 196.94,
+    "end": 199.79,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 199.79,
+    "end": 201.382,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 201.382,
+    "end": 203.98,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 205.18,
+    "end": 208.089,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 208.089,
+    "end": 211.289,
+    "text": "color 24 hours later the bowl is ready to"
+   },
+   {
+    "start": 211.289,
+    "end": 211.58,
+    "text": "use"
+   },
+   {
+    "start": 216.14,
+    "end": 218.273,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 218.273,
+    "end": 219.34,
+    "text": "ready for the table"
+   },
+   {
+    "start": 220.14,
+    "end": 222.641,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 222.641,
+    "end": 223.02,
+    "text": "tree."
+   },
+   {
+    "start": 224.14,
+    "end": 226.419,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 226.419,
+    "end": 226.86,
+    "text": "heavy."
+   },
+   {
+    "start": 227.9,
+    "end": 229.773,
+    "text": "the grain tells me where the bowl wants"
+   },
+   {
+    "start": 229.773,
+    "end": 230.3,
+    "text": "wants to be"
+   },
+   {
+    "start": 232.3,
+    "end": 234.13,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 234.13,
+    "end": 234.78,
+    "text": "steady cuts."
+   },
+   {
+    "start": 235.82,
+    "end": 238.045,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 238.045,
+    "end": 238.7,
+    "text": "rim to base."
+   },
+   {
+    "start": 240.3,
+    "end": 242.661,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 242.661,
+    "end": 243.98,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 244.94,
+    "end": 247.02,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 248.22,
+    "end": 250.287,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 250.287,
+    "end": 250.7,
+    "text": "color."
+   },
+   {
+    "start": 251.9,
+    "end": 254.269,
+    "text": "24 hours later the bowl is ready is ready"
+   },
+   {
+    "start": 254.269,
+    "end": 254.7,
+    "text": "to use."
+   },
+   {
+    "start": 259.34,
+    "end": 261.43,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 261.43,
+    "end": 262.54,
+    "text": "ready for the table."
+   },
+   {
+    "start": 263.34,
+    "end": 265.364,
+    "text": "It started as a rough rough blank from a"
+   },
+   {
+    "start": 265.364,
+    "end": 266.06,
+    "text": "fallen tree."
+   },
+   {
+    "start": 267.18,
+    "end": 269.66,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 269.66,
+    "end": 270.14,
+    "text": "heavy."
+   },
+   {
+    "start": 271.02,
+    "end": 272.88,
+    "text": "the grain tells me where the bowl bowl"
+   },
+   {
+    "start": 272.88,
+    "end": 273.42,
+    "text": "wants to be"
+   },
+   {
+    "start": 275.18,
+    "end": 277.424,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 277.424,
+    "end": 278.22,
+    "text": "steady cuts."
+   },
+   {
+    "start": 279.18,
+    "end": 281.551,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 281.551,
+    "end": 281.9,
+    "text": "base."
+   },
+   {
+    "start": 283.34,
+    "end": 285.425,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 285.425,
+    "end": 286.591,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 286.591,
+    "end": 287.02,
+    "text": "slowly."
+   },
+   {
+    "start": 288.06,
+    "end": 290.22,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 291.42,
+    "end": 293.553,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 293.553,
+    "end": 293.98,
+    "text": "color."
+   },
+   {
+    "start": 294.78,
+    "end": 297.98,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 302.46,
+    "end": 304.602,
+    "text": "This is the finished oak bowl oiled and"
+   },
+   {
+    "start": 304.602,
+    "end": 305.74,
+    "text": "ready for the table."
+   },
+   {
+    "start": 306.46,
+    "end": 308.822,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 308.822,
+    "end": 309.18,
+    "text": "tree."
+   },
+   {
+    "start": 310.46,
+    "end": 312.672,
+    "text": "Here is the raw oak blank still wet and"
+   },
+   {
+    "start": 312.672,
+    "end": 313.1,
+    "text": "heavy."
+   },
+   {
+    "start": 314.38,
+    "end": 316.026,
+    "text": "The grain tells me where where the bowl"
+   },
+   {
+    "start": 316.026,
+    "end": 316.54,
+    "text": "wants to be."
+   },
+   {
+    "start": 318.46,
+    "end": 320.645,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 320.645,
+    "end": 321.42,
+    "text": "steady cuts."
+   },
+   {
+    "start": 322.3,
+    "end": 324.741,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 324.741,
+    "end": 325.1,
+    "text": "base."
+   },
+   {
+    "start": 326.38,
+    "end": 328.689,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 328.689,
+    "end": 329.98,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 331.1,
+    "end": 333.34,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 334.54,
+    "end": 336.285,
+    "text": "a coat of food safe food safe oil brings"
+   },
+   {
+    "start": 336.285,
+    "end": 336.94,
+    "text": "out the color."
+   },
+   {
+    "start": 338.06,
+    "end": 341.1,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 345.66,
+    "end": 347.629,
+    "text": "this is the the finished oak bowl oiled"
+   },
+   {
+    "start": 347.629,
+    "end": 348.86,
+    "text": "and ready for the table."
+   },
+   {
+    "start": 349.82,
+    "end": 352.043,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 352.043,
+    "end": 352.38,
+    "text": "tree."
+   },
+   {
+    "start": 353.5,
+    "end": 355.749,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 355.749,
+    "end": 356.185,
+    "text": "heavy."
+   },
+   {
+    "start": 356.185,
+    "end": 356.62,
+    "text": "heavy."
+   },
+   {
+    "start": 357.5,
+    "end": 359.146,
+    "text": "The grain tells tells me where the bowl"
+   },
+   {
+    "start": 359.146,
+    "end": 359.66,
+    "text": "wants to be."
+   },
+   {
+    "start": 361.74,
+    "end": 363.701,
+    "text": "on the lathe lathe the shape appears in"
+   },
+   {
+    "start": 363.701,
+    "end": 364.62,
+    "text": "long steady cuts."
+   },
+   {
+    "start": 365.34,
+    "end": 367.921,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 367.921,
+    "end": 368.3,
+    "text": "base."
+   },
+   {
+    "start": 369.74,
+    "end": 371.947,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 371.947,
+    "end": 373.18,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 374.22,
+    "end": 376.3,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 377.66,
+    "end": 379.793,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 379.793,
+    "end": 380.22,
+    "text": "color."
+   },
+   {
+    "start": 381.18,
+    "end": 383.792,
+    "text": "24 24 hours later the bowl is ready to"
+   },
+   {
+    "start": 383.792,
+    "end": 384.14,
+    "text": "use."
+   },
+   {
+    "start": 388.7,
+    "end": 390.738,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 390.738,
+    "end": 391.82,
+    "text": "ready for the table."
+   },
+   {
+    "start": 392.78,
+    "end": 395.42,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 395.42,
+    "end": 395.82,
+    "text": "tree."
+   },
+   {
+    "start": 396.7,
+    "end": 399.113,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 399.113,
+    "end": 399.58,
+    "text": "heavy."
+   },
+   {
+    "start": 400.46,
+    "end": 402.739,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 402.739,
+    "end": 402.94,
+    "text": "be."
+   },
+   {
+    "start": 404.78,
+    "end": 406.847,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 406.847,
+    "end": 407.58,
+    "text": "steady cuts."
+   },
+   {
+    "start": 408.46,
+    "end": 411.18,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 411.18,
+    "end": 411.58,
+    "text": "base."
+   },
+   {
+    "start": 413.02,
+    "end": 415.278,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 415.278,
+    "end": 416.54,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 417.5,
+    "end": 419.74,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 420.78,
+    "end": 423.047,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 423.047,
+    "end": 423.5,
+    "text": "color."
+   },
+   {
+    "start": 424.46,
+    "end": 427.02,
+    "text": "24 24 hours later the bowl is ready to to"
+   },
+   {
+    "start": 427.02,
+    "end": 427.34,
+    "text": "use."
+   },
+   {
+    "start": 431.98,
+    "end": 434.07,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 434.07,
+    "end": 435.18,
+    "text": "ready for the table."
+   },
+   {
+    "start": 436.06,
+    "end": 438.214,
+    "text": "It started as a rough blank from a fallen"
+   },
+   {
+    "start": 438.214,
+    "end": 438.54,
+    "text": "tree."
+   },
+   {
+    "start": 439.9,
+    "end": 442.447,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 442.447,
+    "end": 442.94,
+    "text": "heavy."
+   },
+   {
+    "start": 443.74,
+    "end": 445.945,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 445.945,
+    "end": 446.14,
+    "text": "be."
+   },
+   {
+    "start": 447.98,
+    "end": 450.106,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 450.106,
+    "end": 450.86,
+    "text": "steady cuts."
+   },
+   {
+    "start": 451.58,
+    "end": 453.951,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 453.951,
+    "end": 454.3,
+    "text": "base."
+   },
+   {
+    "start": 455.98,
+    "end": 458.392,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 458.392,
+    "end": 459.74,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 460.94,
+    "end": 462.7,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 463.98,
+    "end": 466.113,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 466.113,
+    "end": 466.54,
+    "text": "color."
+   },
+   {
+    "start": 467.74,
+    "end": 470.422,
+    "text": "24 hours later the bowl is is ready to"
+   },
+   {
+    "start": 470.422,
+    "end": 470.78,
+    "text": "use."
+   },
+   {
+    "start": 475.1,
+    "end": 477.142,
+    "text": "this is the finished oak bowl bowl oiled"
+   },
+   {
+    "start": 477.142,
+    "end": 478.38,
+    "text": "and ready for the table."
+   },
+   {
+    "start": 479.1,
+    "end": 481.462,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 481.462,
+    "end": 481.82,
+    "text": "tree."
+   },
+   {
+    "start": 482.94,
+    "end": 485.487,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 485.487,
+    "end": 485.98,
+    "text": "heavy."
+   },
+   {
+    "start": 486.94,
+    "end": 488.998,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 488.998,
+    "end": 489.18,
+    "text": "be."
+   },
+   {
+    "start": 491.18,
+    "end": 493.365,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 493.365,
+    "end": 494.14,
+    "text": "steady cuts."
+   },
+   {
+    "start": 494.78,
+    "end": 496.768,
+    "text": "I keep the wall thickness even thickness"
+   },
+   {
+    "start": 496.768,
+    "end": 497.82,
+    "text": "even from rim to base."
+   },
+   {
+    "start": 499.1,
+    "end": 501.512,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 501.512,
+    "end": 502.86,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 503.98,
+    "end": 505.98,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 507.02,
+    "end": 509.42,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 509.42,
+    "end": 509.9,
+    "text": "color."
+   },
+   {
+    "start": 510.94,
+    "end": 513.82,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 518.22,
+    "end": 520.091,
+    "text": "this is the finished oak oak bowl oiled"
+   },
+   {
+    "start": 520.091,
+    "end": 521.26,
+    "text": "and ready for the table."
+   },
+   {
+    "start": 522.3,
+    "end": 524.523,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 524.523,
+    "end": 524.86,
+    "text": "tree."
+   },
+   {
+    "start": 526.06,
+    "end": 528.741,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 528.741,
+    "end": 529.26,
+    "text": "heavy."
+   },
+   {
+    "start": 529.9,
+    "end": 532.105,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 532.105,
+    "end": 532.3,
+    "text": "be."
+   },
+   {
+    "start": 534.14,
+    "end": 536.251,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 536.251,
+    "end": 537.0,
+    "text": "steady cuts."
+   },
+   {
+    "start": 537.0,
+    "end": 537.34,
+    "text": "cuts."
+   },
+   {
+    "start": 537.9,
+    "end": 540.411,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 540.411,
+    "end": 540.78,
+    "text": "base."
+   },
+   {
+    "start": 542.3,
+    "end": 544.504,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 544.504,
+    "end": 546.06,
+    "text": "lathe lathe turning slowly."
+   },
+   {
+    "start": 547.02,
+    "end": 549.02,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 550.14,
+    "end": 552.34,
+    "text": "a coat of coat of food safe oil brings out"
+   },
+   {
+    "start": 552.34,
+    "end": 552.94,
+    "text": "the color."
+   },
+   {
+    "start": 554.62,
+    "end": 557.02,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 561.26,
+    "end": 563.454,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 563.454,
+    "end": 564.62,
+    "text": "ready for the table."
+   },
+   {
+    "start": 565.5,
+    "end": 567.723,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 567.723,
+    "end": 568.06,
+    "text": "tree."
+   },
+   {
+    "start": 569.34,
+    "end": 571.51,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 571.51,
+    "end": 572.14,
+    "text": "and heavy."
+   },
+   {
+    "start": 573.18,
+    "end": 575.385,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 575.385,
+    "end": 575.58,
+    "text": "be."
+   },
+   {
+    "start": 577.485,
+    "end": 579.592,
+    "text": "On the late the shape appears in long"
+   },
+   {
+    "start": 579.592,
+    "end": 580.365,
+    "text": "steady cuts."
+   },
+   {
+    "start": 581.085,
+    "end": 583.877,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 583.877,
+    "end": 584.205,
+    "text": "base"
+   },
+   {
+    "start": 585.565,
+    "end": 587.971,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 587.971,
+    "end": 589.245,
+    "text": "lathe turning slowly"
+   },
+   {
+    "start": 590.045,
+    "end": 592.205,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 593.485,
+    "end": 595.474,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 595.474,
+    "end": 595.805,
+    "text": "color"
+   },
+   {
+    "start": 597.005,
+    "end": 600.045,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 604.525,
+    "end": 606.712,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 606.712,
+    "end": 607.805,
+    "text": "ready for the table"
+   },
+   {
+    "start": 608.765,
+    "end": 610.906,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 610.906,
+    "end": 611.165,
+    "text": "tree"
+   },
+   {
+    "start": 612.445,
+    "end": 614.858,
+    "text": "Here is the raw oak blank still wet and"
+   },
+   {
+    "start": 614.858,
+    "end": 615.325,
+    "text": "heavy."
+   },
+   {
+    "start": 616.445,
+    "end": 618.485,
+    "text": "The grain tells me where the bowl wants to"
+   },
+   {
+    "start": 618.485,
+    "end": 618.605,
+    "text": "be"
+   },
+   {
+    "start": 620.605,
+    "end": 622.672,
+    "text": "On the lathe the shape appears in long"
+   },
+   {
+    "start": 622.672,
+    "end": 623.405,
+    "text": "steady cuts."
+   },
+   {
+    "start": 624.285,
+    "end": 626.726,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 626.726,
+    "end": 627.085,
+    "text": "base."
+   },
+   {
+    "start": 628.605,
+    "end": 631.068,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 631.068,
+    "end": 632.445,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 633.245,
+    "end": 635.565,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 636.445,
+    "end": 638.543,
+    "text": "a coat of food safe safe oil brings out"
+   },
+   {
+    "start": 638.543,
+    "end": 639.085,
+    "text": "the color"
+   },
+   {
+    "start": 640.045,
+    "end": 643.245,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 647.725,
+    "end": 649.805,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 649.805,
+    "end": 650.845,
+    "text": "ready for the table"
+   },
+   {
+    "start": 651.805,
+    "end": 654.302,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 654.302,
+    "end": 654.605,
+    "text": "tree"
+   },
+   {
+    "start": 655.565,
+    "end": 658.252,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 658.252,
+    "end": 658.685,
+    "text": "heavy"
+   },
+   {
+    "start": 659.645,
+    "end": 661.836,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 661.836,
+    "end": 661.965,
+    "text": "be"
+   },
+   {
+    "start": 663.565,
+    "end": 665.662,
+    "text": "on the lathe the shape appears appears in"
+   },
+   {
+    "start": 665.662,
+    "end": 666.525,
+    "text": "long steady cuts"
+   },
+   {
+    "start": 667.405,
+    "end": 670.195,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 670.195,
+    "end": 670.605,
+    "text": "base."
+   },
+   {
+    "start": 671.885,
+    "end": 674.143,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 674.143,
+    "end": 675.405,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 676.445,
+    "end": 678.605,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 679.645,
+    "end": 681.947,
+    "text": "a coat of food safe oil oil brings out the"
+   },
+   {
+    "start": 681.947,
+    "end": 682.365,
+    "text": "color."
+   },
+   {
+    "start": 683.325,
+    "end": 686.605,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 690.925,
+    "end": 692.91,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 692.91,
+    "end": 693.965,
+    "text": "ready for the table."
+   },
+   {
+    "start": 694.925,
+    "end": 697.148,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 697.148,
+    "end": 697.485,
+    "text": "tree."
+   },
+   {
+    "start": 698.845,
+    "end": 701.392,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 701.392,
+    "end": 701.885,
+    "text": "heavy."
+   },
+   {
+    "start": 702.685,
+    "end": 704.817,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 704.817,
+    "end": 705.005,
+    "text": "be."
+   },
+   {
+    "start": 706.845,
+    "end": 709.03,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 709.03,
+    "end": 709.805,
+    "text": "steady cuts."
+   },
+   {
+    "start": 710.685,
+    "end": 712.987,
+    "text": "i keep the wall thickness even from rim to"
+   },
+   {
+    "start": 712.987,
+    "end": 713.325,
+    "text": "base."
+   },
+   {
+    "start": 714.925,
+    "end": 717.234,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 717.234,
+    "end": 718.525,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 719.565,
+    "end": 721.565,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 722.765,
+    "end": 724.965,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 724.965,
+    "end": 725.405,
+    "text": "color."
+   },
+   {
+    "start": 726.445,
+    "end": 729.565,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 733.885,
+    "end": 735.903,
+    "text": "this is the finished oak oak bowl oiled"
+   },
+   {
+    "start": 735.903,
+    "end": 737.165,
+    "text": "and ready for the table."
+   },
+   {
+    "start": 738.125,
+    "end": 740.279,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 740.279,
+    "end": 740.605,
+    "text": "tree."
+   },
+   {
+    "start": 741.885,
+    "end": 744.432,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 744.432,
+    "end": 744.925,
+    "text": "heavy."
+   },
+   {
+    "start": 745.885,
+    "end": 748.017,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 748.017,
+    "end": 748.205,
+    "text": "be."
+   },
+   {
+    "start": 750.045,
+    "end": 751.951,
+    "text": "on the lathe the shape shape appears in"
+   },
+   {
+    "start": 751.951,
+    "end": 752.845,
+    "text": "long steady cuts."
+   },
+   {
+    "start": 753.805,
+    "end": 756.316,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 756.316,
+    "end": 756.685,
+    "text": "base."
+   },
+   {
+    "start": 758.045,
+    "end": 760.861,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 760.861,
+    "end": 763.594,
+    "text": "lathe turning slowly, this is where the"
+   },
+   {
+    "start": 763.594,
+    "end": 765.085,
+    "text": "grain starts to glow,"
+   },
+   {
+    "start": 765.965,
+    "end": 768.073,
+    "text": "a coat of food safe safe oil brings out"
+   },
+   {
+    "start": 768.073,
+    "end": 768.685,
+    "text": "the color."
+   },
+   {
+    "start": 769.645,
+    "end": 772.685,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 777.085,
+    "end": 778.792,
+    "text": "this is the finished finished oak bowl"
+   },
+   {
+    "start": 778.792,
+    "end": 780.285,
+    "text": "oiled and ready for the the table."
+   },
+   {
+    "start": 781.245,
+    "end": 783.677,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 783.677,
+    "end": 784.045,
+    "text": "tree."
+   },
+   {
+    "start": 785.085,
+    "end": 787.134,
+    "text": "here is the the raw oak blank still wet"
+   },
+   {
+    "start": 787.134,
+    "end": 787.728,
+    "text": "and heavy."
+   },
+   {
+    "start": 787.728,
+    "end": 788.125,
+    "text": "heavy."
+   },
+   {
+    "start": 788.925,
+    "end": 790.875,
+    "text": "the grain grain tells me where the bowl"
+   },
+   {
+    "start": 790.875,
+    "end": 791.485,
+    "text": "wants to be."
+   },
+   {
+    "start": 793.245,
+    "end": 795.002,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 795.002,
+    "end": 795.965,
+    "text": "steady steady cuts."
+   },
+   {
+    "start": 796.845,
+    "end": 799.356,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 799.356,
+    "end": 799.725,
+    "text": "base."
+   },
+   {
+    "start": 801.085,
+    "end": 803.446,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 803.446,
+    "end": 804.765,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 805.885,
+    "end": 808.285,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 809.085,
+    "end": 811.352,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 811.352,
+    "end": 811.805,
+    "text": "color."
+   },
+   {
+    "start": 812.685,
+    "end": 816.045,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 820.205,
+    "end": 822.347,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 822.347,
+    "end": 823.485,
+    "text": "ready for the table."
+   },
+   {
+    "start": 824.605,
+    "end": 826.689,
+    "text": "it started as a rough blank from a fallen"
+   },
+   {
+    "start": 826.689,
+    "end": 827.005,
+    "text": "tree."
+   },
+   {
+    "start": 828.285,
+    "end": 830.641,
+    "text": "here is the raw oak blank still wet wet"
+   },
+   {
+    "start": 830.641,
+    "end": 831.325,
+    "text": "and heavy."
+   },
+   {
+    "start": 832.285,
+    "end": 834.196,
+    "text": "the grain tells me where the bowl wants to"
+   },
+   {
+    "start": 834.196,
+    "end": 834.365,
+    "text": "be."
+   },
+   {
+    "start": 836.445,
+    "end": 838.335,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 838.335,
+    "end": 839.005,
+    "text": "steady cuts."
+   },
+   {
+    "start": 840.205,
+    "end": 842.507,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 842.507,
+    "end": 842.845,
+    "text": "base."
+   },
+   {
+    "start": 844.365,
+    "end": 846.88,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 846.88,
+    "end": 848.285,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 849.005,
+    "end": 851.085,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 852.365,
+    "end": 854.463,
+    "text": "a coat of food safe oil brings out out the"
+   },
+   {
+    "start": 854.463,
+    "end": 854.845,
+    "text": "color."
+   },
+   {
+    "start": 855.885,
+    "end": 859.005,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 863.485,
+    "end": 865.672,
+    "text": "this is the finished oak bowl oiled and"
+   },
+   {
+    "start": 865.672,
+    "end": 866.765,
+    "text": "ready for the table"
+   },
+   {
+    "start": 867.485,
+    "end": 869.628,
+    "text": "it started as a rough blank blank from a"
+   },
+   {
+    "start": 869.628,
+    "end": 870.365,
+    "text": "fallen tree."
+   },
+   {
+    "start": 871.405,
+    "end": 873.818,
+    "text": "here is the raw oak blank still wet and"
+   },
+   {
+    "start": 873.818,
+    "end": 874.285,
+    "text": "heavy."
+   },
+   {
+    "start": 875.245,
+    "end": 877.524,
+    "text": "The grain tells me where the bowl wants to"
+   },
+   {
+    "start": 877.524,
+    "end": 877.725,
+    "text": "be."
+   },
+   {
+    "start": 879.565,
+    "end": 881.691,
+    "text": "on the lathe the shape appears in long"
+   },
+   {
+    "start": 881.691,
+    "end": 882.445,
+    "text": "steady cuts."
+   },
+   {
+    "start": 883.245,
+    "end": 885.965,
+    "text": "I keep the wall thickness even from rim to"
+   },
+   {
+    "start": 885.965,
+    "end": 886.365,
+    "text": "base."
+   },
+   {
+    "start": 887.485,
+    "end": 889.846,
+    "text": "sanding goes from coarse to fine with the"
+   },
+   {
+    "start": 889.846,
+    "end": 891.165,
+    "text": "lathe turning slowly."
+   },
+   {
+    "start": 892.285,
+    "end": 894.015,
+    "text": "this is where the grain grain starts to"
+   },
+   {
+    "start": 894.015,
+    "end": 894.285,
+    "text": "glow."
+   },
+   {
+    "start": 895.565,
+    "end": 897.698,
+    "text": "a coat of food safe oil brings out the"
+   },
+   {
+    "start": 897.698,
+    "end": 898.125,
+    "text": "color."
+   },
+   {
+    "start": 899.005,
+    "end": 901.902,
+    "text": "24 hours later the bowl is bowl is ready"
+   },
+   {
+    "start": 901.902,
+    "end": 902.445,
+    "text": "to use."
+   }
+  ],
+  "sentences": [
+   {
+    "start": 0.404,
+    "end": 3.82,
+    "text": "This is the finished oak bowl, oiled and ready for the table."
+   },
+   {
+    "start": 4.606,
+    "end": 7.1,
+    "text": "It started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 8.429,
+    "end": 11.34,
+    "text": "Here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 12.284,
+    "end": 14.7,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 16.401,
+    "end": 19.34,
+    "text": "On the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 20.211,
+    "end": 22.94,
+    "text": "I keep the wall wall thickness even from rim to base."
+   },
+   {
+    "start": 24.407,
+    "end": 28.06,
+    "text": "Sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 29.108,
+    "end": 31.34,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 32.4,
+    "end": 35.02,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 36.0,
+    "end": 39.26,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 43.437,
+    "end": 50.3,
+    "text": "this is the finished oak bowl oiled and ready for the table it started as started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 51.462,
+    "end": 54.3,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 55.317,
+    "end": 57.74,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 59.434,
+    "end": 62.38,
+    "text": "on the lathe lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 63.244,
+    "end": 65.98,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 67.44,
+    "end": 71.02,
+    "text": "sanding goes from course to fine with the lathe turning slowly."
+   },
+   {
+    "start": 72.141,
+    "end": 74.54,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 75.433,
+    "end": 78.06,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 79.034,
+    "end": 82.14,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 86.471,
+    "end": 89.66,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 90.673,
+    "end": 93.26,
+    "text": "It started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 94.495,
+    "end": 97.34,
+    "text": "Here is the raw oak blank, still wet wet and heavy."
+   },
+   {
+    "start": 98.351,
+    "end": 100.7,
+    "text": "The grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 102.467,
+    "end": 105.551,
+    "text": "On the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 106.278,
+    "end": 109.18,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 110.474,
+    "end": 114.443,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 115.175,
+    "end": 117.34,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 118.467,
+    "end": 121.26,
+    "text": "A coat of food safe oil brings out the color."
+   },
+   {
+    "start": 122.067,
+    "end": 125.419,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 129.504,
+    "end": 132.94,
+    "text": "this is the finished oak bowl oiled and and ready for the table."
+   },
+   {
+    "start": 133.706,
+    "end": 136.571,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 137.529,
+    "end": 140.62,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 141.384,
+    "end": 143.98,
+    "text": "The grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 145.501,
+    "end": 148.54,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 149.311,
+    "end": 152.22,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 153.507,
+    "end": 157.477,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 158.208,
+    "end": 160.662,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 161.5,
+    "end": 164.366,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 165.1,
+    "end": 168.38,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 172.537,
+    "end": 176.028,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 176.74,
+    "end": 179.604,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 180.6,
+    "end": 183.66,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 184.417,
+    "end": 187.088,
+    "text": "the grain tells me where the bowl wants to wants to be."
+   },
+   {
+    "start": 188.534,
+    "end": 191.617,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 192.344,
+    "end": 195.368,
+    "text": "I keep the wall thickness even from from rim to base."
+   },
+   {
+    "start": 196.54,
+    "end": 200.51,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 201.241,
+    "end": 203.695,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 204.68,
+    "end": 211.486,
+    "text": "a coat of food safe oil brings out the color 24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 215.64,
+    "end": 222.637,
+    "text": "this is the finished oak bowl oiled and ready for the table it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 223.64,
+    "end": 226.72,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 227.451,
+    "end": 230.121,
+    "text": "the grain tells me where the bowl wants wants to be"
+   },
+   {
+    "start": 231.8,
+    "end": 234.651,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 235.378,
+    "end": 238.401,
+    "text": "I keep the wall thickness even from rim to rim to base."
+   },
+   {
+    "start": 239.8,
+    "end": 243.543,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 244.44,
+    "end": 246.729,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 247.72,
+    "end": 250.433,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 251.4,
+    "end": 254.519,
+    "text": "24 hours later the bowl is ready is ready to use."
+   },
+   {
+    "start": 258.84,
+    "end": 262.094,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 262.84,
+    "end": 265.671,
+    "text": "It started as a rough rough blank from a fallen tree."
+   },
+   {
+    "start": 266.68,
+    "end": 269.753,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 270.52,
+    "end": 273.155,
+    "text": "the grain tells me where the bowl bowl wants to be"
+   },
+   {
+    "start": 274.68,
+    "end": 277.683,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 278.68,
+    "end": 281.435,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 282.84,
+    "end": 286.491,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 286.591,
+    "end": 287.02,
+    "text": "slowly."
+   },
+   {
+    "start": 287.56,
+    "end": 289.762,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 290.92,
+    "end": 293.466,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 294.28,
+    "end": 297.553,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 301.96,
+    "end": 305.128,
+    "text": "This is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 305.96,
+    "end": 308.704,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 309.96,
+    "end": 312.786,
+    "text": "Here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 313.88,
+    "end": 316.188,
+    "text": "The grain tells me where where the bowl wants to be."
+   },
+   {
+    "start": 317.96,
+    "end": 320.717,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 321.8,
+    "end": 324.468,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 325.88,
+    "end": 329.61,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 330.6,
+    "end": 332.795,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 334.04,
+    "end": 336.5,
+    "text": "a coat of food safe food safe oil brings out the color."
+   },
+   {
+    "start": 337.56,
+    "end": 340.586,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 345.16,
+    "end": 348.161,
+    "text": "this is the the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 349.32,
+    "end": 351.737,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 353.0,
+    "end": 355.82,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 356.185,
+    "end": 356.62,
+    "text": "heavy."
+   },
+   {
+    "start": 357.0,
+    "end": 359.221,
+    "text": "The grain tells tells me where the bowl wants to be."
+   },
+   {
+    "start": 361.24,
+    "end": 363.75,
+    "text": "on the lathe lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 364.84,
+    "end": 367.501,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 369.24,
+    "end": 372.643,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 373.72,
+    "end": 375.829,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 377.16,
+    "end": 379.533,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 380.68,
+    "end": 383.62,
+    "text": "24 24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 388.2,
+    "end": 391.194,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 392.28,
+    "end": 394.771,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 396.2,
+    "end": 398.853,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 399.96,
+    "end": 402.255,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 404.28,
+    "end": 406.784,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 407.96,
+    "end": 410.535,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 412.52,
+    "end": 415.677,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 417.0,
+    "end": 418.862,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 420.28,
+    "end": 422.566,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 423.96,
+    "end": 427.34,
+    "text": "24 24 hours later the bowl is ready to to use."
+   },
+   {
+    "start": 431.48,
+    "end": 434.228,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 435.56,
+    "end": 437.804,
+    "text": "It started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 439.4,
+    "end": 441.886,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 443.24,
+    "end": 445.288,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 447.48,
+    "end": 449.817,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 451.08,
+    "end": 453.568,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 455.48,
+    "end": 458.71,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 460.44,
+    "end": 461.895,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 463.48,
+    "end": 465.6,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 467.24,
+    "end": 470.78,
+    "text": "24 hours later the bowl is is ready to use."
+   },
+   {
+    "start": 474.6,
+    "end": 477.261,
+    "text": "this is the finished oak bowl bowl oiled and ready for the table."
+   },
+   {
+    "start": 478.6,
+    "end": 480.837,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 482.44,
+    "end": 484.92,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 486.44,
+    "end": 488.321,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 490.68,
+    "end": 492.85,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 494.28,
+    "end": 496.601,
+    "text": "I keep the wall thickness even thickness even from rim to base."
+   },
+   {
+    "start": 498.6,
+    "end": 501.743,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 503.48,
+    "end": 504.929,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 506.52,
+    "end": 508.633,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 510.44,
+    "end": 513.82,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 517.72,
+    "end": 520.294,
+    "text": "this is the finished oak oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 521.8,
+    "end": 523.871,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 525.56,
+    "end": 527.953,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 529.4,
+    "end": 531.355,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 533.64,
+    "end": 535.883,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 537.0,
+    "end": 537.34,
+    "text": "cuts."
+   },
+   {
+    "start": 537.4,
+    "end": 539.635,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 541.8,
+    "end": 544.777,
+    "text": "sanding goes from coarse to fine with the lathe lathe turning slowly."
+   },
+   {
+    "start": 546.52,
+    "end": 547.962,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 549.64,
+    "end": 551.666,
+    "text": "a coat of coat of food safe oil brings out the color."
+   },
+   {
+    "start": 554.12,
+    "end": 557.02,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 560.76,
+    "end": 563.328,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 565.0,
+    "end": 566.904,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 568.84,
+    "end": 570.986,
+    "text": "here is the raw oak blank still wet and and heavy."
+   },
+   {
+    "start": 572.68,
+    "end": 574.388,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 576.985,
+    "end": 578.917,
+    "text": "On the late the shape appears in long steady cuts."
+   },
+   {
+    "start": 580.585,
+    "end": 582.668,
+    "text": "I keep the wall thickness even from rim to base"
+   },
+   {
+    "start": 585.065,
+    "end": 590.995,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly this is where the grain starts to glow"
+   },
+   {
+    "start": 592.985,
+    "end": 594.7,
+    "text": "a coat of food safe oil brings out the color"
+   },
+   {
+    "start": 596.505,
+    "end": 600.045,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 604.025,
+    "end": 606.361,
+    "text": "this is the finished oak bowl oiled and ready for the table"
+   },
+   {
+    "start": 608.265,
+    "end": 609.937,
+    "text": "it started as a rough blank from a fallen tree"
+   },
+   {
+    "start": 611.945,
+    "end": 614.02,
+    "text": "Here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 615.945,
+    "end": 617.421,
+    "text": "The grain tells me where the bowl wants to be"
+   },
+   {
+    "start": 620.105,
+    "end": 621.951,
+    "text": "On the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 623.785,
+    "end": 625.701,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 628.105,
+    "end": 632.445,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 633.245,
+    "end": 635.565,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 635.945,
+    "end": 637.733,
+    "text": "a coat of food safe safe oil brings out the color"
+   },
+   {
+    "start": 639.545,
+    "end": 643.245,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 647.225,
+    "end": 649.394,
+    "text": "this is the finished oak bowl oiled and ready for the table"
+   },
+   {
+    "start": 651.305,
+    "end": 652.971,
+    "text": "it started as a rough blank from a fallen tree"
+   },
+   {
+    "start": 655.065,
+    "end": 658.685,
+    "text": "here is the raw oak blank still wet and heavy"
+   },
+   {
+    "start": 659.645,
+    "end": 661.965,
+    "text": "the grain tells me where the bowl wants to be"
+   },
+   {
+    "start": 663.065,
+    "end": 664.983,
+    "text": "on the lathe the shape appears appears in long steady cuts"
+   },
+   {
+    "start": 666.905,
+    "end": 668.735,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 671.385,
+    "end": 675.405,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 676.445,
+    "end": 678.605,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 679.145,
+    "end": 680.766,
+    "text": "a coat of food safe oil oil brings out the color."
+   },
+   {
+    "start": 682.825,
+    "end": 686.605,
+    "text": "24 hours later the bowl is ready to use"
+   },
+   {
+    "start": 690.425,
+    "end": 692.428,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 694.425,
+    "end": 696.004,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 698.345,
+    "end": 701.885,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 702.685,
+    "end": 705.005,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 706.345,
+    "end": 708.017,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 710.185,
+    "end": 711.768,
+    "text": "i keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 714.425,
+    "end": 718.525,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 719.565,
+    "end": 721.565,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 722.265,
+    "end": 723.8,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 725.945,
+    "end": 729.565,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 733.385,
+    "end": 737.165,
+    "text": "this is the finished oak oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 738.125,
+    "end": 740.605,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 741.385,
+    "end": 744.925,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 745.885,
+    "end": 748.205,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 749.545,
+    "end": 752.845,
+    "text": "on the lathe the shape shape appears in long steady cuts."
+   },
+   {
+    "start": 753.805,
+    "end": 756.685,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 757.545,
+    "end": 765.085,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly, this is where the grain starts to glow,"
+   },
+   {
+    "start": 765.965,
+    "end": 768.685,
+    "text": "a coat of food safe safe oil brings out the color."
+   },
+   {
+    "start": 769.145,
+    "end": 772.685,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 776.585,
+    "end": 780.285,
+    "text": "this is the finished finished oak bowl oiled and ready for the the table."
+   },
+   {
+    "start": 781.245,
+    "end": 784.045,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 784.585,
+    "end": 787.628,
+    "text": "here is the the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 787.728,
+    "end": 788.125,
+    "text": "heavy."
+   },
+   {
+    "start": 788.925,
+    "end": 791.485,
+    "text": "the grain grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 792.745,
+    "end": 795.965,
+    "text": "on the lathe the shape appears in long steady steady cuts."
+   },
+   {
+    "start": 796.845,
+    "end": 799.725,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 800.585,
+    "end": 804.765,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 807.0,
+    "end": 808.285,
+    "text": "this is where the grain starts to glow."
+   },
+   {
+    "start": 809.085,
+    "end": 811.805,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 812.185,
+    "end": 816.045,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 819.705,
+    "end": 823.485,
+    "text": "this is the finished oak bowl oiled and ready for the table."
+   },
+   {
+    "start": 826.062,
+    "end": 827.005,
+    "text": "it started as a rough blank from a fallen tree."
+   },
+   {
+    "start": 829.917,
+    "end": 831.325,
+    "text": "here is the raw oak blank still wet wet and heavy."
+   },
+   {
+    "start": 832.285,
+    "end": 834.365,
+    "text": "the grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 835.945,
+    "end": 839.005,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 840.205,
+    "end": 842.845,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 843.865,
+    "end": 848.285,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 850.033,
+    "end": 851.085,
+    "text": "this is where the grain starts to glow"
+   },
+   {
+    "start": 853.634,
+    "end": 854.845,
+    "text": "a coat of food safe oil brings out out the color."
+   },
+   {
+    "start": 857.438,
+    "end": 859.005,
+    "text": "24 hours later the bowl is ready to use."
+   },
+   {
+    "start": 862.985,
+    "end": 870.365,
+    "text": "this is the finished oak bowl oiled and ready for the table it started as a rough blank blank from a fallen tree."
+   },
+   {
+    "start": 872.951,
+    "end": 874.285,
+    "text": "here is the raw oak blank still wet and heavy."
+   },
+   {
+    "start": 877.067,
+    "end": 877.725,
+    "text": "The grain tells me where the bowl wants to be."
+   },
+   {
+    "start": 880.878,
+    "end": 882.445,
+    "text": "on the lathe the shape appears in long steady cuts."
+   },
+   {
+    "start": 883.245,
+    "end": 886.365,
+    "text": "I keep the wall thickness even from rim to base."
+   },
+   {
+    "start": 886.985,
+    "end": 891.165,
+    "text": "sanding goes from coarse to fine with the lathe turning slowly."
+   },
+   {
+    "start": 893.067,
+    "end": 894.285,
+    "text": "this is where the grain grain starts to glow."
+   },
+   {
+    "start": 896.667,
+    "end": 898.125,
+    "text": "a coat of food safe oil brings out the color."
+   },
+   {
+    "start": 900.471,
+    "end": 902.445,
+    "text": "24 hours later the bowl is bowl is ready to use."
+   }
+  ],
+  "duration": 903.721,
+  "notes": [
+   "Muse Spark watched this 15-minute source in 2 parts of up to 10 minutes and logged 22 candidate moments; Muse Spark picked 8 of them from the whole transcript. FFmpeg measured scene cuts and speech bands.",
+   "Meta Voice Transcribe wrote the transcript. It times turns, not words, so a sentence end inside a turn is estimated by length and filler removal has no word times to cut at."
+  ],
+  "transcribed": true,
+  "transcribed_by": "meta-voice-transcribe"
+ },
+ "edit": {
+  "template": "none",
+  "look": {
+   "preset": "none",
+   "intensity": 1.0,
+   "brightness": 0.0,
+   "contrast": 0.0,
+   "saturation": 0.0,
+   "temperature": 0.0,
+   "vignette": 0.0,
+   "sharpen": 0.0
+  },
+  "transition": {
+   "type": "none",
+   "seconds": 0.35
+  },
+  "captions": {
+   "style": "boxed",
+   "position": "bottom",
+   "scale": 1.0,
+   "color": "#FFFFFF",
+   "highlight": "#FFD60A",
+   "language": null,
+   "edits": {},
+   "emphasize": false,
+   "emphasis": [],
+   "emphasis_color": "#3CE88C"
+  },
+  "trim_pauses": false,
+  "remove_fillers": false,
+  "removed": [],
+  "audio": {
+   "enhance_voice": false,
+   "denoise": false,
+   "keep_loudness": false,
+   "mute_source": false
+  },
+  "music": null,
+  "zoom": {
+   "mode": "none",
+   "strength": 0.5
+  },
+  "stabilize": false,
+  "denoise_picture": false,
+  "texts": [],
+  "logo": null,
+  "overlays": [],
+  "fade": {
+   "in": 0.0,
+   "out": 0.0
+  },
+  "cutout": {
+   "mode": "none",
+   "subject": "",
+   "color": "#101418",
+   "asset": null,
+   "blur": 0.6
+  },
+  "hero_word": null,
+  "motion_card": null,
+  "export": {
+   "quality": "1080p",
+   "fps": "source",
+   "format": "mp4"
+  }
+ },
+ "decisions": [],
+ "ignored_edits": [],
+ "bookends": {
+  "opening": {
+   "label": "Finished bowl opener",
+   "start": 0.2,
+   "end": 7.1
+  },
+  "ending": {
+   "label": "Oil to ready",
+   "start": 75.433,
+   "end": 82.14
+  }
+ },
+ "timeline": {
+  "spans": [
+   {
+    "segment": 1,
+    "source_start": 0.2,
+    "source_end": 7.1,
+    "output_start": 0.0,
+    "output_end": 6.9,
+    "speed": 1.0
+   },
+   {
+    "segment": 2,
+    "source_start": 8.2,
+    "source_end": 14.7,
+    "output_start": 6.9,
+    "output_end": 13.4,
+    "speed": 1.0
+   },
+   {
+    "segment": 3,
+    "source_start": 16.401,
+    "source_end": 22.94,
+    "output_start": 13.4,
+    "output_end": 19.939,
+    "speed": 1.0
+   },
+   {
+    "segment": 4,
+    "source_start": 24.2,
+    "source_end": 31.34,
+    "output_start": 19.939,
+    "output_end": 27.079,
+    "speed": 1.0
+   },
+   {
+    "segment": 5,
+    "source_start": 32.4,
+    "source_end": 39.26,
+    "output_start": 27.079,
+    "output_end": 33.939,
+    "speed": 1.0
+   },
+   {
+    "segment": 6,
+    "source_start": 59.434,
+    "source_end": 65.98,
+    "output_start": 33.939,
+    "output_end": 40.485,
+    "speed": 1.0
+   },
+   {
+    "segment": 7,
+    "source_start": 67.44,
+    "source_end": 74.54,
+    "output_start": 40.485,
+    "output_end": 47.585,
+    "speed": 1.0
+   },
+   {
+    "segment": 8,
+    "source_start": 75.433,
+    "source_end": 82.14,
+    "output_start": 47.585,
+    "output_end": 54.292,
+    "speed": 1.0
+   }
+  ],
+  "duration": 54.292,
+  "transition_seconds": 0.0,
+  "captions": [
+   {
+    "start": 0.02,
+    "end": 3.62,
+    "text": "This is the finished oak bowl, oiled and ready for the table.",
+    "key": "220",
+    "source_start": 0.22
+   },
+   {
+    "start": 4.18,
+    "end": 6.92,
+    "text": "It started as a rough blank from a fallen tree.",
+    "key": "4380",
+    "source_start": 4.38
+   },
+   {
+    "start": 6.92,
+    "end": 10.04,
+    "text": "Here is the raw oak blank still wet and heavy.",
+    "key": "8220",
+    "source_start": 8.22
+   },
+   {
+    "start": 10.84,
+    "end": 13.4,
+    "text": "The grain tells me where the bowl wants to be.",
+    "key": "12140",
+    "source_start": 12.14
+   },
+   {
+    "start": 13.4,
+    "end": 16.339,
+    "text": "On the lathe the shape appears in long steady cuts.",
+    "key": "16380",
+    "source_start": 16.38
+   },
+   {
+    "start": 17.059,
+    "end": 19.959,
+    "text": "I keep the wall thickness even from rim to base.",
+    "key": "20060",
+    "source_start": 20.06
+   },
+   {
+    "start": 19.959,
+    "end": 23.799,
+    "text": "Sanding goes from coarse to fine with the lathe turning slowly.",
+    "key": "24220",
+    "source_start": 24.22
+   },
+   {
+    "start": 24.679,
+    "end": 27.079,
+    "text": "This is where the grain starts to glow",
+    "key": "28940",
+    "source_start": 28.94
+   },
+   {
+    "start": 27.079,
+    "end": 29.699,
+    "text": "A coat of food safe oil brings out the color.",
+    "key": "32380",
+    "source_start": 32.38
+   },
+   {
+    "start": 30.579,
+    "end": 34.005,
+    "text": "24 hours later the bowl is ready to use",
+    "key": "35900",
+    "source_start": 35.9
+   },
+   {
+    "start": 34.005,
+    "end": 36.885,
+    "text": "On the lathe the shape appears in long steady cuts.",
+    "key": "59500",
+    "source_start": 59.5
+   },
+   {
+    "start": 37.845,
+    "end": 40.485,
+    "text": "I keep the wall thickness even from rim to base.",
+    "key": "63340",
+    "source_start": 63.34
+   },
+   {
+    "start": 40.485,
+    "end": 44.065,
+    "text": "Sanding goes from course to fine with the lathe turning slowly.",
+    "key": "67420",
+    "source_start": 67.42
+   },
+   {
+    "start": 45.345,
+    "end": 47.585,
+    "text": "This is where the grain starts to glow.",
+    "key": "72300",
+    "source_start": 72.3
+   },
+   {
+    "start": 47.585,
+    "end": 50.212,
+    "text": "A coat of food safe oil brings out the color.",
+    "key": "75420",
+    "source_start": 75.42
+   },
+   {
+    "start": 51.172,
+    "end": 54.292,
+    "text": "24 hours later the bowl is ready to use.",
+    "key": "79020",
+    "source_start": 79.02
+   }
+  ]
+ },
+ "effect": null
+}

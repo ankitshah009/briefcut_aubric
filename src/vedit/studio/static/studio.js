@@ -779,7 +779,7 @@
   function paintReviseBox(job) {
     const older = !!(job && job.request && job.request.provider !== "meta");
     const next = finite(job && job.revision, verifiedRevision(job)) + 1;
-    $("revise-hint").textContent = older ? "This project was saved before Briefcut ran on Meta. Create a new story to revise it by note." : "Muse Spark turns your note into changes to the cut, the look, and the captions, renders version " + next + ", and re-checks it. Your verified version stays available.";
+    $("revise-hint").textContent = older ? "This project was saved before Briefcut ran on Meta. Create a new story to revise it by note." : (state.capabilities && state.capabilities.private_mode ? "Muse Glimmer, on this computer, turns" : "Muse Spark turns") + " your note into changes to the cut, the look, and the captions, renders version " + next + ", and re-checks it. Your verified version stays available.";
   }
   async function revise(mode, text) {
     if (isActive() || !state.job || !hasVerifiedResult(state.job)) return;

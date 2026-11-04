@@ -555,7 +555,7 @@ enum WindowProof {
     const text = id => document.getElementById(id)?.textContent || "";
     const player = document.getElementById("player");
     return {
-      ready: text("connection-status") === "Editor ready" ? "1" : "",
+      ready: ["Meta connected", "Setup needed"].includes(text("connection-status")) ? "1" : "",
       status: text("project-status"),
       result: text("result"),
       clip: text("clip-name"),

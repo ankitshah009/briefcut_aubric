@@ -1,0 +1,1502 @@
+{
+ "title": "Passion vs. Love - Official Trailer",
+ "summary": "A loud launch opens into a breakup over clashing dreams, a plea to lead with love, and a mission where the world itself is at risk.",
+ "segments": [
+  {
+   "start": 1.4,
+   "end": 9.42,
+   "label": "Engine start hook",
+   "reason": "Countdown heard: 'We have main engine start, four, three, two, one.' Works as loud trailer hook. Editor: Loud countdown hook to grab attention instantly; start moved back to sentence start at 1.4 s.",
+   "score": 1.0,
+   "kind": "speech"
+  },
+  {
+   "start": 23.18,
+   "end": 31.13,
+   "label": "Breakup setup",
+   "reason": "Said: 'You're a jerk, Tom.' then 'Look, Celia, we have to follow our passions.' then 'You have your robotics and I just want to be awesome in space.' Establishes conflict. Editor: Establishes the breakup and clashing passions.",
+   "score": 0.9,
+   "kind": "speech"
+  },
+  {
+   "start": 230.78,
+   "end": 247.82,
+   "label": "Be tender love",
+   "reason": "Said: 'Tom, there she is.' 'Now, you'll love her.' 'She's your passion.' 'Be, be tender to her.' 'Be honest.' 'be tender.' 'remind her what love is.' The turn without revealing ending. Editor: Introduces the turn toward tenderness and love.",
+   "score": 0.9,
+   "kind": "speech"
+  },
+  {
+   "start": 356.62,
+   "end": 363.34,
+   "label": "Destroy the world plea",
+   "reason": "Said: 'Listen, Celia,Listen, Celia, I was young.' 'and a dick but that's no reason to destroy the world.' States global stakes. Editor: Raises global stakes without showing resolution.",
+   "score": 1.0,
+   "kind": "speech"
+  },
+  {
+   "start": 503.74,
+   "end": 508.38,
+   "label": "Abort Stakes",
+   "reason": "Says \"Memory overread at 90%.\" then \"Captain, we have to abort.\" then \"abort.\" Editor: Countdown abort warning to end on peak tension.",
+   "score": 1.0,
+   "kind": "speech"
+  }
+ ],
+ "caption": "She followed robotics. He chased space. Now love is the mission — and the world is on the line. Full story coming.",
+ "hashtags": [
+  "#Trailer",
+  "#SciFi",
+  "#LoveStory"
+ ],
+ "cover_prompt": "Use frame from w1-1 around 2s, engine ignition glow and countdown energy, bold trailer text overlay, no ending reveal.",
+ "provider": "meta",
+ "usage": {
+  "cost_usd": 0.25840125,
+  "calls": 3
+ },
+ "source_duration": 734.166667,
+ "duration": 44.37,
+ "warnings": [],
+ "script": null,
+ "analysis": {
+  "method": "meta",
+  "scenes": [
+   8.917,
+   13.458,
+   18.417,
+   25.0,
+   40.25,
+   42.083,
+   45.625,
+   49.792,
+   51.125,
+   53.667,
+   56.667,
+   64.458,
+   69.917,
+   74.083,
+   79.375,
+   82.125,
+   84.833,
+   92.417,
+   95.417,
+   98.208,
+   102.417,
+   116.708,
+   119.875,
+   134.917,
+   139.917,
+   143.292,
+   145.792,
+   152.875,
+   158.542,
+   172.292,
+   183.25,
+   189.5,
+   193.083,
+   198.5,
+   201.167,
+   206.667,
+   208.667,
+   212.458,
+   213.917,
+   215.542,
+   222.417,
+   225.083,
+   234.583,
+   238.667,
+   253.417,
+   257.917,
+   289.542,
+   295.125,
+   296.5,
+   297.5,
+   298.958,
+   300.875,
+   302.708,
+   307.708,
+   310.583,
+   312.375,
+   315.375,
+   319.958,
+   322.208,
+   324.083,
+   328.458,
+   330.292,
+   338.917,
+   341.208,
+   346.458,
+   348.417,
+   350.208,
+   352.708,
+   356.333,
+   362.125,
+   364.5,
+   367.667,
+   368.958,
+   369.583,
+   371.625,
+   373.875,
+   376.0,
+   377.208,
+   378.0,
+   380.0,
+   383.125,
+   385.417,
+   386.958,
+   388.958,
+   390.167,
+   392.5,
+   399.0,
+   400.417,
+   404.042,
+   409.083,
+   411.875,
+   415.0,
+   418.792,
+   425.5,
+   427.792,
+   431.458,
+   434.167,
+   438.583,
+   441.208,
+   444.875,
+   461.792,
+   464.833,
+   468.333,
+   469.542,
+   478.958,
+   480.208,
+   482.125,
+   483.417,
+   483.917,
+   485.5,
+   488.042,
+   489.417,
+   491.583,
+   499.417,
+   502.375,
+   503.708,
+   505.875,
+   509.958,
+   517.875,
+   521.0,
+   527.417,
+   531.208,
+   537.708,
+   539.208,
+   543.167,
+   552.833,
+   556.833,
+   564.292,
+   588.0,
+   594.083,
+   594.375,
+   594.458,
+   597.625,
+   601.083,
+   616.875,
+   709.5,
+   730.333
+  ],
+  "speech": [
+   {
+    "start": 1.521,
+    "end": 9.42
+   },
+   {
+    "start": 23.18,
+    "end": 24.415
+   },
+   {
+    "start": 24.415,
+    "end": 27.271
+   },
+   {
+    "start": 27.271,
+    "end": 31.13
+   },
+   {
+    "start": 31.13,
+    "end": 35.298
+   },
+   {
+    "start": 37.536,
+    "end": 45.1
+   },
+   {
+    "start": 49.98,
+    "end": 53.74
+   },
+   {
+    "start": 60.78,
+    "end": 62.3
+   },
+   {
+    "start": 117.42,
+    "end": 118.62
+   },
+   {
+    "start": 131.18,
+    "end": 133.18
+   },
+   {
+    "start": 136.38,
+    "end": 137.66
+   },
+   {
+    "start": 191.1,
+    "end": 191.82
+   },
+   {
+    "start": 192.38,
+    "end": 193.58
+   },
+   {
+    "start": 193.58,
+    "end": 194.54
+   },
+   {
+    "start": 196.86,
+    "end": 198.3
+   },
+   {
+    "start": 199.02,
+    "end": 200.78
+   },
+   {
+    "start": 201.58,
+    "end": 203.338
+   },
+   {
+    "start": 203.338,
+    "end": 204.54
+   },
+   {
+    "start": 205.26,
+    "end": 206.3
+   },
+   {
+    "start": 206.3,
+    "end": 207.18
+   },
+   {
+    "start": 207.74,
+    "end": 208.14
+   },
+   {
+    "start": 210.38,
+    "end": 211.22
+   },
+   {
+    "start": 211.22,
+    "end": 211.58
+   },
+   {
+    "start": 214.38,
+    "end": 215.026
+   },
+   {
+    "start": 215.026,
+    "end": 215.303
+   },
+   {
+    "start": 215.303,
+    "end": 215.58
+   },
+   {
+    "start": 222.54,
+    "end": 223.66
+   },
+   {
+    "start": 224.54,
+    "end": 228.273
+   },
+   {
+    "start": 228.273,
+    "end": 229.02
+   },
+   {
+    "start": 230.78,
+    "end": 232.7
+   },
+   {
+    "start": 233.5,
+    "end": 236.22
+   },
+   {
+    "start": 237.34,
+    "end": 238.98
+   },
+   {
+    "start": 238.98,
+    "end": 240.62
+   },
+   {
+    "start": 241.1,
+    "end": 242.3
+   },
+   {
+    "start": 243.5,
+    "end": 244.46
+   },
+   {
+    "start": 245.26,
+    "end": 247.82
+   },
+   {
+    "start": 292.78,
+    "end": 295.18
+   },
+   {
+    "start": 296.62,
+    "end": 298.14
+   },
+   {
+    "start": 299.18,
+    "end": 300.78
+   },
+   {
+    "start": 302.06,
+    "end": 302.78
+   },
+   {
+    "start": 303.42,
+    "end": 304.22
+   },
+   {
+    "start": 305.02,
+    "end": 305.26
+   },
+   {
+    "start": 315.82,
+    "end": 320.22
+   },
+   {
+    "start": 321.02,
+    "end": 327.5
+   },
+   {
+    "start": 339.18,
+    "end": 339.82
+   },
+   {
+    "start": 340.06,
+    "end": 341.26
+   },
+   {
+    "start": 341.26,
+    "end": 342.14
+   },
+   {
+    "start": 342.7,
+    "end": 343.74
+   },
+   {
+    "start": 346.78,
+    "end": 349.9
+   },
+   {
+    "start": 356.62,
+    "end": 359.42
+   },
+   {
+    "start": 360.06,
+    "end": 363.34
+   },
+   {
+    "start": 364.7,
+    "end": 365.74
+   },
+   {
+    "start": 366.94,
+    "end": 368.54
+   },
+   {
+    "start": 383.42,
+    "end": 384.86
+   },
+   {
+    "start": 386.78,
+    "end": 388.86
+   },
+   {
+    "start": 389.42,
+    "end": 389.82
+   },
+   {
+    "start": 390.3,
+    "end": 392.38
+   },
+   {
+    "start": 396.78,
+    "end": 400.78
+   },
+   {
+    "start": 407.5,
+    "end": 408.22
+   },
+   {
+    "start": 410.06,
+    "end": 410.94
+   },
+   {
+    "start": 419.1,
+    "end": 419.9
+   },
+   {
+    "start": 422.14,
+    "end": 422.62
+   },
+   {
+    "start": 428.22,
+    "end": 429.58
+   },
+   {
+    "start": 430.62,
+    "end": 431.42
+   },
+   {
+    "start": 503.74,
+    "end": 505.673
+   },
+   {
+    "start": 505.673,
+    "end": 507.7
+   },
+   {
+    "start": 507.8,
+    "end": 508.38
+   },
+   {
+    "start": 518.94,
+    "end": 520.38
+   },
+   {
+    "start": 534.94,
+    "end": 536.06
+   },
+   {
+    "start": 538.06,
+    "end": 539.18
+   },
+   {
+    "start": 558.26,
+    "end": 563.48
+   },
+   {
+    "start": 565.64,
+    "end": 566.84
+   }
+  ],
+  "transcript": [
+   {
+    "start": 1.9,
+    "end": 7.953,
+    "text": "We have main engine start, four, three,"
+   },
+   {
+    "start": 7.953,
+    "end": 9.42,
+    "text": "two, one."
+   },
+   {
+    "start": 23.18,
+    "end": 24.415,
+    "text": "You're a jerk, Tom."
+   },
+   {
+    "start": 24.415,
+    "end": 26.576,
+    "text": "Look, Celia, we have to follow our"
+   },
+   {
+    "start": 26.576,
+    "end": 27.271,
+    "text": "passions."
+   },
+   {
+    "start": 27.271,
+    "end": 29.818,
+    "text": "You have your robotics and I just want to"
+   },
+   {
+    "start": 29.818,
+    "end": 31.13,
+    "text": "be awesome in space."
+   },
+   {
+    "start": 31.13,
+    "end": 33.445,
+    "text": "Why don't you just admit that you're"
+   },
+   {
+    "start": 33.445,
+    "end": 35.298,
+    "text": "freaked out by my robot hand?"
+   },
+   {
+    "start": 35.298,
+    "end": 37.845,
+    "text": "I'm not freaked out by it's alright fine"
+   },
+   {
+    "start": 37.845,
+    "end": 40.623,
+    "text": "I'm freaked out I'm having nightmares that"
+   },
+   {
+    "start": 40.623,
+    "end": 43.17,
+    "text": "I'm being chased by these giant robotic"
+   },
+   {
+    "start": 43.17,
+    "end": 45.1,
+    "text": "claws whatever Tom we're done"
+   },
+   {
+    "start": 49.98,
+    "end": 53.74,
+    "text": "Robots memory synced and locked"
+   },
+   {
+    "start": 60.78,
+    "end": 62.3,
+    "text": "This is pretty freaky freaky"
+   },
+   {
+    "start": 117.42,
+    "end": 118.62,
+    "text": "Shouldn't you be down there?"
+   },
+   {
+    "start": 131.18,
+    "end": 133.18,
+    "text": "I heard you guys talking last night."
+   },
+   {
+    "start": 136.38,
+    "end": 137.66,
+    "text": "It's not my fault, you know"
+   },
+   {
+    "start": 191.1,
+    "end": 191.82,
+    "text": "Are you ready?"
+   },
+   {
+    "start": 192.38,
+    "end": 193.58,
+    "text": "Of course you're ready."
+   },
+   {
+    "start": 193.58,
+    "end": 194.54,
+    "text": "You're a rock star."
+   },
+   {
+    "start": 196.86,
+    "end": 198.3,
+    "text": "How's it looking Barley?"
+   },
+   {
+    "start": 199.02,
+    "end": 200.78,
+    "text": "We should have about 10 minutes."
+   },
+   {
+    "start": 201.58,
+    "end": 203.338,
+    "text": "Well, that's perfect."
+   },
+   {
+    "start": 203.338,
+    "end": 204.54,
+    "text": "We're only one."
+   },
+   {
+    "start": 205.26,
+    "end": 206.3,
+    "text": "All systems go."
+   },
+   {
+    "start": 206.3,
+    "end": 207.18,
+    "text": "Yeah, you go."
+   },
+   {
+    "start": 207.74,
+    "end": 208.14,
+    "text": "Go."
+   },
+   {
+    "start": 210.38,
+    "end": 211.22,
+    "text": "Move your asses."
+   },
+   {
+    "start": 211.22,
+    "end": 211.58,
+    "text": "Go go go"
+   },
+   {
+    "start": 214.38,
+    "end": 215.026,
+    "text": "Come on."
+   },
+   {
+    "start": 215.026,
+    "end": 215.303,
+    "text": "on."
+   },
+   {
+    "start": 215.303,
+    "end": 215.58,
+    "text": "Go."
+   },
+   {
+    "start": 222.54,
+    "end": 223.66,
+    "text": "That's nice."
+   },
+   {
+    "start": 224.54,
+    "end": 228.273,
+    "text": "Nothing to worry about."
+   },
+   {
+    "start": 228.273,
+    "end": 229.02,
+    "text": "Tom,"
+   },
+   {
+    "start": 230.78,
+    "end": 232.7,
+    "text": "Tom, there she is."
+   },
+   {
+    "start": 233.5,
+    "end": 236.22,
+    "text": "Now, you'll love her."
+   },
+   {
+    "start": 237.34,
+    "end": 238.98,
+    "text": "She's your passion."
+   },
+   {
+    "start": 238.98,
+    "end": 240.62,
+    "text": "Be, be tender to her."
+   },
+   {
+    "start": 241.1,
+    "end": 242.3,
+    "text": "Be honest."
+   },
+   {
+    "start": 243.5,
+    "end": 244.46,
+    "text": "be tender."
+   },
+   {
+    "start": 245.26,
+    "end": 247.82,
+    "text": "remind her what love is."
+   },
+   {
+    "start": 292.78,
+    "end": 295.18,
+    "text": "And action!"
+   },
+   {
+    "start": 296.62,
+    "end": 298.14,
+    "text": "Memory override in progress."
+   },
+   {
+    "start": 299.18,
+    "end": 300.78,
+    "text": "You're a jerk, Tom."
+   },
+   {
+    "start": 302.06,
+    "end": 302.78,
+    "text": "Oh, sorry."
+   },
+   {
+    "start": 303.42,
+    "end": 304.22,
+    "text": "sorry."
+   },
+   {
+    "start": 305.02,
+    "end": 305.26,
+    "text": "Sorry."
+   },
+   {
+    "start": 315.82,
+    "end": 320.22,
+    "text": "Look Celia we have to follow our passions."
+   },
+   {
+    "start": 321.02,
+    "end": 325.297,
+    "text": "You have your robotics and I just want to"
+   },
+   {
+    "start": 325.297,
+    "end": 327.5,
+    "text": "be awesome in space."
+   },
+   {
+    "start": 339.18,
+    "end": 339.82,
+    "text": "Get her coming."
+   },
+   {
+    "start": 340.06,
+    "end": 341.26,
+    "text": "Two minutes left."
+   },
+   {
+    "start": 341.26,
+    "end": 342.14,
+    "text": "Two minutes."
+   },
+   {
+    "start": 342.7,
+    "end": 343.74,
+    "text": "Speed up."
+   },
+   {
+    "start": 346.78,
+    "end": 348.513,
+    "text": "Why don't you just admit that you're"
+   },
+   {
+    "start": 348.513,
+    "end": 349.9,
+    "text": "freaked out by my robot hand?"
+   },
+   {
+    "start": 356.62,
+    "end": 359.42,
+    "text": "Listen, Celia,Listen, Celia, I was young."
+   },
+   {
+    "start": 360.06,
+    "end": 362.653,
+    "text": "and a dick but that's no reason to destroy"
+   },
+   {
+    "start": 362.653,
+    "end": 363.34,
+    "text": "the world."
+   },
+   {
+    "start": 364.7,
+    "end": 365.74,
+    "text": "Why does he do this?"
+   },
+   {
+    "start": 366.94,
+    "end": 368.54,
+    "text": "We already tried that one."
+   },
+   {
+    "start": 383.42,
+    "end": 384.86,
+    "text": "You broke my heart."
+   },
+   {
+    "start": 386.78,
+    "end": 388.86,
+    "text": "I You forgot me on Earth."
+   },
+   {
+    "start": 389.42,
+    "end": 389.82,
+    "text": "I know."
+   },
+   {
+    "start": 390.3,
+    "end": 392.38,
+    "text": "I should just crush you."
+   },
+   {
+    "start": 396.78,
+    "end": 400.78,
+    "text": "I'm"
+   },
+   {
+    "start": 407.5,
+    "end": 408.22,
+    "text": "I'm sorry."
+   },
+   {
+    "start": 410.06,
+    "end": 410.94,
+    "text": "Good ad lib."
+   },
+   {
+    "start": 419.1,
+    "end": 419.9,
+    "text": "Not my fault."
+   },
+   {
+    "start": 422.14,
+    "end": 422.62,
+    "text": "this time."
+   },
+   {
+    "start": 428.22,
+    "end": 429.58,
+    "text": "One sec."
+   },
+   {
+    "start": 430.62,
+    "end": 431.42,
+    "text": "A lot of time, a lot of time."
+   },
+   {
+    "start": 503.74,
+    "end": 505.673,
+    "text": "Memory overread at 90%."
+   },
+   {
+    "start": 505.673,
+    "end": 507.8,
+    "text": "Captain, we have to abort."
+   },
+   {
+    "start": 507.8,
+    "end": 508.38,
+    "text": "abort."
+   },
+   {
+    "start": 518.94,
+    "end": 520.38,
+    "text": "The world's changed, Celia."
+   },
+   {
+    "start": 534.94,
+    "end": 536.06,
+    "text": "Maybe we can too."
+   },
+   {
+    "start": 538.06,
+    "end": 539.18,
+    "text": "Memory override complete."
+   },
+   {
+    "start": 558.76,
+    "end": 561.764,
+    "text": "You know, there's a lesson to to be"
+   },
+   {
+    "start": 561.764,
+    "end": 563.48,
+    "text": "learned from this."
+   },
+   {
+    "start": 565.64,
+    "end": 566.84,
+    "text": "Could have gone worse."
+   }
+  ],
+  "sentences": [
+   {
+    "start": 1.4,
+    "end": 9.42,
+    "text": "We have main engine start, four, three, two, one."
+   },
+   {
+    "start": 23.18,
+    "end": 24.415,
+    "text": "You're a jerk, Tom."
+   },
+   {
+    "start": 24.415,
+    "end": 27.271,
+    "text": "Look, Celia, we have to follow our passions."
+   },
+   {
+    "start": 27.271,
+    "end": 31.13,
+    "text": "You have your robotics and I just want to be awesome in space."
+   },
+   {
+    "start": 31.13,
+    "end": 35.298,
+    "text": "Why don't you just admit that you're freaked out by my robot hand?"
+   },
+   {
+    "start": 37.386,
+    "end": 45.1,
+    "text": "I'm not freaked out by it's alright fine I'm freaked out I'm having nightmares that I'm being chased by these giant robotic claws whatever Tom we're done"
+   },
+   {
+    "start": 49.98,
+    "end": 53.74,
+    "text": "Robots memory synced and locked"
+   },
+   {
+    "start": 60.78,
+    "end": 62.3,
+    "text": "This is pretty freaky freaky"
+   },
+   {
+    "start": 117.42,
+    "end": 118.62,
+    "text": "Shouldn't you be down there?"
+   },
+   {
+    "start": 131.18,
+    "end": 133.18,
+    "text": "I heard you guys talking last night."
+   },
+   {
+    "start": 136.38,
+    "end": 137.66,
+    "text": "It's not my fault, you know"
+   },
+   {
+    "start": 191.1,
+    "end": 191.82,
+    "text": "Are you ready?"
+   },
+   {
+    "start": 192.38,
+    "end": 193.58,
+    "text": "Of course you're ready."
+   },
+   {
+    "start": 193.58,
+    "end": 194.54,
+    "text": "You're a rock star."
+   },
+   {
+    "start": 196.86,
+    "end": 198.3,
+    "text": "How's it looking Barley?"
+   },
+   {
+    "start": 199.02,
+    "end": 200.78,
+    "text": "We should have about 10 minutes."
+   },
+   {
+    "start": 201.58,
+    "end": 203.338,
+    "text": "Well, that's perfect."
+   },
+   {
+    "start": 203.338,
+    "end": 204.54,
+    "text": "We're only one."
+   },
+   {
+    "start": 205.26,
+    "end": 206.3,
+    "text": "All systems go."
+   },
+   {
+    "start": 206.3,
+    "end": 207.18,
+    "text": "Yeah, you go."
+   },
+   {
+    "start": 207.74,
+    "end": 208.14,
+    "text": "Go."
+   },
+   {
+    "start": 210.38,
+    "end": 211.22,
+    "text": "Move your asses."
+   },
+   {
+    "start": 211.22,
+    "end": 211.58,
+    "text": "Go go go"
+   },
+   {
+    "start": 214.38,
+    "end": 215.026,
+    "text": "Come on."
+   },
+   {
+    "start": 215.026,
+    "end": 215.303,
+    "text": "on."
+   },
+   {
+    "start": 215.303,
+    "end": 215.58,
+    "text": "Go."
+   },
+   {
+    "start": 222.54,
+    "end": 223.66,
+    "text": "That's nice."
+   },
+   {
+    "start": 224.54,
+    "end": 228.273,
+    "text": "Nothing to worry about."
+   },
+   {
+    "start": 228.273,
+    "end": 229.02,
+    "text": "Tom,"
+   },
+   {
+    "start": 230.78,
+    "end": 232.7,
+    "text": "Tom, there she is."
+   },
+   {
+    "start": 233.5,
+    "end": 236.22,
+    "text": "Now, you'll love her."
+   },
+   {
+    "start": 237.34,
+    "end": 238.98,
+    "text": "She's your passion."
+   },
+   {
+    "start": 238.98,
+    "end": 240.62,
+    "text": "Be, be tender to her."
+   },
+   {
+    "start": 241.1,
+    "end": 242.3,
+    "text": "Be honest."
+   },
+   {
+    "start": 243.5,
+    "end": 244.46,
+    "text": "be tender."
+   },
+   {
+    "start": 245.26,
+    "end": 247.82,
+    "text": "remind her what love is."
+   },
+   {
+    "start": 292.78,
+    "end": 295.18,
+    "text": "And action!"
+   },
+   {
+    "start": 296.62,
+    "end": 298.14,
+    "text": "Memory override in progress."
+   },
+   {
+    "start": 299.18,
+    "end": 300.78,
+    "text": "You're a jerk, Tom."
+   },
+   {
+    "start": 302.06,
+    "end": 302.78,
+    "text": "Oh, sorry."
+   },
+   {
+    "start": 303.42,
+    "end": 304.22,
+    "text": "sorry."
+   },
+   {
+    "start": 305.02,
+    "end": 305.26,
+    "text": "Sorry."
+   },
+   {
+    "start": 315.82,
+    "end": 320.22,
+    "text": "Look Celia we have to follow our passions."
+   },
+   {
+    "start": 321.02,
+    "end": 327.5,
+    "text": "You have your robotics and I just want to be awesome in space."
+   },
+   {
+    "start": 339.18,
+    "end": 339.82,
+    "text": "Get her coming."
+   },
+   {
+    "start": 340.06,
+    "end": 341.26,
+    "text": "Two minutes left."
+   },
+   {
+    "start": 341.26,
+    "end": 342.14,
+    "text": "Two minutes."
+   },
+   {
+    "start": 342.7,
+    "end": 343.74,
+    "text": "Speed up."
+   },
+   {
+    "start": 346.78,
+    "end": 349.9,
+    "text": "Why don't you just admit that you're freaked out by my robot hand?"
+   },
+   {
+    "start": 356.62,
+    "end": 359.42,
+    "text": "Listen, Celia,Listen, Celia, I was young."
+   },
+   {
+    "start": 360.06,
+    "end": 363.34,
+    "text": "and a dick but that's no reason to destroy the world."
+   },
+   {
+    "start": 364.7,
+    "end": 365.74,
+    "text": "Why does he do this?"
+   },
+   {
+    "start": 366.94,
+    "end": 368.54,
+    "text": "We already tried that one."
+   },
+   {
+    "start": 383.42,
+    "end": 384.86,
+    "text": "You broke my heart."
+   },
+   {
+    "start": 386.78,
+    "end": 388.86,
+    "text": "I You forgot me on Earth."
+   },
+   {
+    "start": 389.42,
+    "end": 389.82,
+    "text": "I know."
+   },
+   {
+    "start": 390.3,
+    "end": 392.38,
+    "text": "I should just crush you."
+   },
+   {
+    "start": 396.78,
+    "end": 400.78,
+    "text": "I'm"
+   },
+   {
+    "start": 407.5,
+    "end": 408.22,
+    "text": "I'm sorry."
+   },
+   {
+    "start": 410.06,
+    "end": 410.94,
+    "text": "Good ad lib."
+   },
+   {
+    "start": 419.1,
+    "end": 419.9,
+    "text": "Not my fault."
+   },
+   {
+    "start": 422.14,
+    "end": 422.62,
+    "text": "this time."
+   },
+   {
+    "start": 428.22,
+    "end": 429.58,
+    "text": "One sec."
+   },
+   {
+    "start": 430.62,
+    "end": 431.42,
+    "text": "A lot of time, a lot of time."
+   },
+   {
+    "start": 503.74,
+    "end": 505.673,
+    "text": "Memory overread at 90%."
+   },
+   {
+    "start": 505.673,
+    "end": 507.7,
+    "text": "Captain, we have to abort."
+   },
+   {
+    "start": 507.8,
+    "end": 508.38,
+    "text": "abort."
+   },
+   {
+    "start": 518.94,
+    "end": 520.38,
+    "text": "The world's changed, Celia."
+   },
+   {
+    "start": 534.94,
+    "end": 536.06,
+    "text": "Maybe we can too."
+   },
+   {
+    "start": 538.06,
+    "end": 539.18,
+    "text": "Memory override complete."
+   },
+   {
+    "start": 558.26,
+    "end": 563.48,
+    "text": "You know, there's a lesson to to be learned from this."
+   },
+   {
+    "start": 565.64,
+    "end": 566.84,
+    "text": "Could have gone worse."
+   }
+  ],
+  "duration": 734.167,
+  "notes": [
+   "Muse Spark watched this 12-minute source in 2 parts of up to 10 minutes and logged 24 candidate moments; Muse Spark picked 5 of them from the whole transcript. FFmpeg measured scene cuts and speech bands.",
+   "Meta Voice Transcribe wrote the transcript. It times turns, not words, so a sentence end inside a turn is estimated by length and filler removal has no word times to cut at."
+  ],
+  "transcribed": true,
+  "transcribed_by": "meta-voice-transcribe"
+ },
+ "edit": {
+  "template": "none",
+  "look": {
+   "preset": "none",
+   "intensity": 1.0,
+   "brightness": 0.0,
+   "contrast": 0.0,
+   "saturation": 0.0,
+   "temperature": 0.0,
+   "vignette": 0.0,
+   "sharpen": 0.0
+  },
+  "transition": {
+   "type": "none",
+   "seconds": 0.35
+  },
+  "captions": {
+   "style": "boxed",
+   "position": "bottom",
+   "scale": 1.0,
+   "color": "#FFFFFF",
+   "highlight": "#FFD60A",
+   "language": null,
+   "edits": {},
+   "emphasize": false,
+   "emphasis": [],
+   "emphasis_color": "#3CE88C"
+  },
+  "trim_pauses": false,
+  "remove_fillers": false,
+  "removed": [],
+  "audio": {
+   "enhance_voice": false,
+   "denoise": false,
+   "keep_loudness": false,
+   "mute_source": false
+  },
+  "music": null,
+  "zoom": {
+   "mode": "none",
+   "strength": 0.5
+  },
+  "stabilize": false,
+  "denoise_picture": false,
+  "texts": [],
+  "logo": null,
+  "overlays": [],
+  "fade": {
+   "in": 0.0,
+   "out": 0.0
+  },
+  "cutout": {
+   "mode": "none",
+   "subject": "",
+   "color": "#101418",
+   "asset": null,
+   "blur": 0.6
+  },
+  "hero_word": null,
+  "motion_card": null,
+  "export": {
+   "quality": "1080p",
+   "fps": "source",
+   "format": "mp4"
+  }
+ },
+ "decisions": [],
+ "ignored_edits": [],
+ "timeline": {
+  "spans": [
+   {
+    "segment": 1,
+    "source_start": 1.4,
+    "source_end": 9.42,
+    "output_start": 0.0,
+    "output_end": 8.02,
+    "speed": 1.0
+   },
+   {
+    "segment": 2,
+    "source_start": 23.18,
+    "source_end": 31.13,
+    "output_start": 8.02,
+    "output_end": 15.97,
+    "speed": 1.0
+   },
+   {
+    "segment": 3,
+    "source_start": 230.78,
+    "source_end": 247.82,
+    "output_start": 15.97,
+    "output_end": 33.01,
+    "speed": 1.0
+   },
+   {
+    "segment": 4,
+    "source_start": 356.62,
+    "source_end": 363.34,
+    "output_start": 33.01,
+    "output_end": 39.73,
+    "speed": 1.0
+   },
+   {
+    "segment": 5,
+    "source_start": 503.74,
+    "source_end": 508.38,
+    "output_start": 39.73,
+    "output_end": 44.37,
+    "speed": 1.0
+   }
+  ],
+  "duration": 44.37,
+  "transition_seconds": 0.0,
+  "captions": [
+   {
+    "start": 0.5,
+    "end": 8.02,
+    "text": "We have main engine start, four, three, two, one.",
+    "key": "1900",
+    "source_start": 1.9
+   },
+   {
+    "start": 8.02,
+    "end": 9.255,
+    "text": "You're a jerk, Tom.",
+    "key": "23180",
+    "source_start": 23.18
+   },
+   {
+    "start": 9.255,
+    "end": 12.111,
+    "text": "Look, Celia, we have to follow our passions.",
+    "key": "24415",
+    "source_start": 24.415
+   },
+   {
+    "start": 12.111,
+    "end": 15.97,
+    "text": "You have your robotics and I just want to be awesome in space.",
+    "key": "27271",
+    "source_start": 27.271
+   },
+   {
+    "start": 15.97,
+    "end": 17.89,
+    "text": "Tom, there she is.",
+    "key": "230780",
+    "source_start": 230.78
+   },
+   {
+    "start": 18.69,
+    "end": 21.41,
+    "text": "Now, you'll love her.",
+    "key": "233500",
+    "source_start": 233.5
+   },
+   {
+    "start": 22.53,
+    "end": 24.17,
+    "text": "She's your passion.",
+    "key": "237340",
+    "source_start": 237.34
+   },
+   {
+    "start": 24.17,
+    "end": 25.81,
+    "text": "Be, tender to her.",
+    "key": "238980",
+    "source_start": 238.98
+   },
+   {
+    "start": 26.29,
+    "end": 27.49,
+    "text": "Be honest.",
+    "key": "241100",
+    "source_start": 241.1
+   },
+   {
+    "start": 28.69,
+    "end": 29.65,
+    "text": "Be tender.",
+    "key": "243500",
+    "source_start": 243.5
+   },
+   {
+    "start": 30.45,
+    "end": 33.01,
+    "text": "Remind her what love is.",
+    "key": "245260",
+    "source_start": 245.26
+   },
+   {
+    "start": 33.01,
+    "end": 35.81,
+    "text": "Listen, Celia,Listen, Celia, I was young.",
+    "key": "356620",
+    "source_start": 356.62
+   },
+   {
+    "start": 36.45,
+    "end": 39.73,
+    "text": "And a dick but that's no reason to destroy the world.",
+    "key": "360060",
+    "source_start": 360.06
+   },
+   {
+    "start": 39.73,
+    "end": 41.663,
+    "text": "Memory overread at 90%.",
+    "key": "503740",
+    "source_start": 503.74
+   },
+   {
+    "start": 41.663,
+    "end": 44.37,
+    "text": "Captain, we have to abort.",
+    "key": "505673",
+    "source_start": 505.673
+   }
+  ]
+ },
+ "effect": null
+}

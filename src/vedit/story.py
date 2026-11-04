@@ -34,12 +34,14 @@ MIN_PIECE = 1.5
 MAX_PIECE = 12.0
 VARIATION_WEIGHT = 0.25
 PAD = 0.15
-MAX_SCENES = 400
-MAX_SPEECH = 400
-MAX_CUES = 600
-MAX_TRANSCRIPT_BYTES = 60_000
+MAX_SCENES = 2_400  # a two-hour source cut every three seconds
+MAX_SPEECH = 4_000
+MAX_CUES = 6_000  # a two-hour talk, one line per turn
+MAX_TRANSCRIPT_BYTES = 480_000
 MAX_SENTENCE_CHARS = 600
 SENTENCE_GAP = 0.8
+RUN_ON_SECONDS = 12.0  # a "sentence" longer than this is a run-on transcript turn, so measured pauses split it
+RUN_ON_GAP = 0.3  # seconds between measured speech ranges that count as a pause inside a run-on
 SENTENCE_PAD = 0.15
 SENTENCE_LEAD = 0.1
 SNAP_EXTEND = 1.6
@@ -591,18 +593,24 @@ def sentences_from_transcript(transcript: list[dict[str, Any]], *, duration: flo
     speech ranges, dicts or ``Range`` objects) each sentence is clamped to the
     speech that overlaps it plus ``SENTENCE_PAD``, and never past the next
     sentence's start minus ``SENTENCE_LEAD``; without speech, cue times stand.
+
+    Meta can return minutes of speech as one unpunctuated turn, which would make
+    one "sentence" no cut can land inside. A group longer than ``RUN_ON_SECONDS``
+    is therefore split at the pauses measured inside it (see ``_run_on_parts``):
+    those edges are heard, while the words on each side are placed by line.
     """
+    bounds = _speech_bounds(speech)
+    pauses = _measured_pauses(bounds)
     sentences: list[dict[str, Any]] = []
     group: list[tuple[float, float, str]] = []
 
     def flush() -> None:
         if not group:
             return
-        start = min(item[0] for item in group)
-        end = max(item[1] for item in group)
-        text = join_words(item[2] for item in group)[:MAX_SENTENCE_CHARS]
-        if end > start and len(sentences) < MAX_CUES:
-            sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
+        for lines, start, end in _run_on_parts(group, pauses):
+            text = join_words(item[2] for item in lines)[:MAX_SENTENCE_CHARS]
+            if end > start and len(sentences) < MAX_CUES:
+                sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
         group.clear()
 
     for cue in transcript or []:
@@ -622,7 +630,38 @@ def sentences_from_transcript(transcript: list[dict[str, Any]], *, duration: flo
         if _TERMINAL.search(text):
             flush()
     flush()
-    return _clamp_to_speech(sentences, _speech_bounds(speech))
+    return _clamp_to_speech(sentences, bounds)
+
+
+def _measured_pauses(speech: list[tuple[float, float]]) -> list[float]:
+    """The middle of each gap of at least ``RUN_ON_GAP`` seconds between measured speech ranges."""
+    return [round((end + following) / 2, 3) for (_, end), (following, _) in zip(speech, speech[1:]) if following - end >= RUN_ON_GAP]
+
+
+def _run_on_parts(group: list[tuple[float, float, str]], pauses: list[float]) -> list[tuple[list[tuple[float, float, str]], float, float]]:
+    """Split a run-on group of transcript lines at measured pauses: ``[(lines, start, end), ...]``.
+
+    A group no longer than ``RUN_ON_SECONDS``, or with no pause inside it, is
+    one part. Otherwise each pause at least ``MIN_PIECE`` seconds from the
+    group's edges and from the previous split closes a part there, as long as
+    words fall on both sides: a line goes to the side that holds its midpoint.
+    Parts meet at the pause, so they never overlap.
+    """
+    start, end = min(item[0] for item in group), max(item[1] for item in group)
+    if end - start <= RUN_ON_SECONDS or not pauses:
+        return [(list(group), start, end)]
+    middles = [(item[0] + item[1]) / 2 for item in group]
+    splits: list[tuple[int, float]] = []
+    for point in pauses:
+        if not start + MIN_PIECE <= point <= end - MIN_PIECE or (splits and point - splits[-1][1] < MIN_PIECE):
+            continue
+        index = next((i for i, middle in enumerate(middles) if middle >= point), len(group))
+        if 0 < index < len(group) and (not splits or index > splits[-1][0]):
+            splits.append((index, point))
+    if not splits:
+        return [(list(group), start, end)]
+    edges = [(0, start), *splits, (len(group), end)]
+    return [(group[a:b], left, right) for (a, left), (b, right) in zip(edges, edges[1:])]
 
 
 def _clamp_to_speech(sentences: list[dict[str, Any]], speech: list[tuple[float, float]]) -> list[dict[str, Any]]:
@@ -1156,6 +1195,53 @@ def analyze_signals(
         "has_audio": bool(measured["has_audio"]),
         "warnings": list(measured["warnings"]),
     }
+
+
+def long_windows(duration: float, *, sentences: Any = None, pauses: Any = None, scenes: Any = None, longest: float = 600.0,
+                 slack: float = 60.0) -> list[tuple[float, float]]:
+    """Split a long source into windows of at most ``longest`` seconds, cut between sentences, in a pause, or at a scene cut.
+
+    Pure. The windows cover ``[0, duration]`` with no gap or overlap. Each cut
+    lands within ``slack`` seconds of an even split: on the nearest sentence end
+    (``sentences_from_transcript``, which needs no punctuation), else in the
+    nearest measured pause (``pauses``, seconds), else on the nearest scene cut,
+    else on the even split. A source no longer than ``longest`` is one window.
+    """
+    duration = float(duration)
+    longest = float(longest)
+    if not math.isfinite(duration) or duration <= 0 or not math.isfinite(longest) or longest <= 0:
+        return []
+    ends: list[float] = []
+    for sentence in sentences if isinstance(sentences, list) else []:
+        try:
+            value = float(sentence["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(value) and 0 < value < duration:
+            ends.append(value)
+    def points(values: Any) -> list[float]:
+        return sorted(float(value) for value in (values if isinstance(values, list) else [])
+                      if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 < value < duration)
+
+    gaps, cuts = points(pauses), points(scenes)
+    ends.sort()
+    windows: list[tuple[float, float]] = []
+    start = 0.0
+    while duration - start > longest + 1e-6:
+        remaining = duration - start
+        even = start + remaining / math.ceil(remaining / longest)
+        low, high = max(start + min(slack, longest / 2), even - slack), min(start + longest, even + slack)
+        stop = None
+        for marks in (ends, gaps, cuts):
+            near = [point for point in marks if low <= point <= high]
+            if near:
+                stop = min(near, key=lambda point: abs(point - even))
+                break
+        stop = round(stop if stop is not None else min(even, start + longest), 3)
+        windows.append((round(start, 3), stop))
+        start = stop
+    windows.append((round(start, 3), round(duration, 3)))
+    return windows
 
 
 def annotate_segments(segments: list[dict[str, Any]], speech: list[dict[str, Any]]) -> list[dict[str, Any]]:

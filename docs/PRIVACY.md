@@ -38,7 +38,7 @@ Each project has a spending cap ($0.25 by default, $5 at most). Briefcut reserve
 
 | What you do | Model | What is sent |
 | --- | --- | --- |
-| Create a story | Meta Voice Transcribe, then Muse Spark | The project's speech as mono 16 kHz audio, with silence left out. Then a 960×540 copy (540×960 for upright footage) of your whole project, your brief, and the transcript Meta returned. Up to 10 minutes of footage. |
+| Create a story | Meta Voice Transcribe, then Muse Spark | The project's speech as mono 16 kHz audio, with silence left out. Then a 960×540 copy (540×960 for upright footage) of your whole project, your brief, and the transcript Meta returned. A project over 10 minutes is sent in parts of 10 minutes or less, each a separate copy, up to 2 hours in all. |
 | Make shorts from one video | Muse Spark | The same kind of copy, your brief, and the transcript, which the shorts reuse. |
 | Captions | Meta Voice Transcribe | Usually nothing more: captions are cut from the transcript Meta made when you created the story. If that failed, the speech of the moments you kept, as mono 16 kHz audio. |
 | Punch words in captions | Muse Spark | The caption text, your brief, and the language. No audio or video. |

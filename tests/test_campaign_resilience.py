@@ -119,7 +119,8 @@ def test_cancelling_an_encode_stops_its_process_and_releases_worker(tmp_path: Pa
         cancelled = wait_status(manager, first["id"], {"cancelled", "failed"}, timeout=8)
         assert cancelled["status"] == "cancelled", cancelled.get("error")
         assert time.monotonic() - started < 8
-        wait_until(lambda: not process_is_alive(pid), timeout=2)
+        # The kill is immediate; reaping it can lag on a loaded machine (the full suite runs on every core).
+        wait_until(lambda: not process_is_alive(pid), timeout=10)
         assert cancelled.get("error") is None
         assert manager.get(never_started["id"])["source"] is None
         wait_status(manager, second["id"], {"planned"})

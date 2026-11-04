@@ -1,0 +1,263 @@
+{
+ "source": {
+  "film": "Tears of Steel (2012), (CC) Blender Foundation | mango.blender.org, CC BY 3.0",
+  "file": "tears_of_steel_1080p.mov",
+  "duration": 734.167,
+  "width": 1920,
+  "height": 800,
+  "has_audio": true
+ },
+ "goal": "A 60-second trailer: hook first, the stakes, the turn, no spoilers of the ending",
+ "exports": [
+  {
+   "name": "trailer-60s-16x9",
+   "status": "complete",
+   "duration": 44.375,
+   "width": 1920,
+   "height": 1080,
+   "has_audio": true,
+   "has_video": true,
+   "checks": [
+    5,
+    5
+   ],
+   "copied_to": "~/Movies/Briefcut-demo/outputs/long-form/tears-of-steel-trailer-60s-16x9.mp4"
+  },
+  {
+   "name": "short-1-9x16",
+   "status": "complete",
+   "duration": 23.5,
+   "width": 1080,
+   "height": 1920,
+   "has_audio": true,
+   "has_video": true,
+   "checks": [
+    5,
+    5
+   ],
+   "copied_to": "~/Movies/Briefcut-demo/outputs/long-form/tears-of-steel-short-1-9x16.mp4"
+  },
+  {
+   "name": "short-2-9x16",
+   "status": "complete",
+   "duration": 26.25,
+   "width": 1080,
+   "height": 1920,
+   "has_audio": true,
+   "has_video": true,
+   "checks": [
+    5,
+    5
+   ],
+   "copied_to": "~/Movies/Briefcut-demo/outputs/long-form/tears-of-steel-short-2-9x16.mp4"
+  },
+  {
+   "name": "short-3-9x16",
+   "status": "complete",
+   "duration": 21.292,
+   "width": 1080,
+   "height": 1920,
+   "has_audio": true,
+   "has_video": true,
+   "checks": [
+    5,
+    5
+   ],
+   "copied_to": "~/Movies/Briefcut-demo/outputs/long-form/tears-of-steel-short-3-9x16.mp4"
+  }
+ ],
+ "mode": "standard",
+ "budget_usd": {
+  "story": 0.8,
+  "each_short": 0.1
+ },
+ "wall_seconds": {
+  "plan": 297.0,
+  "render": 14.2,
+  "shorts": 155.8,
+  "total": 467.0
+ },
+ "windows": [
+  [
+   0.0,
+   365.74
+  ],
+  [
+   365.74,
+   734.167
+  ]
+ ],
+ "candidates": 24,
+ "picked": [
+  "w1-1",
+  "w1-2",
+  "w1-9",
+  "w1-12",
+  "w2-8"
+ ],
+ "editor": "muse-spark",
+ "editor_model": "muse-spark-1.3",
+ "editor_calls": [
+  {
+   "project": "story",
+   "id": "b55173c6d1a64a689a977b1a0f9537d0",
+   "operation": "edit",
+   "model": "muse-spark-1.3",
+   "reserved_usd": 0.073642,
+   "budget_usd": 0.8,
+   "status": "completed",
+   "started_at": 1793831560.265193,
+   "runs_on": "meta-api",
+   "usage": {
+    "estimated_max_usd": 0.073642,
+    "cached": false,
+    "input_tokens": 2937,
+    "output_tokens": 2080,
+    "total_tokens": 5017,
+    "cost_usd": 0.01251125
+   },
+   "request_id": "resp_6aebb2962137af32064a4b9d"
+  },
+  {
+   "project": "short-1",
+   "id": "5aab30987e7b4b15a6c910daea6ef0d0",
+   "operation": "edit",
+   "model": "muse-spark-1.3",
+   "reserved_usd": 0.07304825,
+   "budget_usd": 0.1,
+   "status": "completed",
+   "started_at": 1793831609.902889,
+   "runs_on": "meta-api",
+   "usage": {
+    "estimated_max_usd": 0.07304825,
+    "cached": false,
+    "input_tokens": 2428,
+    "output_tokens": 9647,
+    "total_tokens": 12075,
+    "cost_usd": 0.04403475
+   },
+   "request_id": "resp_6aebb301ccc619df1bdc4b77"
+  }
+ ],
+ "input_ceiling_tokens": 1048576,
+ "transcript_words": 337,
+ "transcript_lines": 83,
+ "story": {
+  "status": "complete",
+  "error": null,
+  "duration": 44.37,
+  "segments": [
+   [
+    1.4,
+    9.42
+   ],
+   [
+    23.18,
+    31.13
+   ],
+   [
+    230.78,
+    247.82
+   ],
+   [
+    356.62,
+    363.34
+   ],
+   [
+    503.74,
+    508.38
+   ]
+  ],
+  "render": {
+   "duration": 44.375,
+   "width": 1920,
+   "height": 1080,
+   "has_audio": true,
+   "has_video": true
+  },
+  "checks_passed": 5,
+  "checks_total": 5
+ },
+ "shorts": [
+  {
+   "status": "complete",
+   "error": null,
+   "title": "We Already Tried That",
+   "duration": 23.52,
+   "segments": [
+    [
+     366.94,
+     384.86
+    ],
+    [
+     386.78,
+     392.38
+    ]
+   ]
+  },
+  {
+   "status": "complete",
+   "error": null,
+   "title": "Ten Minutes to Action",
+   "duration": 26.24,
+   "segments": [
+    [
+     191.1,
+     194.54
+    ],
+    [
+     196.86,
+     207.18
+    ],
+    [
+     292.78,
+     305.26
+    ]
+   ]
+  },
+  {
+   "status": "complete",
+   "error": null,
+   "title": "Sorry, Not My Fault",
+   "duration": 21.28,
+   "segments": [
+    [
+     396.78,
+     408.22
+    ],
+    [
+     410.06,
+     419.9
+    ]
+   ]
+  }
+ ],
+ "spend_usd": {
+  "story": 0.295051,
+  "short-1": 0.044035
+ },
+ "total_spend_usd": 0.339086,
+ "report_keys": [
+  "approved_plan",
+  "budget",
+  "caption_provider",
+  "checks",
+  "cutout",
+  "edit",
+  "effect",
+  "emphasis",
+  "ffmpeg",
+  "hero_word",
+  "name",
+  "outputs",
+  "passed",
+  "patches",
+  "proof",
+  "steps",
+  "timeline",
+  "total",
+  "tracked_subject",
+  "warnings",
+  "work_dir"
+ ]
+}

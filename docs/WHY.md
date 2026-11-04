@@ -17,7 +17,7 @@ Briefcut splits the job into four parts and gives each part to what does it best
 
 - **Creators with phone footage and no time**, who want to see, and fix, every cut.
 - **Small businesses and teams** making product or process videos, at cents a project, with receipts a second person can check before posting.
-- **Educators and podcasters** cutting long recordings into clips and shorts. A project holds up to 2 hours, and long-form planning, landing today, picks the story across all of it.
+- **Educators and podcasters** cutting long recordings into clips and shorts. A project holds up to 2 hours, and long-form planning picks the story across all of it. Live, it cut Tears of Steel, a 12-minute film, into a 44 s trailer and three shorts for $0.34.
 - **Developers and agents** that need a video editor they can call, check, and re-run.
 - **Anyone with private footage.** Originals stay on the machine, every Meta call is listed with its cost, and private mode keeps three text steps on Muse Glimmer ([privacy](PRIVACY.md), [Meta calls and money](../ARCHITECTURE.md#7-meta-calls-and-money)).
 

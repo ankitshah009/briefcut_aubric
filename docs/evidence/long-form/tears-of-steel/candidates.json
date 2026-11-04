@@ -1,0 +1,263 @@
+{
+ "brief": "A 60-second trailer: hook first, the stakes, the turn, no spoilers of the ending",
+ "windows": [
+  [
+   0.0,
+   365.74
+  ],
+  [
+   365.74,
+   734.167
+  ]
+ ],
+ "candidates": [
+  {
+   "start": 1.9,
+   "end": 9.4,
+   "label": "Engine start hook",
+   "reason": "Countdown heard: 'We have main engine start, four, three, two, one.' Works as loud trailer hook.",
+   "score": 1.0,
+   "id": "w1-1",
+   "window": 1
+  },
+  {
+   "start": 23.2,
+   "end": 31.1,
+   "label": "Breakup setup",
+   "reason": "Said: 'You're a jerk, Tom.' then 'Look, Celia, we have to follow our passions.' then 'You have your robotics and I just want to be awesome in space.' Establishes conflict.",
+   "score": 0.9,
+   "id": "w1-2",
+   "window": 1
+  },
+  {
+   "start": 31.1,
+   "end": 35.3,
+   "label": "Robot hand accusation",
+   "reason": "Said: 'Why don't you just admit that you're freaked out by my robot hand?' Clear personal stakes line.",
+   "score": 0.8,
+   "id": "w1-3",
+   "window": 1
+  },
+  {
+   "start": 35.3,
+   "end": 45.1,
+   "label": "Freaked out breakup",
+   "reason": "Said: 'I'm not freaked out by it's alright fine I'm freaked out I'm having nightmares that I'm being chased by these giant robotic claws whatever Tom we're done' Turning point ending the relationship.",
+   "score": 0.9,
+   "id": "w1-4",
+   "window": 1
+  },
+  {
+   "start": 50.0,
+   "end": 53.7,
+   "label": "Memory locked",
+   "reason": "Said: 'Robots memory synced and locked' Short tech statement for stakes.",
+   "score": 0.7,
+   "id": "w1-5",
+   "window": 1
+  },
+  {
+   "start": 191.1,
+   "end": 194.5,
+   "label": "Ready rock star",
+   "reason": "Said: 'Are you ready?' 'Of course you're ready.' 'You're a rock star.' Upbeat pump-up moment.",
+   "score": 0.6,
+   "id": "w1-6",
+   "window": 1
+  },
+  {
+   "start": 196.9,
+   "end": 207.2,
+   "label": "Ten minutes go",
+   "reason": "Said: 'How's it looking Barley?' 'We should have about 10 minutes.' 'Well, that's perfect.' 'We're only one.' 'All systems go.' 'Yeah, you go.' Builds countdown pressure.",
+   "score": 0.7,
+   "id": "w1-7",
+   "window": 1
+  },
+  {
+   "start": 210.4,
+   "end": 215.6,
+   "label": "Move go push",
+   "reason": "Said: 'Move your asses.' 'Go go go' 'Come on.' 'on.' 'Go.' Fast urgent action beat.",
+   "score": 0.7,
+   "id": "w1-8",
+   "window": 1
+  },
+  {
+   "start": 230.8,
+   "end": 247.8,
+   "label": "Be tender love",
+   "reason": "Said: 'Tom, there she is.' 'Now, you'll love her.' 'She's your passion.' 'Be, be tender to her.' 'Be honest.' 'be tender.' 'remind her what love is.' The turn without revealing ending.",
+   "score": 0.9,
+   "id": "w1-9",
+   "window": 1
+  },
+  {
+   "start": 292.8,
+   "end": 305.3,
+   "label": "Action override",
+   "reason": "Said: 'And action!' 'Memory override in progress.' 'You're a jerk, Tom.' 'Oh, sorry.' 'sorry.' 'Sorry.' Shows replay demonstration.",
+   "score": 0.8,
+   "id": "w1-10",
+   "window": 1
+  },
+  {
+   "start": 339.2,
+   "end": 343.7,
+   "label": "Two minutes speed up",
+   "reason": "Said: 'Get her coming.' 'Two minutes left.' 'Two minutes.' 'Speed up.' High-stakes countdown.",
+   "score": 0.8,
+   "id": "w1-11",
+   "window": 1
+  },
+  {
+   "start": 356.6,
+   "end": 363.3,
+   "label": "Destroy the world plea",
+   "reason": "Said: 'Listen, Celia,Listen, Celia, I was young.' 'and a dick but that's no reason to destroy the world.' States global stakes.",
+   "score": 1.0,
+   "id": "w1-12",
+   "window": 1
+  },
+  {
+   "start": 366.94,
+   "end": 384.84,
+   "label": "Tried That Hook",
+   "reason": "Says \"We already tried that one.\" then \"You broke my heart.\" Strong cold open.",
+   "score": 0.9,
+   "id": "w2-1",
+   "window": 2
+  },
+  {
+   "start": 386.74,
+   "end": 392.34,
+   "label": "Crush Threat",
+   "reason": "Says \"I You forgot me on Earth.\" then \"I know.\" then \"I should just crush you.\"",
+   "score": 0.9,
+   "id": "w2-2",
+   "window": 2
+  },
+  {
+   "start": 396.74,
+   "end": 408.24,
+   "label": "Apology Beat",
+   "reason": "Includes \"I'm\" then \"I'm sorry.\" Quiet character beat.",
+   "score": 0.5,
+   "id": "w2-3",
+   "window": 2
+  },
+  {
+   "start": 410.04,
+   "end": 419.94,
+   "label": "Not My Fault",
+   "reason": "Says \"Good ad lib.\" then \"Not my fault.\"",
+   "score": 0.5,
+   "id": "w2-4",
+   "window": 2
+  },
+  {
+   "start": 422.14,
+   "end": 431.44,
+   "label": "Time Pressure",
+   "reason": "Says \"this time.\" then \"One sec.\" then \"A lot of time, a lot of time.\"",
+   "score": 0.6,
+   "id": "w2-5",
+   "window": 2
+  },
+  {
+   "start": 431.44,
+   "end": 491.44,
+   "label": "Silent Build",
+   "reason": "No transcript dialogue in this range; hold for pacing between lines.",
+   "score": 0.6,
+   "id": "w2-6",
+   "window": 2
+  },
+  {
+   "start": 491.44,
+   "end": 503.74,
+   "label": "Lead To Alert",
+   "reason": "No transcript dialogue in this range; bridge into stakes.",
+   "score": 0.5,
+   "id": "w2-7",
+   "window": 2
+  },
+  {
+   "start": 503.74,
+   "end": 508.34,
+   "label": "Abort Stakes",
+   "reason": "Says \"Memory overread at 90%.\" then \"Captain, we have to abort.\" then \"abort.\"",
+   "score": 1.0,
+   "id": "w2-8",
+   "window": 2
+  },
+  {
+   "start": 508.34,
+   "end": 518.94,
+   "label": "Aftermath Pause",
+   "reason": "No transcript dialogue in this range; pause after abort call.",
+   "score": 0.4,
+   "id": "w2-9",
+   "window": 2
+  },
+  {
+   "start": 518.94,
+   "end": 539.14,
+   "label": "World Changed Turn",
+   "reason": "Says \"The world's changed, Celia.\" then \"Maybe we can too.\" then \"Memory override complete.\"",
+   "score": 0.9,
+   "id": "w2-10",
+   "window": 2
+  },
+  {
+   "start": 539.14,
+   "end": 558.74,
+   "label": "Pre Lesson Hold",
+   "reason": "No transcript dialogue in this range; hold before closing reflection.",
+   "score": 0.4,
+   "id": "w2-11",
+   "window": 2
+  },
+  {
+   "start": 558.74,
+   "end": 566.84,
+   "label": "Lesson Ending",
+   "reason": "Says \"You know, there's a lesson to to be learned from this.\" then \"Could have gone worse.\" Ending spoiler, avoid for trailer.",
+   "score": 0.2,
+   "id": "w2-12",
+   "window": 2
+  }
+ ],
+ "calls": [
+  {
+   "window": 1,
+   "start": 0.0,
+   "end": 365.74,
+   "moments": 12,
+   "model": "muse-spark-1.3",
+   "usage": {
+    "estimated_max_usd": 0.219117,
+    "cached": false,
+    "input_tokens": 84625,
+    "output_tokens": 3095,
+    "total_tokens": 87720,
+    "cost_usd": 0.118935
+   }
+  },
+  {
+   "window": 2,
+   "start": 365.74,
+   "end": 734.167,
+   "moments": 12,
+   "model": "muse-spark-1.3",
+   "usage": {
+    "estimated_max_usd": 0.21876075,
+    "cached": false,
+    "input_tokens": 83510,
+    "output_tokens": 5310,
+    "total_tokens": 88820,
+    "cost_usd": 0.126955
+   }
+  }
+ ]
+}

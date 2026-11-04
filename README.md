@@ -35,7 +35,7 @@ Video editors today are either manual timelines that cost hours, or AI black box
 
 - **Creators with phone footage and no time.** Say the story you want in one sentence. Briefcut plans, captions, reframes, and renders it, and you can see and fix every cut. In the [scenario matrix](docs/evidence/scenario-matrix/README.md), live runs took 24 s to 2.5 minutes from raw clip to probed file, and rotated, HDR, and variable-frame-rate iPhone clips and HEIC photos planned and rendered (with Meta stubbed).
 - **Small businesses and teams making product or process videos.** Phrases in the brief such as "trim the pauses", "add a title card", `hook:` and `cta:` become edits. A second person can read the receipts before anything is posted. There is no seat license: each project costs cents on the team's own Meta key ([What it costs](#what-it-costs)).
-- **Educators and podcasters turning long recordings into clips and shorts.** A project holds up to 2 hours of footage (`MAX_SOURCE_SECONDS` in [`project_media.py`](src/vedit/project_media.py)). Long-form planning, landing today, watches it in windows of 10 minutes or less, then picks the story, or several shorts, across the whole recording ([Long videos](#long-videos-why-a-long-view-matters)). Shorts from one source has been tested against stubbed Meta answers only.
+- **Educators and podcasters turning long recordings into clips and shorts.** A project holds up to 2 hours of footage (`MAX_SOURCE_SECONDS` in [`project_media.py`](src/vedit/project_media.py)). Long-form planning watches it in parts of 10 minutes or less, then picks the story, or several shorts, across the whole recording. Live, it cut Tears of Steel, a 12-minute film, into a 44 s trailer and three shorts for $0.34 ([Long videos](#long-videos-why-a-long-view-matters)).
 - **Developers and agents that need video as an API.** The same editor runs from MCP, an HTTP API, a CLI, or a YAML brief. Every edit compiles to a `render.sh` that re-runs with FFmpeg alone ([agent surface](ARCHITECTURE.md#9-the-agent-surface)).
 - **People with private footage.** Your original files never leave your computer. Meta receives a small proxy, audio, a still, or text, and only after you confirm. Briefcut sends no analytics ([Privacy](docs/PRIVACY.md)). Private mode keeps the director's note, caption translation, and script scenes on Muse Glimmer, on your own computer.
 
@@ -69,14 +69,14 @@ The competitor columns come from the products' public pages, filled conservative
 
 ## Long videos: why a long view matters
 
-Meta's docs give Muse Spark and Muse Wonder a 1,048,576-token context window ([models](https://dev.meta.ai/docs/models)), and Briefcut budgets each request to them against that ceiling (`_MAX_INPUT_TOKENS` in [`meta.py`](src/vedit/meta.py)). Video is heavy. Across ten live calls it added 156 to 265 billed tokens per second, so ten minutes of proxy video is about 94,000 to 159,000 tokens, and two hours would be 1.1 to 1.9 million, more than one request holds. Words are light. A two-hour talk at about 150 words a minute is about 18,000 words, or roughly 24,000 tokens: about 2% of one request (an estimate, not a measurement). Long-form planning, landing today, is built on that difference.
+Meta's docs give Muse Spark and Muse Wonder a 1,048,576-token context window ([models](https://dev.meta.ai/docs/models)), and Briefcut budgets each request to them against that ceiling (`_MAX_INPUT_TOKENS` in [`meta.py`](src/vedit/meta.py)). Video is heavy. Across ten live calls it added 156 to 265 billed tokens per second, so ten minutes of proxy video is about 94,000 to 159,000 tokens, and two hours would be 1.1 to 1.9 million, more than one request holds. Words are light. A two-hour talk at about 150 words a minute is about 18,000 words, or roughly 24,000 tokens: about 2% of one request (an estimate, not a measurement). Long-form planning is built on that difference.
 
 - **Watch in parts, decide once.** Muse Spark logs candidate moments in each window of 10 minutes or less. Then one text-only editor call, by Muse Spark or Muse Wonder, reads the whole transcript and every window's candidates at once, and picks and orders the story across the full recording (`plan_candidates` and `edit_long_story` in [`meta.py`](src/vedit/meta.py)). A setup at minute 3 can pay off at minute 90, the editor can see that two windows make the same point and keep one, and the strongest moments win across the whole talk, not one per part.
 - **Code still checks every pick.** A pick must be one of the candidates, by id, and its times come from the candidate, never from the model's answer. The usual sentence snap, clip snap, and plan checks follow. Before anything is sent, Briefcut estimates what every window will cost and refuses a source the project's budget cannot cover.
 - **Wonder reviews the cut whole.** Muse Wonder watches and listens to the finished cut in one call (`meta.review_cut` with `director="wonder"`), so its notes cover the story from end to end ([Wonder review](docs/evidence/wonder-review/README.md)).
 - **Long agent sessions stay checkable.** Meta describes Muse Spark 1.3 as tuned for long-horizon tasks, and Muse Wonder as built for long-horizon agentic work ([models](https://dev.meta.ai/docs/models)). Over MCP, Muse Code or any client can plan, find, check with SAM 3.1, edit, render, and verify in one session. Each tool returns checked data, so a mistake shows up at the step that made it. Muse Code ran a full edit this way on the demo clip: status, import, plan, render, receipts, and verify, in eight tool calls and about two minutes, for $0.03 of Briefcut's Meta spend ([record](docs/evidence/muse-code/README.md)).
 
-<!-- VERIFY long-form: numbers from docs/evidence/long-form/README.md -->
+**Measured live, standard mode:** Tears of Steel (12:14, 1920x800; (CC) Blender Foundation, mango.blender.org) went through Briefcut in 7.8 minutes for $0.34. Muse Spark read it in 2 parts and logged 24 candidate moments; the editor picked 5 for a 44.4 s trailer and left out the moments that give the ending away; three 9:16 shorts of 21 to 26 s followed from the same candidates. Every export passed 5 of 5 checks. The editor call read 3,208 tokens, 0.31% of the ceiling ([evidence](docs/evidence/long-form/README.md)).
 
 ## Why this grows Meta's model adoption
 
@@ -329,7 +329,7 @@ flowchart TB
   class failed stop
 ```
 
-### Long videos (landing today)
+### Long videos
 
 Muse Spark reads a long recording in parts, and one editor call with the whole transcript in view picks the story across all of it. Code still checks every pick ([why a long view matters](#long-videos-why-a-long-view-matters)).
 
@@ -405,7 +405,7 @@ Every model Briefcut calls is a Meta model, and every call goes through one adap
 | Muse Image | `muse-image-1.0` | Makes the cover from a real frame, backgrounds for cutouts, the stills for script to video, and the backdrop of a motion card. | Meta Model API, called from this computer | `meta.py`: `generate_cover`, `generate_background`, `generate_image` |
 | Muse Glimmer 30B | `meta-models/Muse-Glimmer-30B`, served as `muse-glimmer-30b` | Private mode only. Runs the director's note, caption translation, and script scenes in place of Muse Spark. Open weights under Apache 2.0. | This computer, through llama.cpp on `127.0.0.1:8091` | `open_weights.py`, called from `meta.patch_plan`, `meta.translate_cues`, `meta.script_prompts` |
 
-Voice Transcribe times turns, not words. Briefcut spreads each turn's words across it by length and marks those word times as estimated. Filler removal has no word times to cut at, so it does nothing. Planning with Meta takes up to 10 minutes of footage, and Briefcut says so before it encodes or pays for anything. Meta has no text-to-speech model, so script to video is caption-led with no voice.
+Voice Transcribe times turns, not words. Briefcut spreads each turn's words across it by length and marks those word times as estimated. Filler removal has no word times to cut at, so it does nothing. Planning with Meta takes up to 2 hours of footage. Past 10 minutes it runs in parts, and Briefcut states the expected cost before it encodes or pays for anything. Meta has no text-to-speech model, so script to video is caption-led with no voice.
 
 These run on your computer and are not models:
 
@@ -577,7 +577,7 @@ Studio turns one or more clips or photos into an editable story and a downloadab
 
 Every cut snaps to a transcript sentence boundary. Editing phrases in the brief ("trim the pauses", "add a title card", "fade out at the end", `hook:`, `cta:`) become engine ops and are listed as decisions on the plan. After the render, the receipts list the probe of the file and the checks that passed or failed: automatic checks from `src/vedit/lint.py` (sentence boundaries, duration, bounds, caption coverage, requested edits) and, with review on, Director's notes from Muse Spark or Muse Wonder with their own checks and proposed fixes. "Apply director's fixes", "Apply automatic fixes", or a typed note render the next version. The previous verified version stays downloadable under its own tab with its own report.
 
-Studio takes up to 30 videos and photos, up to 4 GB each, plus audio and images for music and overlays. Planning with Meta takes up to 10 minutes of footage in all. Meta's own limits also apply to what is sent: 200 MB per upload and 10 minutes of audio per transcription request. Briefcut checks these before it encodes the proxy.
+Studio takes up to 30 videos and photos, up to 4 GB each, plus audio and images for music and overlays. Planning with Meta takes up to 2 hours of footage in all; past 10 minutes it runs in parts of 10 minutes or less. Meta's own limits also apply to what is sent: 200 MB per upload and 10 minutes of audio per transcription request. Briefcut checks these before it encodes the proxy.
 
 Floating frame, Perspective sway, and Push-in reveal add curated motion inside the same flow. They animate a flat video plane; they are not 3D reconstruction. See [spatial effects](docs/SPATIAL_EFFECTS.md).
 

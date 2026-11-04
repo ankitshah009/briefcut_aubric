@@ -816,9 +816,72 @@ def transcribe_kept(source: Path, spans: list[Span], work_dir: Path, *, language
     try:
         extract_kept_audio(source, spans, wav)
         ledger = Path(meta_dir) if meta_dir is not None else work_dir / "meta"
-        return heard_cues(_hear(wav, work_dir, language=language, budget_usd=budget_usd, ledger=ledger))
+        lines = heard_cues(_hear(wav, work_dir, language=language, budget_usd=budget_usd, ledger=ledger))
+        return align_to_pauses(lines, _pauses_in(wav)) if lines else lines
     finally:
         wav.unlink(missing_ok=True)
+
+
+PAUSE_SECONDS = 0.2  # the shortest quiet in the kept audio that counts as a pause between caption lines
+EDGE_SHIFT = 0.8  # how far an estimated line start may move onto a measured pause
+EDGE_LEAD = 0.05  # a line appears this long before its first sound
+MIN_LINE = 0.4  # no line is shortened below this
+
+
+def _pauses_in(wav: Path) -> list[tuple[float, float]]:
+    """Measured quiet in the WAV the recognizer heard, on that WAV's clock. Empty when it cannot be measured."""
+    from vedit.analyze import detect_silence
+
+    try:
+        return [(float(r.start), float(r.end)) for r in detect_silence(wav, min_silence=PAUSE_SECONDS)]
+    except Exception:  # a missing measurement only skips the alignment; the captions stand as heard
+        return []
+
+
+def _onset(point: float, quiet: list[tuple[float, float]]) -> float | None:
+    """Where speech resumes for a line that starts at ``point``: the end of the pause holding it, else of the nearest pause in reach."""
+    for low, high in quiet:
+        if low <= point < high:
+            return max(low, high - EDGE_LEAD)
+    near = [(abs((low + high) / 2 - point), low, high) for low, high in quiet if abs((low + high) / 2 - point) <= EDGE_SHIFT]
+    if not near:
+        return None
+    _, low, high = min(near)
+    return max(low, high - EDGE_LEAD)
+
+
+def align_to_pauses(cues: list[Cue], pauses: Iterable[tuple[float, float]]) -> list[Cue]:
+    """Move each line's start onto the pause measured before its first sound. Pure.
+
+    Meta Voice Transcribe times turns, not words, so a line that starts inside a
+    long turn is placed by character count and can show up a second early, or
+    start while the previous sentence is still being said. A start that falls in
+    a measured pause moves to that pause's end, less ``EDGE_LEAD``; one inside
+    speech moves to the end of the nearest pause within ``EDGE_SHIFT``. A line
+    that ended where this one started still ends there, so no gap or overlap
+    appears; order is kept and no line becomes shorter than ``MIN_LINE``.
+    """
+    quiet = sorted((float(low), float(high)) for low, high in pauses if high > low)
+    out = list(cues)
+    if not quiet:
+        return out
+    for index, cue in enumerate(out):
+        if cue.words:  # heard word times are measurements; only estimated edges move
+            continue
+        target = _onset(cue.start, quiet)
+        if target is None or abs(target - cue.start) < 1e-3:
+            continue
+        floor = out[index - 1].start + MIN_LINE if index else 0.0
+        if not floor <= target <= cue.end - MIN_LINE:
+            continue
+        if index:
+            previous = out[index - 1]
+            if abs(previous.end - cue.start) <= 1e-3 or previous.end > target:
+                if previous.words:
+                    continue
+                out[index - 1] = replace(previous, end=round(target, 3))
+        out[index] = replace(cue, start=round(target, 3))
+    return out
 
 
 def attach_words(cues: list[Cue], words: list[Word]) -> list[Cue]:

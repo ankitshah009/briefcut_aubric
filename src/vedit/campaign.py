@@ -62,7 +62,10 @@ _MAX_JOBS = 12
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 _MAX_SEGMENTS = MAX_MOMENTS
 _MAX_STORY_SECONDS = 180
-_META_TRANSCRIBE_MAX_SECONDS = 600.0
+_META_TRANSCRIBE_MAX_SECONDS = 600.0  # one Meta call hears or watches at most this much; longer sources go in windows
+_MAX_CUES = 6_000  # a two-hour talk's transcript, kept whole for find, captions and the lint
+_MAX_TRANSCRIPT_BYTES = 480_000
+_LONG_POOL = 3  # windows read by Meta at once on a long source
 # Briefcut calls only Meta models. Meta Voice Transcribe is speech-to-text only, so nothing narrates a script.
 NO_NARRATION = "Script videos are caption-led. Meta offers no text-to-speech, so Briefcut adds no synthetic voice."
 CAPTIONS_NEED_META = "Captions are unavailable: captions use Meta Voice Transcribe, which a local edit does not call. Choose Meta mode to caption this video."
@@ -231,6 +234,8 @@ def capabilities() -> dict[str, Any]:
         # FFmpeg renders on this machine. Every model call, captions included, is Meta.
         "render": {"ready": ready, "reason": reason},
         "meta": cloud,
+        # Muse Glimmer on this computer runs the note, translation and script steps; Studio names it where it applies.
+        "private_mode": _private_mode(),
         "host": host_capabilities(),
         "effects": _effect_support(),
         "editor": _editor_support(),
@@ -238,6 +243,8 @@ def capabilities() -> dict[str, Any]:
         "director": {"auto_refine_rounds": MAX_REFINE_ROUNDS, "patch_ops": list(PATCH_OPS), "edit_paths": list(EDIT_FIELDS), "choices": list(DIRECTORS)},
         "motion_cards": _motion_cards(),
         "limits": {"upload_bytes": _MAX_SOURCE_BYTES, "source_seconds": _MAX_SOURCE_SECONDS, "segments": _MAX_SEGMENTS, "target_seconds": _MAX_STORY_SECONDS,
+                   # One Meta call watches at most this much; a longer source is planned in windows of this length.
+                   "meta_window_seconds": _META_TRANSCRIBE_MAX_SECONDS,
                    "clips": project_media.MAX_ITEMS, "photo_seconds": project_media.PHOTO_SECONDS, "assets": project_media.MAX_ASSETS},
     }
 
@@ -459,33 +466,33 @@ def _analysis(value: Any, duration: float) -> dict[str, Any] | None:
         method = value.get("method", "local-analysis")
         if not isinstance(method, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", method):
             method = "local-analysis"
-        scenes = sorted({round(_number(item, "Scene time", 0, duration), 3) for item in (value.get("scenes") or [])[:400]})
+        scenes = sorted({round(_number(item, "Scene time", 0, duration), 3) for item in (value.get("scenes") or [])[:2400]})
         speech = []
-        for item in (value.get("speech") or [])[:400]:
+        for item in (value.get("speech") or [])[:4000]:
             if isinstance(item, dict):
                 start = _number(item.get("start"), "Speech start", 0, duration)
                 end = _source_end(item.get("end"), "Speech end", duration)
                 if end > start:
                     speech.append({"start": round(start, 3), "end": round(end, 3)})
         transcript, size = [], 0
-        for item in (value.get("transcript") or [])[:600]:
+        for item in (value.get("transcript") or [])[:_MAX_CUES]:
             if not isinstance(item, dict):
                 continue
             start = _number(item.get("start"), "Cue start", 0, duration)
             end = _source_end(item.get("end"), "Cue end", duration)
             text = _text(item.get("text", ""), "Cue text", 300)
             size += len(text.encode("utf-8"))
-            if end > start and text and size <= 60_000:
+            if end > start and text and size <= _MAX_TRANSCRIPT_BYTES:
                 transcript.append({"start": round(start, 3), "end": round(end, 3), "text": text})
         sentences, size = [], 0
-        for item in (value.get("sentences") or [])[:600]:
+        for item in (value.get("sentences") or [])[:_MAX_CUES]:
             if not isinstance(item, dict):
                 continue
             start = _number(item.get("start"), "Sentence start", 0, duration)
             end = _source_end(item.get("end"), "Sentence end", duration)
             text = _text(item.get("text", ""), "Sentence text", 600)
             size += len(text.encode("utf-8"))
-            if end > start and text and size <= 60_000:
+            if end > start and text and size <= _MAX_TRANSCRIPT_BYTES:
                 sentences.append({"start": round(start, 3), "end": round(end, 3), "text": text})
         words = word_records(value["words"], duration) if isinstance(value.get("words"), list) else []
         notes = [_text(note, "Analysis note", 300) for note in (value.get("notes") or [])[:8] if isinstance(note, str)]
@@ -1051,7 +1058,15 @@ class CampaignManager:
                                         "reason": "Only moments found in the footage are checked, and no footage search ran."}
         if not verify:
             verification["reason"] = "SAM's check was turned off for this search."
-        if request.get("provider") == "meta" and capabilities()["meta"].get("available"):
+        long_source = float(job["source"].get("duration") or 0) > _META_TRANSCRIBE_MAX_SECONDS + 0.05
+        if long_source and request.get("provider") == "meta":
+            # One Muse Spark call watches at most 10 minutes. On a longer source the whole transcript is searched instead,
+            # for free, and nothing is uploaded; SAM checks only moments found in the picture, as on a short source.
+            minutes = float(job["source"]["duration"]) / 60
+            warnings.append(f"This source runs {minutes:.0f} minutes, so the search read its whole transcript. "
+                            f"Searching the picture covers sources up to {_META_TRANSCRIBE_MAX_SECONDS / 60:.0f} minutes.")
+            verification["reason"] = "Only moments found in the picture are checked, and a long source is searched by its transcript."
+        elif request.get("provider") == "meta" and capabilities()["meta"].get("available"):
             from vedit import meta
 
             try:
@@ -1217,6 +1232,203 @@ class CampaignManager:
         if short["index"] > len(stories):
             raise CampaignError(f"Meta found {len(stories)} distinct short{'s' if len(stories) != 1 else ''} in this footage, so this one was not made.")
         return stories[short["index"] - 1]
+
+    def _long_affordable(self, job: dict[str, Any], info: Any, details: dict[str, Any]) -> dict[str, Any]:
+        """Refuse a long source this project's budget cannot cover, with the expected cost, before anything is sent to Meta."""
+        from vedit import meta
+        from vedit.story import long_windows
+
+        request, short = job["request"], job["request"].get("short")
+        windows = len(long_windows(info.duration, longest=meta.WINDOW_SECONDS))
+        reuse = bool(short) and self._parent_candidates(job) is not None
+        # A retry pays only for the windows that did not finish; what they cost is already in ``held``.
+        done = min(windows - 1, len(list((self.root / job["id"] / "long-form").glob("window-*.json"))))
+        estimate = meta.estimate_long_plan(info.duration * (windows - done) / windows, windows - done,
+                                           transcribe=bool(details.get("has_audio")) and not short and not done,
+                                           director=request.get("director"), shorts=bool(short))
+        expected = estimate["editor_most_usd"] if reuse else estimate["expected_usd"]
+        held = self._usage_summary(self.root / job["id"], request["budget_usd"])["reserved_usd"]
+        budget = float(request["budget_usd"])
+        minutes = info.duration / 60
+        if held + expected > budget + 1e-9:
+            floor = math.ceil((held + expected) * 100 - 1e-6) / 100
+            editor = "Muse Wonder" if estimate["editor_model"] == meta._WONDER_MODEL else "Muse Spark"
+            spent = f" ${held:.2f} of it is already used." if held > 0 else ""
+            raise CampaignError(f"Planning this {minutes:.0f}-minute source with Meta is expected to cost about ${expected:.2f}: "
+                                f"Muse Spark watches it in {windows} parts of up to {meta.WINDOW_SECONDS / 60:.0f} minutes, "
+                                f"{'Meta Voice Transcribe hears it, ' if estimate['transcribe_usd'] else ''}and {editor} picks the moments. "
+                                f"The project budget is ${budget:.2f}.{spent} Raise the budget to at least ${floor:.2f}, or shorten the source. "
+                                "Nothing was sent to Meta.", 402)
+        return estimate
+
+    def _parent_candidates(self, job: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """The candidate moments the parent story already paid for, when this short cuts the same long source."""
+        short = job["request"].get("short")
+        if not short:
+            return None
+        found = sorted((self.root / short["parent"] / "long-form").glob("candidates-*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+        for path in found:
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(value, dict) and value.get("brief") == short["brief"] and isinstance(value.get("candidates"), list) and value["candidates"]:
+                return value["candidates"]
+        return None
+
+    def _long_candidates(self, ident: str, job: dict[str, Any], source: Path, info: Any, signals: dict[str, Any], goal: str) -> tuple[list[dict[str, Any]], list[tuple[float, float]], list[dict[str, Any]]]:
+        """Candidate moments from every window of a long source, read by Muse Spark a few windows at a time.
+
+        Each window is cut at a sentence end, a pause or a scene cut, gets its own
+        small proxy, and is saved as soon as Meta answers, so a retry reads only
+        the windows that did not finish. Cancel stops new windows at once. A
+        window the budget could not hold while others ran is read again on its own.
+        """
+        from vedit import meta
+        from vedit.story import long_windows
+
+        request, root = job["request"], self.root / ident
+        speech = signals.get("speech") or []
+        pauses = [round((float(speech[index]["end"]) + float(speech[index + 1]["start"])) / 2, 3)
+                  for index in range(len(speech) - 1) if float(speech[index + 1]["start"]) - float(speech[index]["end"]) >= 0.3]
+        windows = long_windows(info.duration, sentences=signals.get("sentences"), pauses=pauses, scenes=signals.get("scenes"), longest=meta.WINDOW_SECONDS)
+        transcript = signals.get("transcript") or []
+        key = hashlib.sha256(_json({"goal": goal, "windows": windows, "language": request["language"], "model": meta._story_model(),
+                                    "transcript": transcript}).encode()).hexdigest()[:16]
+        folder = root / "long-form"
+        folder.mkdir(parents=True, exist_ok=True)
+        whole = folder / f"candidates-{key}.json"
+        if whole.is_file():
+            saved = json.loads(whole.read_text(encoding="utf-8"))
+            return saved["candidates"], [tuple(item) for item in saved["windows"]], saved.get("calls") or []
+        parent = self._parent_candidates(job)
+        if parent is not None:
+            return parent, windows, []
+        event = self._event(ident)
+        total = len(windows)
+        answers: dict[int, dict[str, Any]] = {}
+        for index in range(total):
+            path = folder / f"window-{index + 1}-{key}.json"
+            if path.is_file():
+                answers[index] = json.loads(path.read_text(encoding="utf-8"))
+        clock = meta._clock
+
+        def read(index: int) -> dict[str, Any]:
+            if event.is_set():
+                raise _Cancelled()
+            start, end = windows[index]
+            self._update(ident, stage="planning", progress=round(0.3 + 0.5 * len(answers) / total, 3),
+                         message=f"Planning {index + 1} of {total}: {clock(start)} to {clock(end)}")
+            proxy = self._analysis_proxy(root, source, info, cancel_event=event, window=(start, end))
+            try:
+                if event.is_set():
+                    raise _Cancelled()
+                answer = meta.plan_candidates(proxy, goal=goal, offset=start, duration=round(end - start, 3), source_duration=info.duration,
+                                              work_dir=root / "meta", longest=60.0, shortest=3.0, language=request["language"],
+                                              budget_usd=request["budget_usd"], transcript=transcript, label=f"{clock(start)} to {clock(end)}")
+            finally:
+                shutil.rmtree(proxy.parent, ignore_errors=True)  # a window proxy is only for this call
+            _write_json(folder / f"window-{index + 1}-{key}.json", answer)
+            answers[index] = answer
+            return answer
+
+        def short_of_budget(exc: BaseException) -> bool:
+            return isinstance(exc, meta.MetaError) and exc.billed is False and "budget" in str(exc)
+
+        estimate = meta.estimate_long_plan(info.duration, total, transcribe=False, director=request.get("director"))
+        room = float(request["budget_usd"]) - self._usage_summary(root, request["budget_usd"])["reserved_usd"] - estimate["editor_most_usd"]
+        pool = max(1, min(_LONG_POOL, int(room // max(estimate["window_most_usd"], 1e-6))))
+        waiting = [index for index in range(total) if index not in answers]
+        again: list[int] = []
+        with ThreadPoolExecutor(max_workers=pool, thread_name_prefix="briefcut-window") as workers:
+            futures = {workers.submit(read, index): index for index in waiting}
+            try:
+                for future, index in futures.items():
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        if not short_of_budget(exc):
+                            raise
+                        again.append(index)
+            except BaseException:
+                for future in futures:  # nothing new starts; a window already with Meta finishes and is saved
+                    future.cancel()
+                raise
+        for index in again:  # the windows that ran meanwhile have settled to what Meta billed
+            self._check_cancel(ident)
+            read(index)
+        self._check_cancel(ident)
+        candidates: list[dict[str, Any]] = []
+        calls: list[dict[str, Any]] = []
+        for index in range(total):
+            answer = answers[index]
+            calls.append({"window": index + 1, "start": windows[index][0], "end": windows[index][1], "moments": len(answer.get("moments") or []),
+                          "model": answer.get("model"), "usage": answer.get("usage")})
+            for number, moment in enumerate(answer.get("moments") or [], 1):
+                candidates.append(dict(moment, id=f"w{index + 1}-{number}", window=index + 1))
+        if not candidates:
+            raise CampaignError("Muse Spark found no usable moments in any part of this footage. Try a clearer brief.")
+        _write_json(whole, {"brief": goal, "windows": [list(item) for item in windows], "candidates": candidates, "calls": calls})
+        return candidates, windows, calls
+
+    def _long_story(self, job: dict[str, Any], source: Path, info: Any, signals: dict[str, Any], used: list[list[float]]) -> dict[str, Any]:
+        """A story, or one short, from a source longer than one Meta call can watch.
+
+        Muse Spark proposes candidates window by window; one text-only editor
+        call (Muse Spark, or Muse Wonder when it is the director) picks and orders
+        them by id over the whole transcript. Times come from the candidates;
+        the sentence snap, the clip snap and ``validate_plan`` follow as usual.
+        """
+        from vedit import meta
+
+        ident, request, short = job["id"], job["request"], job["request"].get("short")
+        goal = short["brief"] if short else request["goal"]
+        target = min(info.duration, request["target_duration"])
+        shared = self.root / short["parent"] / f"shorts-{short['family']}.json" if short else None
+        if shared is not None and shared.is_file():
+            # A sibling already asked for the whole family's shorts; this one takes its own.
+            found = json.loads(shared.read_text(encoding="utf-8"))
+            stories = found.get("shorts") or []
+            if short["index"] > len(stories):
+                raise CampaignError(f"Meta found {len(stories)} distinct short{'s' if len(stories) != 1 else ''} in this footage, so this one was not made.")
+            return dict(stories[short["index"] - 1], provider="meta", usage={"cost_usd": 0, "calls": 0, "shared": True},
+                        long_form={"note": str(found.get("note") or "Muse Spark logged candidate moments; the editor picked these shorts from them.")})
+        candidates, windows, calls = self._long_candidates(ident, job, source, info, signals, goal)
+        # A candidate longer than this cut is trimmed to it; the sentence snap then finds the nearest sentence end.
+        fitted = [dict(item, end=round(min(item["end"], item["start"] + target), 3)) for item in candidates]
+        transcript = signals.get("transcript") or None
+        editor = meta._director(request.get("director"))
+        self._update(ident, stage="planning", progress=0.85, message=f"Picking the {'shorts' if short else 'story'} from {len(fitted)} candidate moments with {meta._DIRECTOR_NAMES[editor]}.")
+        self._check_cancel(ident)
+        name = meta._DIRECTOR_NAMES[editor]
+        if short:
+            found = meta.pick_long_shorts(goal=goal, duration=info.duration, count=short["count"], target_duration=target, shortest=min(15.0, target),
+                                          candidates=fitted, work_dir=self.root / ident / "meta", language=request["language"],
+                                          budget_usd=request["budget_usd"], transcript=transcript, used=used, director=editor)
+            found["note"] = (f"Muse Spark watched this {info.duration / 60:.0f}-minute source in {len(windows)} parts and logged {len(candidates)} "
+                             f"candidate moments; {name} picked the shorts from them.")
+            _write_json(shared, found)
+            stories = found.get("shorts") or []
+            if short["index"] > len(stories):
+                raise CampaignError(f"Meta found {len(stories)} distinct short{'s' if len(stories) != 1 else ''} in this footage, so this one was not made.")
+            story = dict(stories[short["index"] - 1])
+            story["warnings"] = list(found.get("warnings") or []) + list(story.get("warnings") or [])
+            answer = found
+        else:
+            story = meta.edit_long_story(goal=goal, duration=info.duration, target_duration=target, candidates=fitted, work_dir=self.root / ident / "meta",
+                                         language=request["language"], budget_usd=request["budget_usd"], transcript=transcript, director=editor)
+            answer = story
+        picked = len(story.get("segments") or [])
+        note = (f"Muse Spark watched this {info.duration / 60:.0f}-minute source in {len(windows)} parts of up to {meta.WINDOW_SECONDS / 60:.0f} minutes "
+                f"and logged {len(candidates)} candidate moments; {name} picked {picked} of them from the whole transcript.")
+        story["long_form"] = {"windows": [list(item) for item in windows], "candidates": len(candidates), "picked": [segment.get("candidate") for segment in story.get("segments") or []],
+                              "editor": meta._DIRECTOR_LABELS[editor], "editor_model": answer.get("model"), "editor_usage": answer.get("usage"), "window_calls": calls, "note": note}
+        (self.root / ident / "long-form").mkdir(parents=True, exist_ok=True)
+        _write_json(self.root / ident / "long-form" / "plan-summary.json", story["long_form"])
+        costs = [float((call.get("usage") or {}).get("cost_usd") or 0) for call in calls if not (call.get("usage") or {}).get("cached")]
+        story["usage"] = {"cost_usd": round(sum(costs) + float((answer.get("usage") or {}).get("cost_usd") or 0), 8), "calls": len(costs) + 1}
+        story["provider"] = "meta"
+        return story
 
     def create_script(self, value: Any) -> dict[str, Any]:
         """Start a project from written text. The worker makes the pictures; the captions are the script."""
@@ -1960,9 +2172,10 @@ class CampaignManager:
             from vedit import meta
             from vedit.story import analyze_signals, annotate_segments, clip_cuts, snap_to_sentences
 
-            if info.duration > _META_TRANSCRIBE_MAX_SECONDS:
-                # Said before anything is encoded or paid for.
-                raise CampaignError("Meta analysis is limited to 10 minutes of footage. Shorten or split the source before using Meta tools.")
+            long_form = info.duration > meta.WINDOW_SECONDS + 0.05
+            if long_form and not cache.is_file():
+                # Said before anything is encoded or paid for: the expected cost, against this project's budget.
+                self._long_affordable(job, info, details)
             # Meta Voice Transcribe hears the speech once. The planner, the lint,
             # find, and the captions all read this one transcript; FFmpeg measures
             # scene cuts and speech bands. No local model runs. Disk is checked
@@ -1976,6 +2189,9 @@ class CampaignManager:
             self._check_cancel(ident)
             if cache.is_file():
                 proposed = json.loads(cache.read_text(encoding="utf-8"))
+            elif long_form:
+                proposed = self._long_story(job, source, info, signals, used)
+                _write_json(cache, proposed)
             else:
                 self._update(ident, stage="preparing", progress=0.3, message="Making a small analysis copy; your original stays unchanged.")
                 proxy = self._analysis_proxy(root, source, info, cancel_event=self._event(ident))
@@ -1993,7 +2209,7 @@ class CampaignManager:
                 # sentence it chose instead of cutting mid-word. Local, free.
                 segments = snap_to_sentences(segments, signals["sentences"], duration=info.duration, target=min(info.duration, request["target_duration"]))
             proposed["segments"] = annotate_segments(segments, signals.get("speech") or [])
-            notes = ["Muse Spark selected the moments. FFmpeg measured scene cuts and speech bands."]
+            notes = [str(proposed.get("long_form", {}).get("note") or "Muse Spark selected the moments.") + " FFmpeg measured scene cuts and speech bands."]
             if heard is not None:
                 notes.append("Meta Voice Transcribe wrote the transcript. It times turns, not words, so a sentence end inside a turn is estimated by length and filler removal has no word times to cut at.")
             proposed["analysis"] = dict(signals, method="meta", notes=notes)
@@ -2428,26 +2644,30 @@ class CampaignManager:
         _write_json(measured, stats)
         return path, stats
 
-    def _analysis_proxy(self, root: Path, source: Path, info: Any, assembly: dict[str, Any] | None = None, *, cancel_event: threading.Event | None = None) -> Path:
+    def _analysis_proxy(self, root: Path, source: Path, info: Any, assembly: dict[str, Any] | None = None, *, cancel_event: threading.Event | None = None,
+                        window: tuple[float, float] | None = None) -> Path:
         """Compile a canonical MP4 proxy without moving any editorial timestamps.
 
-        Story planning reads the whole source. Tracking reads the same assembly
-        as the render (kept pieces, speed, transitions), so its time axis is the
-        finished story's time.
+        Story planning reads the whole source, or one ``window`` of a long
+        source, whose proxy clock starts at the window's start. Tracking reads
+        the same assembly as the render (kept pieces, speed, transitions), so its
+        time axis is the finished story's time.
         """
+        if window is not None:
+            assembly = {"op": "select_ranges", "ranges": [{"start": round(float(window[0]), 3), "end": round(float(window[1]), 3)}]}
         identity = {"size": source.stat().st_size, "mtime_ns": source.stat().st_mtime_ns, "assembly": assembly}
         key = hashlib.sha256(_json(identity).encode()).hexdigest()[:20]
         work = root / "analysis" / key
         proxy = work / "analysis.mp4"
         # SAM bills by the frame and a mask can only be as sharp as what SAM saw, so
         # an upright clip is tracked upright, not in the middle third of a wide frame.
-        upright = bool(assembly) and info.display_height > info.square_width
+        upright = bool(assembly) and window is None and info.display_height > info.square_width
         size, preset = ((540, 960), "web_preview_9x16") if upright else ((960, 540), "web_preview")
         expected_duration = info.duration
         if assembly:
             overlap = (assembly.get("transition") or {}).get("seconds", 0.0)
             expected_duration = output_duration(build_timeline(assembly["ranges"], transition=overlap))
-        if expected_duration > _META_TRANSCRIBE_MAX_SECONDS:
+        if expected_duration > _META_TRANSCRIBE_MAX_SECONDS + 0.05:  # a long story plan reads windows of at most this much, never one proxy
             raise CampaignError("Meta analysis is limited to 10 minutes of footage. Shorten or split the source before using Meta tools.")
         if proxy.is_file() and proxy.stat().st_size:
             checked = probe(proxy)

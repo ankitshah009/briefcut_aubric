@@ -181,7 +181,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         browser.run("newtab", args.url)
         browser.run("viewport", "1280x900")
         browser.run("console", "--clear")
-        browser.until("document.querySelector('#connection-status')?.textContent==='Editor ready'", "Studio did not become ready")
+        browser.until("['Meta connected','Setup needed'].includes(document.querySelector('#connection-status')?.textContent)", "Studio did not become ready")
         browser.run("click", "#new-project")
         browser.run("upload", "#clip", str(source))
         browser.until("document.querySelector('#player').readyState>=1", "Local source preview did not load")
