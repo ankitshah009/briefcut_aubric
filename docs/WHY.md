@@ -31,7 +31,7 @@ Every project runs on Meta's models, at $0.0005 to $0.08 per project in the [sce
 
 **Models check each other.** A schema makes Spark's answer parse. It does not make it right. In verified find, SAM 3.1 looks for the thing Spark found. Offered Spark's two bowl moments under the search "a dog", SAM found no dog in 90 frames and flagged both ([verified find](evidence/verified-find/README.md)). For the hero word, SAM's mask showed the bowl would hide 82% of the word where Spark put it, so code moved it to where 20% is hidden ([hero word](evidence/hero-word/README.md)).
 
-**Honest labels.** "SAM masked 100% of 60 frames" is code measuring SAM's data, so Studio tags it Measured. "The hook works" is a director's judgment, so it is tagged Model opinion. The labels and the content-hashed record ids come from the REA project's evidence model (MIT), so `vedit verify` names any check, note or byte of video that changed ([receipts](../ARCHITECTURE.md#5-receipts-and-evidence-labels), [verify](../ARCHITECTURE.md#receipts-you-can-verify)).
+**Honest labels.** "SAM masked 100% of 60 frames" is code measuring SAM's data, so Studio tags it Measured. "The hook works" is a director's judgment, so it is tagged Model opinion. The labels and the content-hashed record ids come from the REA project's evidence model (a separate, MIT-licensed project), so `vedit verify` names any check, note or byte of video that changed ([receipts](../ARCHITECTURE.md#5-receipts-and-evidence-labels), [verify](../ARCHITECTURE.md#receipts-you-can-verify)).
 
 **Wonder hears the cut.** Reviewing one cut with its sound, Muse Wonder failed two checks that the frames confirm, and Spark passed both. Only Wonder described the soundtrack truthfully; Spark invented a lathe sound. Wonder cost $0.1010 against Spark's $0.0018, so Spark stays the default ([Wonder review](evidence/wonder-review/README.md)).
 
@@ -39,11 +39,11 @@ Every project runs on Meta's models, at $0.0005 to $0.08 per project in the [sce
 
 **Open weights on a laptop.** In private mode, the director's note, caption translation, and the script writer run on Muse Glimmer 30B on this machine. In the recorded run, the Meta API path was replaced by one that fails the run, and five calls finished at $0 ([private mode](evidence/open-weights/README.md)).
 
-**Meta's agent drives Meta's editor.** Muse Code connects to Briefcut's MCP server and calls its tools ([Muse Code](MUSE_CODE.md)). The recorded run imported a clip ([record](evidence/muse-code/README.md)); a full edit by Muse Code is not recorded yet.
+**Meta's agent drives Meta's editor.** Muse Code connects to Briefcut's MCP server and calls its tools ([Muse Code](MUSE_CODE.md)). In the recorded run it made a full edit, import to verified file, in eight steps and about two minutes ([record](evidence/muse-code/README.md)).
 
 ## What this does not claim
 
 - Most live runs used Briefcut's procedural demo clip, and the public clips had no real speech, so no run measures quality on a real person's talk.
-- The recorded full-loop runs, including the auto-refine run above, predate the Meta-only build, when a local Whisper model, since removed, wrote the planning transcript.
+- The recorded full-loop runs, including the auto-refine run above, ran on October 31, inside the hackathon but before the Meta-only build, when a local Whisper model, since removed, wrote the planning transcript.
 - Meta Voice Transcribe reports turns, not words, so caption word times are estimated.
 - The prices are local estimates from the rates in `meta.py`, not Meta's bill.
