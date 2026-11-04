@@ -12,12 +12,12 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from vedit.errors import BinaryMissing, ProbeError, RenderCancelled, RenderError
+from vedit.errors import AnalysisError, BinaryMissing, CaptionError, ProbeError, RenderCancelled, RenderError, VeditError
 
 
 def trace(step: str) -> None:
@@ -29,6 +29,7 @@ def trace(step: str) -> None:
 
 FULL_FFMPEG = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
 FULL_FFPROBE = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe")
+INTEL_FULL_FFMPEG = Path("/usr/local/opt/ffmpeg-full/bin/ffmpeg")
 DEFAULT_FONT = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
 HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
 LINUX_FONTS = (
@@ -39,6 +40,17 @@ LINUX_FONTS = (
     Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
 )
 _PROBE_TIMEOUT_SECONDS = 30.0
+_SCAN_TIMEOUT_SECONDS = 120.0
+_PLAYABLE_TIMEOUT_SECONDS = 60.0
+_UNKNOWN_CODECS = frozenset({"", "unknown", "none"})
+_HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
+_INTERLACED_ORDERS = frozenset({"tt", "bb", "tb", "bt"})
+# Mobius keeps midtones and skin where they are. Hable darkens a phone clip by a third.
+_TONEMAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+# FFmpeg's stream names for a matrix, and what the scale filter calls the same thing.
+_SCALE_MATRICES = {"smpte170m": "smpte170m", "bt470bg": "bt470bg", "smpte240m": "smpte240m", "fcc": "fcc", "bt2020nc": "bt2020", "bt2020c": "bt2020"}
+_RGB_PIXELS = ("rgb", "bgr", "gbr", "argb", "abgr")
+_IMAGE_CODECS = frozenset({"png", "bmp", "tiff", "webp", "jpeg2000", "jpegls"})
 _CANCEL_POLL_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
 # Nested helpers must not orphan their independent groups when cancelled.
@@ -53,9 +65,12 @@ def resolve_ffmpeg() -> str:
         return env
     if FULL_FFMPEG.is_file():
         return str(FULL_FFMPEG)
+    # Homebrew keeps ffmpeg-full off PATH, and an Intel Mac's Homebrew lives elsewhere.
+    if INTEL_FULL_FFMPEG.is_file():
+        return str(INTEL_FULL_FFMPEG)
     found = shutil.which("ffmpeg")
     if not found:
-        raise BinaryMissing("ffmpeg not found. Install with: brew install ffmpeg")
+        raise BinaryMissing("ffmpeg not found. `vedit setup` prints the install command for this machine.")
     return found
 
 
@@ -93,6 +108,14 @@ def resolve_font() -> Path:
     raise BinaryMissing("No usable font. Set VEDIT_FONT to a .ttf/.otf file.")
 
 
+def find_whisper_cli() -> str | None:
+    """Retired: Briefcut runs no local speech model and never starts whisper-cli. Always None.
+
+    Kept only so setup screens that still look for it import cleanly.
+    """
+    return None
+
+
 def which_optional(*names: str) -> str | None:
     for name in names:
         found = shutil.which(name)
@@ -120,6 +143,21 @@ class StreamInfo:
     color_range: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
     rotation: float = 0.0
+    start_time: float | None = None
+    cover: bool = False
+    default: bool = False
+    codec_tag: str = ""
+    field_order: str = ""
+    sample_aspect_ratio: float = 1.0
+
+    @property
+    def readable(self) -> bool:
+        """False when FFmpeg can see the stream but has no name for its codec."""
+        return self.codec_name not in _UNKNOWN_CODECS
+
+    @property
+    def hdr(self) -> bool:
+        return self.color_trc in _HDR_TRANSFERS
 
 
 @dataclass(frozen=True)
@@ -130,28 +168,52 @@ class MediaInfo:
     size_bytes: int
     bit_rate: int | None
     streams: tuple[StreamInfo, ...]
+    # The container's own length. ``duration`` stops where the picture stops.
+    file_duration: float = 0.0
+
+    def _of_type(self, kind: str) -> list[StreamInfo]:
+        return [s for s in self.streams if s.codec_type == kind]
 
     @property
     def video(self) -> StreamInfo | None:
-        return next((s for s in self.streams if s.codec_type == "video"), None)
+        """The footage: not cover art, and not a small proxy that happens to come first."""
+        pictures = self._of_type("video")
+        if not pictures:
+            return None
+        return max(pictures, key=lambda s: (not s.cover, s.codec_name not in _IMAGE_CODECS, s.readable, (s.width or 0) * (s.height or 0)))
 
     @property
     def audio(self) -> StreamInfo | None:
-        return next((s for s in self.streams if s.codec_type == "audio"), None)
+        """The sound the render uses: a track FFmpeg can read, preferring the default one."""
+        tracks = self._of_type("audio")
+        if not tracks:
+            return None
+        return max(tracks, key=lambda s: (s.readable, s.default))
+
+    @property
+    def video_map(self) -> int:
+        """``K`` in ``[n:v:K]``: the footage's position among the video streams."""
+        return self._of_type("video").index(self.video) if self.video else 0
+
+    @property
+    def audio_map(self) -> int:
+        """``K`` in ``[n:a:K]``: the sound's position among the audio streams."""
+        return self._of_type("audio").index(self.audio) if self.audio else 0
 
     @property
     def has_video(self) -> bool:
         video = self.video
-        if video is None:
+        if video is None or video.cover:
             return False
-        # Attached album art is a single JPEG "video" stream — treat as none.
+        # A lone JPEG, or art a muxer forgot to flag, is one picture and not a clip.
         if video.codec_name == "mjpeg" and (video.duration or 0) < 0.08:
             return False
         return True
 
     @property
     def has_audio(self) -> bool:
-        return self.audio is not None
+        audio = self.audio
+        return audio is not None and audio.readable
 
     @property
     def width(self) -> int:
@@ -171,6 +233,11 @@ class MediaInfo:
         return self.width if self.video and round(self.video.rotation) % 180 == 90 else self.height
 
     @property
+    def square_width(self) -> int:
+        """Width once pixels are square, which is the shape ``SQUARE_PIXELS`` gives the picture."""
+        return int(self.display_width * self.video.sample_aspect_ratio) if self.video else self.display_width
+
+    @property
     def fps(self) -> float:
         return float(self.video.fps) if self.video and self.video.fps else 30.0
 
@@ -182,6 +249,14 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _sample_aspect(value: Any) -> float:
+    """``16:11`` as a number. FFmpeg writes ``0:1`` and ``N/A`` when a file does not say, which means square."""
+    parts = str(value or "").split(":")
+    if len(parts) != 2 or not all(part.isdigit() and int(part) for part in parts):
+        return 1.0
+    return int(parts[0]) / int(parts[1])
 
 
 def _parse_fps(rate: str | None) -> float | None:
@@ -205,10 +280,44 @@ def _rotation(raw: dict[str, Any]) -> float:
     return value % 360 if value is not None and math.isfinite(value) else 0.0
 
 
+def _tag_seconds(tags: dict[str, Any]) -> float | None:
+    """Matroska keeps a track's length in a tag, as ``00:00:02.021000000``."""
+    for key, value in tags.items():
+        if str(key).upper().startswith("DURATION"):
+            match = re.fullmatch(r"(\d+):(\d{2}):(\d{2}(?:\.\d+)?)", str(value).strip())
+            if match:
+                return int(match[1]) * 3600 + int(match[2]) * 60 + float(match[3])
+    return None
+
+
+def _packet_spans(src: Path) -> dict[int, tuple[float, float]]:
+    """First and last timestamp of each stream, read from its packets.
+
+    A file written to a stream, such as a browser's MediaRecorder WebM, never
+    learns its own length. Reading packets decodes nothing, and it stops where
+    the data stops, so it also finds the real end of a truncated file.
+    """
+    argv = [resolve_ffprobe(), "-v", "error", "-show_entries", "packet=stream_index,pts_time,duration_time", "-of", "csv=p=0", str(src)]
+    try:
+        lines = run_command(argv, timeout=_SCAN_TIMEOUT_SECONDS).stdout.splitlines()
+    except RenderError:
+        return {}
+    spans: dict[int, tuple[float, float]] = {}
+    for line in lines:
+        fields = line.split(",")
+        pts = _to_float(fields[1]) if len(fields) > 1 else None
+        if pts is None or not fields[0].isdigit():
+            continue
+        end = pts + (_to_float(fields[2]) or 0.0 if len(fields) > 2 else 0.0)
+        low, high = spans.get(int(fields[0]), (pts, end))
+        spans[int(fields[0])] = (min(low, pts), max(high, end))
+    return spans
+
+
 def probe(path: str | Path) -> MediaInfo:
     src = Path(path).expanduser().resolve()
     if not src.is_file():
-        raise ProbeError(f"file does not exist: {src}")
+        raise ProbeError(f"file does not exist: {src}", plain="The source file is no longer in this project. Upload it again.")
     argv = [
         resolve_ffprobe(),
         "-v",
@@ -224,18 +333,33 @@ def probe(path: str | Path) -> MediaInfo:
     except RenderError as exc:
         raise ProbeError(
             f"ffprobe could not inspect {src}: {exc}. "
-            "Check that the file is readable and complete; copy network media to local storage and retry."
+            "Check that the file is readable and complete; copy network media to local storage and retry.",
+            plain="Reading this file took too long. Copy it to a local drive, then upload it again.",
         ) from exc
     if proc.returncode != 0:
-        raise ProbeError(f"ffprobe failed for {src}: {proc.stderr.strip()}")
+        raise ProbeError(f"ffprobe failed for {src}: {proc.stderr.strip()}", plain=_unreadable_file(src, proc.stderr))
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise ProbeError(f"ffprobe returned invalid JSON for {src}") from exc
     fmt = data.get("format") or {}
+    format_name = str(fmt.get("format_name") or "")
+    # -ss counts from the file's first timestamp, so that is where this clock starts.
+    start = _to_float(fmt.get("start_time")) or 0.0
+    length = _to_float(fmt.get("duration")) or 0.0
+    if start > 0 and "matroska" in format_name:
+        # Matroska records its last timestamp, not its running time.
+        length = max(0.0, length - start)
+    ends: dict[int, float] = {}
     streams: list[StreamInfo] = []
     for raw in data.get("streams") or []:
         duration = _to_float(raw.get("duration")) or _to_float(fmt.get("duration"))
+        tags = raw.get("tags") or {}
+        own = _to_float(raw.get("duration")) or _tag_seconds(tags)
+        begins = _to_float(raw.get("start_time"))
+        disposition = raw.get("disposition") or {}
+        if own:
+            ends[int(raw.get("index", 0))] = (start if begins is None else begins) - start + own
         streams.append(
             StreamInfo(
                 index=int(raw.get("index", 0)),
@@ -253,23 +377,38 @@ def probe(path: str | Path) -> MediaInfo:
                 color_trc=raw.get("color_transfer"),
                 color_space=raw.get("color_space"),
                 color_range=raw.get("color_range"),
-                tags={str(k): str(v) for k, v in (raw.get("tags") or {}).items()},
+                tags={str(k): str(v) for k, v in tags.items()},
                 rotation=_rotation(raw),
+                start_time=begins,
+                cover=bool(disposition.get("attached_pic") or disposition.get("timed_thumbnails")),
+                default=bool(disposition.get("default")),
+                codec_tag=str(raw.get("codec_tag_string") or ""),
+                field_order=str(raw.get("field_order") or ""),
+                sample_aspect_ratio=_sample_aspect(raw.get("sample_aspect_ratio")),
             )
         )
-    duration = _to_float(fmt.get("duration")) or 0.0
-    if duration <= 0:
+    if length <= 0:
         for s in streams:
-            if s.duration and s.duration > duration:
-                duration = s.duration
-    return MediaInfo(
+            if s.duration and s.duration > length:
+                length = s.duration
+    if length <= 0:
+        spans = _packet_spans(src)
+        if spans:
+            first = min(low for low, _ in spans.values())
+            length = max(high for _, high in spans.values()) - first
+            ends = {index: high - first for index, (_, high) in spans.items()}
+    info = MediaInfo(
         path=src,
-        duration=float(duration),
-        format_name=str(fmt.get("format_name") or ""),
+        duration=float(length),
+        format_name=format_name,
         size_bytes=int(fmt["size"]) if str(fmt.get("size") or "").isdigit() else src.stat().st_size,
         bit_rate=int(fmt["bit_rate"]) if str(fmt.get("bit_rate") or "").isdigit() else None,
         streams=tuple(streams),
+        file_duration=float(length),
     )
+    # A clip ends with its picture: past that point there is nothing to cut to.
+    end = ends.get(info.video.index) if info.has_video and info.video else None
+    return replace(info, duration=end) if end and end < length else info
 
 
 @dataclass
@@ -301,7 +440,8 @@ def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
                     proc.terminate()
                 else:
                     proc.kill()
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS answers EPERM while the group's last members are exiting.
             pass
 
     send(signal.SIGTERM)
@@ -441,7 +581,8 @@ def run_ffmpeg(args: list[str], *, timeout: float | None = None) -> CommandResul
             + "):\n  "
             + " ".join(argv)
             + "\n"
-            + "\n".join(tail)
+            + "\n".join(tail),
+            detail=result.stderr,
         )
     return result
 
@@ -455,6 +596,17 @@ def shell_join(argv: list[str]) -> str:
 def escape_filter_path(path: str | Path) -> str:
     text = str(path)
     return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", r"\'")
+
+
+def filter_value(value: str | Path) -> str:
+    """Escape one option value for a filtergraph, for use without surrounding quotes.
+
+    FFmpeg parses a filtergraph twice, first the graph and then each option, and
+    each pass has its own special characters. Escaping for both keeps any path
+    intact, including apostrophes, which no quoted form can carry.
+    """
+    option = re.sub(r"([\\':])", r"\\\1", str(value))
+    return re.sub(r"([\\'\[\],;])", r"\\\1", option)
 
 
 def escape_drawtext(text: str) -> str:
@@ -481,6 +633,13 @@ def has_filter(name: str) -> bool:
     return name in _filter_names()
 
 
+@lru_cache(maxsize=16)
+def filter_options(name: str) -> frozenset[str]:
+    """The option names this FFmpeg's filter takes. Builds differ, as distribution packages lag."""
+    result = run_command([resolve_ffmpeg(), "-hide_banner", "-h", f"filter={name}"])
+    return frozenset(re.findall(r"^\s+(\w+)\s+<", result.stdout, re.MULTILINE))
+
+
 @lru_cache(maxsize=1)
 def _encoder_names() -> frozenset[str]:
     result = run_command([resolve_ffmpeg(), "-hide_banner", "-encoders"])
@@ -496,6 +655,18 @@ def has_encoder(name: str) -> bool:
     return name in _encoder_names()
 
 
+@lru_cache(maxsize=1)
+def ffmpeg_major() -> int:
+    """FFmpeg's major version. A build with no number is a recent git build."""
+    match = re.search(r"version n?(\d+)\.", version_line())
+    return int(match.group(1)) if match else 99
+
+
+def filter_file_args(path: str | Path) -> list[str]:
+    """Read a filter graph from a file. FFmpeg 7 changed the option; Ubuntu 24.04 has 6.1."""
+    return ["-/filter_complex" if ffmpeg_major() >= 7 else "-filter_complex_script", str(path)]
+
+
 def version_line() -> str:
     result = run_command([resolve_ffmpeg(), "-version"])
     return (result.stdout.splitlines() or ["unknown"])[0]
@@ -507,3 +678,235 @@ def is_image(path: Path) -> bool:
 
 def is_audio(path: Path) -> bool:
     return path.suffix.lower() in {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg", ".opus", ".aiff"}
+
+
+# ---------------------------------------------------------------------------
+# What went wrong, for the person who chose the file
+# ---------------------------------------------------------------------------
+
+CONVERT = "Convert it to H.264 MP4, then upload that."
+RETRY_SAVED = "Your clip and plan are saved."
+_INTERRUPTED = "The recording or copy was probably interrupted. Copy or export it again, then upload the new file."
+
+# First match wins. Environment problems come first: a full disk says nothing about the clip.
+_FAILURES = tuple(
+    (re.compile(pattern, re.I), message)
+    for pattern, message in (
+        (r"No space left on device|Disk quota exceeded", f"The drive holding this project is full. Free some space, then retry. {RETRY_SAVED}"),
+        (r"Permission denied|Operation not permitted", f"Briefcut was not allowed to read or write a file in this project. Check the folder's permissions, then retry. {RETRY_SAVED}"),
+        (r"Cannot allocate memory|out of memory", f"This machine ran out of memory on this video. Close other apps and retry, or use a shorter or smaller clip. {RETRY_SAVED}"),
+        (r"timed out after", f"This step took too long and was stopped. Retry when the machine is less busy, or use a shorter clip. {RETRY_SAVED}"),
+        (r"moov atom not found|partial file", f"This file is incomplete. {_INTERRUPTED}"),
+        (r"no decoder found|Decoder \S* ?not found|Unknown decoder|Failed to open decoder|Error while opening decoder|Could not find codec parameters|Unsupported codec",
+         f"This clip uses a format FFmpeg on this machine cannot decode. {CONVERT}"),
+        (r"Decoding error|Error while decoding|Invalid NAL unit|corrupt|concealing|non-existing PPS|Invalid data found when processing input",
+         f"Part of this clip is damaged and could not be decoded. Check that it plays to the end, or export it again, then upload the new file. {RETRY_SAVED}"),
+        (r"Unknown encoder|Encoder \S* ?not found|No such filter|Filter not found", f"Your FFmpeg build is missing something this edit needs. Install ffmpeg-full, then retry. {RETRY_SAVED}"),
+        (r"matches no streams|does not contain any stream|Nothing was written|Output file is empty|Could not open encoder before EOF",
+         f"One of your moments has no picture or sound in this file. Move it to a part of the clip that plays, then retry. {RETRY_SAVED}"),
+    )
+)
+_STEPS = (
+    ("select_ranges", "Assembling your moments"), ("captions", "Making captions"), ("export", "The export"),
+    ("verify", "Checking the export"), ("thumbnail", "Making the cover frame"), ("cut_silence", "Trimming pauses"),
+    ("spatial_effect", "The spatial effect"), ("music", "Adding music"), ("concat", "Joining your clips"),
+)
+_ERROR_LINE = re.compile(r"error|fail|invalid|cannot|could not|unable|not found|too large|unsupported|out of range", re.I)
+_SAFE_REASON = re.compile(r"[A-Za-z][A-Za-z ,'-]{5,90}")
+_PATH = re.compile(r"(?:[A-Za-z]:)?[\\/][^\s'\"]*")
+
+
+def _unreadable_file(src: Path, stderr: str) -> str:
+    """Why ffprobe gave up. Extensions choose the demuxer, so read the bytes as well."""
+    try:
+        with src.open("rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return "This file could not be opened. Check that it is readable, then upload it again."
+    if not head:
+        return "This file is empty. Export or copy it again, then upload the new file."
+    if "moov atom not found" in stderr and head[4:8] in {b"ftyp", b"wide", b"free", b"mdat", b"skip"}:
+        return f"This file is incomplete: its index is missing. {_INTERRUPTED}"
+    return f"This file is not a video FFmpeg can read, whatever its name says. Check that it plays. {CONVERT}"
+
+
+def source_problem(info: MediaInfo, *, min_seconds: float, max_seconds: float) -> str | None:
+    """What stops this file being edited, in plain words; None when nothing does."""
+    video = info.video
+    if video is not None and not video.cover and not video.readable:
+        named = f" ({video.codec_tag})" if video.codec_tag.isalnum() else ""
+        return f"This clip's picture uses a format FFmpeg cannot decode{named}. {CONVERT}"
+    if not info.has_video:
+        if info.has_audio:
+            return "This file has sound but no picture. Choose a video clip."
+        return "This file has no picture or sound that can be read. Check that it plays, then upload it again."
+    seconds = info.duration
+    if not math.isfinite(seconds) or seconds <= 0:
+        return f"This clip's length could not be measured. {CONVERT}"
+    if seconds <= min_seconds:
+        if info.file_duration > seconds + 0.5:
+            return f"The picture in this file stops after {seconds:.2f} seconds, while its sound runs for {info.file_duration:.1f}. Export it again with video the whole way through."
+        return f"This clip is only {seconds:.2f} seconds long. Choose a clip longer than {min_seconds:g} seconds."
+    if seconds > max_seconds:
+        return f"This clip runs {seconds / 60:.0f} minutes. Studio edits clips up to {max_seconds / 60:.0f} minutes, so trim it first, then upload it again."
+    return None
+
+
+def source_filters(info: MediaInfo) -> str:
+    """Turn the footage into what every export claims it is: progressive, 8-bit limited BT.709.
+
+    Exports tag frames BT.709 with ``setparams``, which changes the label and not
+    the pixels, so anything else has to be converted here first. Only a tag that
+    says otherwise changes a pixel: untagged video passes through untouched.
+    """
+    video = info.video
+    if video is None:
+        return ""
+    return ",".join(part for part in (_deinterlace(video), _to_rec709(video)) if part)
+
+
+def _deinterlace(video: StreamInfo) -> str:
+    """Camcorder and broadcast footage. Only frames flagged interlaced are touched."""
+    if video.field_order not in _INTERLACED_ORDERS:
+        return ""
+    name = next((name for name in ("bwdif", "yadif") if has_filter(name)), "")
+    return f"{name}=mode=send_frame:deint=interlaced" if name else ""
+
+
+def _to_rec709(video: StreamInfo) -> str:
+    if video.hdr:
+        return _TONEMAP if has_filter("zscale") and has_filter("tonemap") else ""
+    options: list[str] = []
+    matrix = _SCALE_MATRICES.get(video.color_space or "")
+    if matrix:
+        options.append(f"in_color_matrix={matrix}")
+    if video.color_range == "pc" or (video.pix_fmt or "").startswith("yuvj"):
+        options.append("in_range=full")
+    if not options and not (video.pix_fmt or "").startswith(_RGB_PIXELS):
+        return ""
+    return "scale=" + ":".join([*options, "out_color_matrix=bt709", "out_range=limited"]) + ",format=yuv420p"
+
+
+def source_notes(info: MediaInfo) -> list[str]:
+    """Choices made about a file that the person who chose it should see on the plan."""
+    notes: list[str] = []
+    video, audio = info.video, info.audio
+    footage = [s for s in info.streams if s.codec_type == "video" and not s.cover and s.codec_name not in _IMAGE_CODECS]
+    if len(footage) > 1 and video is not None:
+        notes.append(f"This file holds {len(footage)} video streams. Briefcut uses the {video.width}x{video.height} one.")
+    tracks = [s for s in info.streams if s.codec_type == "audio" and s.readable]
+    if len(tracks) > 1:
+        notes.append(f"This file holds {len(tracks)} sound tracks. Briefcut uses track {tracks.index(info.audio) + 1}. If that one is wrong, export the clip with the sound you want first.")
+    if audio is not None and not audio.readable:
+        notes.append("This clip's sound uses a format FFmpeg cannot read, so the finished video will be silent.")
+    if video is not None and video.hdr and not (has_filter("zscale") and has_filter("tonemap")):
+        notes.append("This clip is HDR, and this FFmpeg cannot convert it, so its colors will look flat. Install ffmpeg-full to fix that.")
+    if info.file_duration > info.duration + 0.5:
+        notes.append(f"The picture stops at {info.duration:.1f} seconds while the sound runs to {info.file_duration:.1f}. The sound after the last frame is left out.")
+    return notes
+
+
+def export_problem(output: MediaInfo, *, width: int, height: int, has_audio: bool, seconds: float, tolerance: float, color: bool = True) -> str | None:
+    """Why a finished file must not be delivered, in plain words; None when it may be."""
+    again = f"It was not delivered. {RETRY_SAVED} Retry once. If it happens again, convert the clip to H.264 MP4 and upload that."
+    if not output.has_video:
+        return f"The finished file has no picture. {again}"
+    if (output.width, output.height) != (width, height):
+        return f"The finished file came out {output.width}x{output.height} instead of {width}x{height}. {again}"
+    if output.has_audio != has_audio:
+        return f"The finished file {'lost its sound' if has_audio else 'gained a sound track the clip does not have'}. {again}"
+    if abs(output.duration - seconds) > tolerance:
+        return (f"The finished file runs {output.duration:.1f} seconds, not the {seconds:.1f} you approved. It was not delivered. "
+                f"The clip may be damaged there. Choose other moments, or export the clip again and upload that. {RETRY_SAVED}")
+    video = output.video
+    if color and (video is None or video.color_space != "bt709" or video.color_range != "tv"):
+        return f"The finished file's color information came out wrong. {again}"
+    return None
+
+
+def _frame_decodes(info: MediaInfo, at: float) -> bool:
+    argv = [
+        resolve_ffmpeg(), "-hide_banner", "-v", "error", "-ss", f"{at:.3f}", "-i", str(info.path),
+        "-map", f"0:v:{info.video_map}", "-frames:v", "1", "-f", "framecrc", "-",
+    ]
+    try:
+        result = run_command(argv, timeout=_PLAYABLE_TIMEOUT_SECONDS)
+    except RenderError:
+        return True  # Slow is not broken; a real problem still surfaces at render.
+    return any(line and not line.startswith("#") for line in result.stdout.splitlines())
+
+
+def check_playable(info: MediaInfo) -> None:
+    """Decode a frame at each end, so a damaged upload fails now and says why.
+
+    A truncated MP4 with its index at the front still probes at full length,
+    and would otherwise only fail once the render reaches the missing footage.
+    """
+    if not _frame_decodes(info, 0.0):
+        raise ProbeError(
+            f"no frame decodes at the start of {info.path}",
+            plain=f"The picture in this clip could not be decoded. The file may be damaged. Check that it plays. {CONVERT}",
+        )
+    tail = info.duration - 1.0
+    video = info.video
+    if tail <= 0 or video is None or _frame_decodes(info, tail):
+        return
+    # A failed seek proves nothing on its own. The packets say where the data really stops.
+    spans = _packet_spans(info.path)
+    if video.index not in spans:
+        return
+    stops = spans[video.index][1] - min(low for low, _ in spans.values())
+    if stops < tail:
+        raise ProbeError(
+            f"picture stops at {stops:.3f}s of {info.duration:.3f}s in {info.path}",
+            plain=f"This file is cut short: it should run {info.duration:.1f} seconds, but its picture stops at {stops:.1f}. {_INTERRUPTED}",
+        )
+
+
+def _reason(detail: str) -> str:
+    """FFmpeg's own words for a failure, only when they carry no path or address."""
+    for line in reversed(detail.splitlines()):
+        if not _ERROR_LINE.search(line):
+            continue
+        text = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", line.strip()).rsplit(": ", 1)[-1].rstrip(".!")
+        if _SAFE_REASON.fullmatch(text) and text.casefold() != "conversion failed":
+            return text
+    return ""
+
+
+def _step_label(step: str) -> str:
+    return next((label for key, label in _STEPS if step.startswith(key)), "This step")
+
+
+def plain_failure(exc: BaseException) -> str:
+    """One specific, plain message for a failed job. It never holds a command or a path."""
+    plain = getattr(exc, "plain", None)
+    if plain:
+        return plain
+    detail = getattr(exc, "detail", "") or str(exc)
+    if isinstance(exc, (VeditError, OSError)):
+        for pattern, message in _FAILURES:
+            if pattern.search(detail):
+                return message
+    if isinstance(exc, BinaryMissing):
+        return f"A program Briefcut needs is missing. Run vedit doctor to see what to install, then retry. {RETRY_SAVED}"
+    if isinstance(exc, CaptionError):
+        return f"The local speech model stopped before captions were finished. Run vedit doctor, or turn captions off to render now. {RETRY_SAVED}"
+    if isinstance(exc, AnalysisError):
+        if "audio track" in detail:
+            return f"This clip has no sound, so pauses cannot be trimmed. Remove that instruction from the goal, then retry. {RETRY_SAVED}"
+        if "silence" in detail:
+            return f"This clip is silent from start to end, so trimming pauses would leave nothing. Remove that instruction from the goal, then retry. {RETRY_SAVED}"
+        return f"Measuring this clip's sound did not finish. Retry, or remove the sound instructions from the goal. {RETRY_SAVED}"
+    if isinstance(exc, ProbeError):
+        return f"This file could not be read as a video. Check that it plays. {CONVERT}"
+    if isinstance(exc, RenderError):
+        reason = _reason(detail)
+        stopped = f"{_step_label(getattr(exc, 'step', ''))} stopped" + (f": {reason}." if reason else ".")
+        return f"{stopped} {RETRY_SAVED} Retry once. If it stops again, convert the clip to H.264 MP4 and upload that, or run vedit doctor."
+    if isinstance(exc, VeditError):
+        first = str(exc).strip().split("\n", 1)[0]
+        text = _PATH.split(first, 1)[0].rstrip(" :=,(")
+        if text:
+            return f"{text[0].upper()}{text[1:].rstrip('.')}. {RETRY_SAVED}"
+    return f"The edit could not finish. {RETRY_SAVED} Restart Studio and retry."

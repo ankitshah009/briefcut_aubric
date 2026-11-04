@@ -1,0 +1,58 @@
+{
+  "lines": [
+    {
+      "index": 1,
+      "text": "Este es el cuenco de roble terminado, aceitado y listo para la mesa."
+    },
+    {
+      "index": 2,
+      "text": "Empezó como un bloque en bruto de un árbol caído."
+    },
+    {
+      "index": 3,
+      "text": "Aquí está el bloque de roble en bruto, todavía húmedo y pesado."
+    },
+    {
+      "index": 4,
+      "text": "La veta me indica dónde quiere estar el cuenco."
+    },
+    {
+      "index": 5,
+      "text": "En el torno la forma aparece con cortes largos y constantes."
+    },
+    {
+      "index": 6,
+      "text": "Mantengo el grosor de la pared uniforme desde el borde hasta la base."
+    },
+    {
+      "index": 7,
+      "text": "El lijado va de grueso a fino, con el torno girando despacio."
+    },
+    {
+      "index": 8,
+      "text": "Aquí es donde la veta empieza a brillar."
+    },
+    {
+      "index": 9,
+      "text": "Una capa de aceite apto para alimentos realza el color."
+    },
+    {
+      "index": 10,
+      "text": "24 horas después, el cuenco está listo para usar."
+    }
+  ],
+  "provider": "meta",
+  "model": "meta-models/Muse-Glimmer-30B",
+  "usage": {
+    "estimated_max_usd": 0.0,
+    "cached": false,
+    "cost_usd": 0.0,
+    "local": true,
+    "input_tokens": 326,
+    "output_tokens": 780,
+    "total_tokens": 1106
+  },
+  "runtime": "llama.cpp",
+  "private": true,
+  "warnings": []
+}

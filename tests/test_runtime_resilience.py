@@ -18,9 +18,12 @@ from vedit.pipeline import Pipeline, Step, execute
 
 
 def _running(pid: int) -> bool:
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=2,
-    )
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=2,
+        )
+    except PermissionError as exc:
+        pytest.skip(f"the sandbox denied process inspection with ps: {exc}")
     # An orphan zombie is already dead and will be reaped by the OS.
     state = result.stdout.strip()
     return bool(state) and not state.startswith("Z")
@@ -200,7 +203,8 @@ def test_nested_vedit_helpers_cannot_escape_cancellation_or_timeout(tmp_path, ca
         with pytest.raises(RenderCancelled if cancel else RenderError):
             media.run_command(
                 [sys.executable, str(script), str(tmp_path), "0"],
-                timeout=5 if cancel else 1,
+                # Three interpreters each import vedit before the tree exists to stop.
+                timeout=5 if cancel else 4,
                 cancel_event=event if cancel else None,
             )
         _assert_tree_stopped(tmp_path)

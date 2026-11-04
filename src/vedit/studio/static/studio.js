@@ -7,7 +7,8 @@
   const state = { file: null, paths: [], sourceURL: "", objectURL: "", duration: 0, job: null, draft: null, capabilities: null, busy: false, epoch: 0, pollTimer: null, pollFailures: 0, selected: -1, rangeEnd: null, preview: "source", toastTimer: null, sourceName: "", pollController: null, jobStarted: 0, settingsSnapshot: "", settingsDirty: false, pendingCreate: null, effectPresets: [], effectTimingEdited: false, loop: false, drag: null, transcriptQuery: "", cueIndex: -1, version: null, notes: {} };
   const uploadedClips = new WeakMap();
   const storageKey = "vedit.studio.current";
-  const maxClipBytes = 200000000;
+  // Fallback for when /api/capabilities fails; mirrors project_media.MAX_SOURCE_BYTES.
+  const maxClipBytes = 4000000000;
 
   function storageGet(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
   function storageSet(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* A private browser can still edit. */ } }
@@ -53,26 +54,26 @@
       return data;
     } catch (error) {
       if (error.name === "AbortError") { if (externalSignal && externalSignal.aborted) throw error; throw new Error("The editor took too long to respond. Your saved project is still available; reconnect to check it."); }
-      if (error instanceof TypeError) throw new Error("The editor is not reachable. Keep it running on your Mac, then reconnect.");
+      if (error instanceof TypeError) throw new Error("The editor is not reachable. Keep it running, then reconnect.");
       throw error;
     } finally { clearTimeout(timer); if (externalSignal) externalSignal.removeEventListener("abort", abort); }
   }
 
   function stopPolling() { clearTimeout(state.pollTimer); state.pollTimer = null; if (state.pollController) state.pollController.abort(); state.pollController = null; state.epoch += 1; }
-  function provider() { return $("provider-meta").checked ? "meta" : "local"; }
+  /* Every project runs on Meta: Muse Spark plans, SAM 3.1 tracks, Meta Voice Transcribe captions. */
   function readSettings() {
-    const chosenProvider = provider();
-    return { goal: $("goal").value.trim(), provider: chosenProvider, target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: chosenProvider === "meta" ? $("subject").value.trim() : "", budget_usd: Number($("budget").value), generate_cover: chosenProvider === "meta" && $("cover-mode").value === "meta", caption_provider: captionProvider(), review: chosenProvider === "meta" && $("review").checked };
+    return { goal: $("goal").value.trim(), provider: "meta", target_duration: Number($("target-duration").value), aspect: $("aspect").value, captions: $("captions").checked, language: $("language").value, subject: $("subject").value.trim(), budget_usd: Number($("budget").value), generate_cover: $("cover-mode").value === "meta", caption_provider: "meta", review: $("review").checked };
   }
-  function metaTranscribeAvailable() { const caps = state.capabilities; const meta = caps && caps.meta || {}; return !!(meta.enabled && meta.configured && meta.features && meta.features.transcribe); }
-  function captionProvider() { return $("captions").checked && metaTranscribeAvailable() && $("caption-provider").value === "meta" ? "meta" : "local"; }
-  function updateCaptionProvider() {
-    const show = $("captions").checked && metaTranscribeAvailable();
-    $("caption-provider-field").hidden = !show;
+  function metaReady() { const caps = state.capabilities; const meta = caps && caps.meta || {}; return !!(meta.available || (meta.available === undefined && meta.enabled && meta.configured)); }
+  function updateCaptionNote() {
+    const on = $("captions").checked;
+    $("language-field").hidden = !on;
+    $("caption-provider-note").hidden = !on;
     const meta = state.capabilities && state.capabilities.meta || {};
     const price = meta.prices && Number.isFinite(Number(meta.prices.transcribe_per_hour)) ? "$" + Number(meta.prices.transcribe_per_hour).toFixed(2) + " per hour of audio" : "billed per hour of audio";
-    $("caption-provider-note").textContent = $("caption-provider").value === "meta" ? "Muse Voice Transcribe hears the audio on Meta\u2019s servers, " + price + ". The transcript still renders locally." : "Local transcription runs on this Mac at no cost.";
+    $("caption-provider-note").textContent = "Meta Voice Transcribe hears the audio on Meta\u2019s servers, " + price + ". The captions render on this computer.";
   }
+  function openMetaSettings() { if (window.BriefcutSetup && BriefcutSetup.openSettings) BriefcutSetup.openSettings(); }
   function readEffect() {
     if (!state.effectPresets.length || $("effect-preset").value === "none") return null;
     return { preset: $("effect-preset").value, intensity: Number($("effect-intensity").value), start: Number($("effect-start").value), duration: Number($("effect-duration").value) };
@@ -87,11 +88,9 @@
     const locked = isActive();
     for (const control of $("desk-form").querySelectorAll("input,textarea,select,button")) control.disabled = locked;
     const caps = state.capabilities;
-    $("provider-meta").disabled = locked || !(caps && caps.meta && caps.meta.enabled && caps.meta.configured);
-    $("captions").disabled = locked || !(caps && caps.local && caps.local.captions || metaTranscribeAvailable());
     $("effect-preset").disabled = locked || !state.effectPresets.length;
     ["effect-intensity", "effect-start", "effect-duration"].forEach((id) => { $(id).disabled = locked || !state.effectPresets.length || $("effect-preset").value === "none"; });
-    $("plan").disabled = locked || !!(caps && caps.local && caps.local.ready === false);
+    $("plan").disabled = locked || !!(caps && caps.render && caps.render.ready === false);
     $("new-project").disabled = state.busy;
     $("make").disabled = locked || state.settingsDirty || !state.draft || !state.job || !["planned", "complete", "failed", "cancelled"].includes(state.job.status);
     $("make").textContent = state.job && ["complete", "failed", "cancelled"].includes(state.job.status) ? "Render this version" : "Make the video";
@@ -99,9 +98,10 @@
     $("retry-job").disabled = state.busy;
     $("render-center-crop").disabled = state.busy || state.settingsDirty || !state.draft;
     const reviseLocked = locked || !state.job || !hasVerifiedResult(state.job);
-    const localJob = !(state.job && state.job.request && state.job.request.provider === "meta");
-    $("revise-note").disabled = reviseLocked || localJob;
-    $("revise-submit").disabled = reviseLocked || localJob;
+    // Projects saved before Briefcut became Meta-only cannot take a note.
+    const olderJob = !!(state.job && state.job.request && state.job.request.provider !== "meta");
+    $("revise-note").disabled = reviseLocked || olderJob;
+    $("revise-submit").disabled = reviseLocked || olderJob;
     $("apply-director").disabled = reviseLocked;
     $("apply-auto").disabled = reviseLocked;
     for (const control of $("story-content").querySelectorAll("input,textarea,button")) {
@@ -109,17 +109,10 @@
       control.disabled = locked || !state.draft;
     }
     const segments = state.draft && state.draft.segments || [];
-    $("add-segment").disabled = locked || !state.draft || segments.length >= 8;
+    $("add-segment").disabled = locked || !state.draft || segments.length >= maxSegments();
     $("program-list").querySelectorAll(".move-up").forEach((button, index) => { button.disabled = locked || index === 0; });
     $("program-list").querySelectorAll(".move-down").forEach((button, index) => { button.disabled = locked || index === segments.length - 1; });
     $("program-list").querySelectorAll(".remove-segment").forEach((button) => { button.disabled = locked || segments.length <= 1; });
-  }
-
-  function updateMode() {
-    const meta = provider() === "meta";
-    $("meta-options").hidden = !meta;
-    $("engine-note").textContent = meta ? "Meta reads the footage and proposes a story. You review every moment before rendering." : "Local mode creates an editable starting cut. It does not interpret the footage.";
-    $("privacy-note").textContent = meta ? "Cloud understanding. Local rendering. Your final say." : "Rendered on your Mac. Ready when you are.";
   }
 
   function updateEffectControls() {
@@ -153,25 +146,26 @@
       state.capabilities = data.capabilities || data;
       const caps = state.capabilities;
       const meta = caps.meta || {};
-      const local = caps.local || {};
+      const render = caps.render || {};
       const effects = caps.effects;
       state.effectPresets = effects && effects.supported && Array.isArray(effects.presets) ? effects.presets.filter((item) => item && ["tilt", "float", "push"].includes(item.id)) : [];
       $("effects-section").hidden = !state.effectPresets.length;
+      const chosenEffect = $("effect-preset").value;
       $("effect-preset").replaceChildren(new Option("No effect", "none"), ...state.effectPresets.map((item) => new Option(item.label, item.id)));
+      if (state.effectPresets.some((item) => item.id === chosenEffect)) $("effect-preset").value = chosenEffect;
       updateEffectControls();
-      const enabled = !!(meta.enabled && meta.configured);
-      $("connection-status").textContent = local.ready === false ? "Setup needed" : "Editor ready";
-      $("connection-status").classList.toggle("is-connected", local.ready !== false);
-      $("meta-tag").textContent = enabled ? "Connected" : "Not connected";
-      $("meta-setup").hidden = enabled;
-      $("meta-reason").textContent = meta.reason || "Meta access has not been enabled on this editor. Local editing is ready to use.";
-      $("caption-availability").textContent = local.captions ? "Local speech model ready" : "Local speech model not installed";
-      if (!local.captions && !(enabled && meta.features && meta.features.transcribe)) $("captions").checked = false;
-      if (!local.captions && enabled && meta.features && meta.features.transcribe) $("caption-availability").textContent = "Meta Voice Transcribe available";
-      updateCaptionProvider();
-      if (!enabled && $("provider-meta").checked) $("provider-local").checked = true;
-      if (local.ready === false) showError(local.reason || "The local editor needs its required media tools before it can render.");
-      updateMode(); setControls();
+      const ready = metaReady();
+      const renders = render.ready !== false;
+      $("connection-status").textContent = ready && renders ? "Meta connected" : "Setup needed";
+      $("connection-status").classList.toggle("is-connected", ready && renders);
+      $("meta-tag").textContent = ready ? "Connected" : "Needs your key";
+      $("meta-tag").classList.toggle("is-connected", ready);
+      $("meta-setup").hidden = ready;
+      $("meta-reason").textContent = ready ? "" : (meta.configured ? meta.reason || "Allow Meta calls in Settings." : "Briefcut runs on Meta models. Add your Meta API key to start. You can create one at dev.meta.ai.");
+      $("meta-setup-open").textContent = meta.configured ? "Open Settings" : "Add Meta key";
+      updateCaptionNote();
+      if (!renders) showError(render.reason || "Briefcut needs FFmpeg before it can render. Setup shows the command.");
+      setControls();
     } catch (error) { $("connection-status").textContent = "Not connected"; showError(error); }
   }
 
@@ -179,7 +173,8 @@
   function selectFile(file) {
     if (!file || isActive()) return;
     if (!file.size) { showError("This file is empty. Choose a video with footage."); return; }
-    if (file.size > maxClipBytes) { showError("Choose a clip under 200 MB. Larger footage can be edited with the local command-line editor."); return; }
+    const maxBytes = finite(state.capabilities && state.capabilities.limits && state.capabilities.limits.upload_bytes, maxClipBytes);
+    if (file.size > maxBytes) { showError("Choose a clip under " + Math.round(maxBytes / 1000000) + " MB. Larger footage can be edited with the local command-line editor."); return; }
     if (file.type && !file.type.startsWith("video/") && !/\.(mp4|mov|m4v|mkv|webm)$/i.test(file.name)) { showError("Choose a video file, such as MP4, MOV, or WebM."); return; }
     resetProject(false);
     state.file = file;
@@ -234,23 +229,24 @@
     clearError();
     const goal = $("goal").value.trim();
     if (!goal) { showError("Give the video a direction first."); $("goal").focus(); return; }
-    if (!state.file && !state.paths.length) { showError("Choose your footage first."); $("clip").focus(); return; }
-    const chosenProvider = provider();
-    if (chosenProvider === "meta" && !$("cloud-consent").checked) { showError("Confirm that this footage can be sent to Meta before creating the story."); $("cloud-consent").focus(); return; }
+    const binned = window.BriefcutClips && BriefcutClips.count() > 0;
+    if (!binned && !state.file && !state.paths.length) { showError("Choose your footage first."); $("clip").focus(); return; }
+    if (!metaReady()) { showError("Add your Meta API key before creating a story. Settings shows where to get one."); openMetaSettings(); return; }
+    if (!$("cloud-consent").checked) { showError("Confirm that this footage can be sent to Meta before creating the story."); $("cloud-consent").focus(); return; }
     const payload = readSettings();
     const settingsSnapshot = JSON.stringify(payload);
     payload.effect = readEffect();
-    const creationSignature = JSON.stringify(payload) + "|" + (state.file ? state.file.name + ":" + state.file.size + ":" + state.file.lastModified : state.paths.join("|"));
+    const creationSignature = JSON.stringify(payload) + "|" + (binned ? BriefcutClips.signature() : state.file ? state.file.name + ":" + state.file.size + ":" + state.file.lastModified : state.paths.join("|"));
     if (!state.pendingCreate || state.pendingCreate.signature !== creationSignature) state.pendingCreate = { signature: creationSignature, key: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2) };
     payload.idempotency_key = state.pendingCreate.key;
     state.busy = true; state.jobStarted = Date.now(); setControls();
-    $("job-progress").hidden = false; $("busy").textContent = "Preparing your footage"; $("progress-stage").textContent = "Local transfer"; $("progress-bar").value = 0; $("cancel-job").hidden = true; $("reconnect-job").hidden = true;
+    $("job-progress").hidden = false; $("busy").textContent = "Preparing your footage"; $("progress-stage").textContent = "Saving footage"; $("progress-bar").value = 0; $("cancel-job").hidden = true; $("reconnect-job").hidden = true;
     $("progress-detail").textContent = "Saving the clip once. Future edits reuse it.";
     try {
-      payload.paths = state.paths.length ? state.paths : await ensureUploaded(state.file);
+      payload.paths = binned ? await BriefcutClips.paths() : state.paths.length ? state.paths : await ensureUploaded(state.file);
       state.paths = payload.paths;
       $("busy").textContent = "Creating your story";
-      $("progress-detail").textContent = chosenProvider === "meta" ? "The footage will be read using your configured Meta access." : "Building an editable starting cut.";
+      $("progress-detail").textContent = "Meta reads the footage with your API key.";
       const planStarted = Date.now();
       const data = await request("/api/campaigns", { method: "POST", body: payload, timeout: 25000 });
       if (!data.job || !data.job.id) throw new Error("The editor did not create a project. Try again.");
@@ -264,9 +260,18 @@
   }
 
   function draftKey(id) { return "vedit.studio.draft." + id; }
+  function planKey(plan) {
+    if (planKey.plan === plan) return planKey.key;
+    const text = JSON.stringify(plan) || "";
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+    planKey.plan = plan; planKey.key = text.length + ":" + (hash >>> 0).toString(36);
+    return planKey.key;
+  }
   function saveDraft() {
     if (!state.draft || !state.job) return;
-    const saved = { serverPlan: JSON.stringify(state.job.plan), plan: state.draft, effect: readEffect() };
+    if (window.BriefcutEditor) BriefcutEditor._noteDraft();
+    const saved = { serverPlan: planKey(state.job.plan), plan: Object.assign({}, state.draft, { analysis: undefined }), effect: readEffect(), history: window.BriefcutEditor ? BriefcutEditor._history() : null };
     try { localStorage.setItem(draftKey(state.job.id), JSON.stringify(saved)); $("draft-status").textContent = "Saved in this browser"; }
     catch (_) { $("draft-status").textContent = "Unsaved in private browsing"; }
     updateStoryDuration();
@@ -274,12 +279,13 @@
 
   function restoreDraft(job) {
     if (!job.plan) return null;
-    try { const cached = JSON.parse(storageGet(draftKey(job.id)) || "null"); if (cached && cached.serverPlan === JSON.stringify(job.plan) && validDraftShape(cached.plan)) { if (Object.prototype.hasOwnProperty.call(cached, "effect")) fillEffect(cached.effect); return cached.plan; } } catch (_) { /* Ignore an outdated browser draft. */ }
+    try { const cached = JSON.parse(storageGet(draftKey(job.id)) || "null"); if (cached && cached.serverPlan === planKey(job.plan) && validDraftShape(cached.plan)) { if (Object.prototype.hasOwnProperty.call(cached, "effect")) fillEffect(cached.effect); if (window.BriefcutEditor) BriefcutEditor._loadHistory(cached.history); return Object.assign(cached.plan, { analysis: job.plan.analysis }); } } catch (_) { /* Ignore an outdated browser draft. */ }
     return clone(job.plan);
   }
 
+  function maxSegments() { const limits = state.capabilities && state.capabilities.limits; return finite(limits && limits.segments, 8); }
   function validDraftShape(plan) {
-    return !!plan && typeof plan.title === "string" && typeof plan.caption === "string" && Array.isArray(plan.hashtags) && plan.hashtags.every((tag) => typeof tag === "string") && Array.isArray(plan.segments) && plan.segments.length > 0 && plan.segments.length <= 8 && plan.segments.every((segment) => segment && typeof segment.label === "string" && typeof segment.reason === "string" && (segment.start === null || typeof segment.start === "number") && (segment.end === null || typeof segment.end === "number"));
+    return !!plan && typeof plan.title === "string" && typeof plan.caption === "string" && Array.isArray(plan.hashtags) && plan.hashtags.every((tag) => typeof tag === "string") && Array.isArray(plan.segments) && plan.segments.length > 0 && plan.segments.length <= maxSegments() && plan.segments.every((segment) => segment && typeof segment.label === "string" && typeof segment.reason === "string" && (segment.start === null || typeof segment.start === "number") && (segment.end === null || typeof segment.end === "number"));
   }
 
   function adoptJob(job, fresh) {
@@ -312,6 +318,7 @@
     if (activeStatuses.has(job.status)) schedulePoll();
     else { clearTimeout(state.pollTimer); state.pollTimer = null; }
     if (changedStatus && job.status === "complete") { setPreview("final"); refreshRecent(); }
+    if (window.BriefcutEditor) BriefcutEditor._job(job, { idChanged, fresh });
   }
 
   function schedulePoll() {
@@ -343,20 +350,15 @@
     $("goal").value = req.goal || "";
     $("aspect").value = req.aspect || "9:16";
     if ([15, 30, 60, 90].includes(Number(req.target_duration))) $("target-duration").value = String(req.target_duration);
-    $("provider-meta").checked = req.provider === "meta";
-    $("provider-local").checked = req.provider !== "meta";
     $("captions").checked = !!req.captions;
     $("language").value = req.language || "en";
-    $("language-field").hidden = !req.captions;
-    $("caption-provider").value = req.caption_provider === "meta" ? "meta" : "local";
-    updateCaptionProvider();
+    updateCaptionNote();
     $("subject").value = req.subject || "";
     if ([0.25, 0.5, 1, 2].includes(Number(req.budget_usd))) $("budget").value = String(req.budget_usd);
     $("cover-mode").value = req.generate_cover ? "meta" : "frame";
     $("review").checked = !!req.review;
     fillEffect(req.effect);
     $("cloud-consent").checked = false;
-    updateMode();
   }
 
   async function openJob(id) {
@@ -389,7 +391,7 @@
     const complete = job.status === "complete";
     const recoverable = ["failed", "cancelled"].includes(job.status);
     const verified = hasVerifiedResult(job);
-    $("project-name").textContent = state.draft && state.draft.title || job.plan && job.plan.title || state.sourceName || "Untitled project";
+    $("project-name").textContent = job.name || state.draft && state.draft.title || job.plan && job.plan.title || state.sourceName || "Untitled project";
     $("result").textContent = job.message || labels[job.status] || "Your project is saved.";
     $("project-status").textContent = labels[job.status] || job.status;
     $("project-status").className = "status-pill" + (active ? " is-working" : complete ? " is-complete" : recoverable ? " is-failed" : "");
@@ -423,8 +425,8 @@
       $("story-description").textContent = job.plan.summary || "Review and refine the moments before rendering.";
       $("say-pauses").textContent = state.draft.segments.length + (state.draft.segments.length === 1 ? " selected moment" : " selected moments");
       $("say-shape").textContent = (job.request && job.request.aspect || "9:16") + " output";
-      $("say-captions").textContent = job.request && job.request.captions ? (job.request.caption_provider === "meta" ? "Captions by Meta Voice Transcribe" : "Local captions requested") : "Original audio";
-      $("say-clip").textContent = (job.request && job.request.provider) === "meta" ? "Story proposed by Meta" : analysisOf(job) ? "Local analysis · Review the selection" : "Local starting cut · Review the selection";
+      $("say-captions").textContent = job.request && job.request.captions ? "Captions by Meta Voice Transcribe" : "Original audio";
+      $("say-clip").textContent = (job.request && job.request.provider) === "meta" ? "Story proposed by Meta" : "Older project · Review the selection";
       paintEdits(job.plan);
       paintAnalysis(job);
       paintEffectSummary();
@@ -500,11 +502,27 @@
   }
 
   /* ---------- Director's cut: versions, checks, patches ---------- */
+  /* How each receipt knows what it claims. Versions saved before this have no basis and show no tag. */
+  const checkBases = ["observed", "derived", "inferred"];
+  const basisLabels = { observed: "Probed", derived: "Measured", inferred: "Model opinion" };
+  const instrumentNames = { ffprobe: "ffprobe", lint: "Briefcut’s checker", "brief-parser": "Briefcut’s brief reader", "muse-spark": "Muse Spark", "sam-3.1": "SAM 3.1", "meta-voice-transcribe": "Meta Voice Transcribe" };
+  function instrumentName(id) { return instrumentNames[id] || id; }
+  function basisTitle(check) {
+    if (check.basis === "observed") return "Read from the finished file by " + instrumentName(check.by || "ffprobe") + ".";
+    if (check.basis === "inferred") return (check.by ? instrumentName(check.by) + "’s" : "A model’s") + " judgment of the cut, not a measurement.";
+    if (check.basis !== "derived") return "";
+    return "Measured by " + (check.by ? instrumentName(check.by) : "code") + ", not judged by a model." + (check.inputs.length ? " Its data came from " + check.inputs.map(instrumentName).join(" and ") + "." : "");
+  }
+  function basisBreakdown(checks) {
+    const count = (basis) => checks.filter((check) => check.basis === basis).length;
+    const measured = count("derived"), probed = count("observed"), opinions = count("inferred");
+    return [measured ? measured + " measured" : "", probed ? probed + " probed" : "", opinions ? opinions + (opinions === 1 ? " model opinion" : " model opinions") : ""].filter(Boolean).join(", ");
+  }
   function normalizeChecks(list) {
-    return Array.isArray(list) ? list.filter((check) => check && typeof check === "object").map((check) => ({ name: String(check.name || "Check"), passed: check.passed === true, at: check.at !== null && check.at !== "" && Number.isFinite(Number(check.at)) ? Number(check.at) : null, note: typeof check.note === "string" ? check.note : "" })) : [];
+    return Array.isArray(list) ? list.filter((check) => check && typeof check === "object").map((check) => ({ name: String(check.name || "Check"), passed: check.passed === true, at: check.at !== null && check.at !== "" && Number.isFinite(Number(check.at)) ? Number(check.at) : null, note: typeof check.note === "string" ? check.note : "", basis: checkBases.includes(check.basis) ? check.basis : "", by: typeof check.by === "string" ? check.by : "", inputs: Array.isArray(check.inputs) ? check.inputs.filter((item) => typeof item === "string" && item) : [] })) : [];
   }
   function normalizePatches(list) {
-    return Array.isArray(list) ? list.filter((patch) => patch && typeof patch === "object").map((patch) => ({ op: String(patch.op || "adjust"), segment: patch.segment !== null && Number.isFinite(Number(patch.segment)) ? Number(patch.segment) : null, seconds: patch.seconds !== null && Number.isFinite(Number(patch.seconds)) ? Number(patch.seconds) : null, reason: typeof patch.reason === "string" ? patch.reason : "", source: patch.source === "director" ? "director" : "auto", before: patch.before && typeof patch.before === "object" ? patch.before : null, after: patch.after && typeof patch.after === "object" ? patch.after : null, skipped: typeof patch.skipped === "string" ? patch.skipped : patch.skipped === true ? "Skipped" : "" })).map((patch) => {
+    return Array.isArray(list) ? list.filter((patch) => patch && typeof patch === "object").map((patch) => ({ op: String(patch.op || "adjust"), summary: typeof patch.summary === "string" ? patch.summary : "", segment: patch.segment !== null && Number.isFinite(Number(patch.segment)) ? Number(patch.segment) : null, seconds: patch.seconds !== null && Number.isFinite(Number(patch.seconds)) ? Number(patch.seconds) : null, reason: typeof patch.reason === "string" ? patch.reason : "", source: patch.source === "director" ? "director" : "auto", before: patch.before && typeof patch.before === "object" ? patch.before : null, after: patch.after && typeof patch.after === "object" ? patch.after : null, skipped: typeof patch.skipped === "string" ? patch.skipped : patch.skipped === true ? "Skipped" : "" })).map((patch) => {
       if (patch.seconds === null && patch.after) { const edge = /start|in\b/i.test(patch.op) ? patch.after.start : patch.after.end; if (Number.isFinite(Number(edge))) patch.seconds = Number(edge); }
       return patch;
     }) : [];
@@ -528,7 +546,7 @@
         const checks = normalizeChecks(item.checks);
         const merged = checks.length || !current ? checks : resultChecks(result);
         const count = countChecks(merged, item.passed, item.total);
-        return { revision, status: item.status === "failed" ? "failed" : "verified", source: typeof item.source === "string" ? item.source : "approved", created_at: item.created_at || null, proof: item.proof && typeof item.proof === "object" ? item.proof : current ? result.proof || {} : {}, checks: merged, passed: count.passed, total: count.total, hook_score: item.hook_score, verdict: item.verdict, review: item.review && typeof item.review === "object" ? item.review : current ? result.review : null, applied_patches: normalizePatches(item.applied_patches), video_url: item.video_url || (current ? result.video_url : ""), report_url: item.report_url || (current ? result.report_url : ""), cover_url: item.cover_url || (current ? result.cover_url : ""), bundle_url: item.bundle_url || (current ? result.bundle_url : ""), timings: item.timings && typeof item.timings === "object" ? item.timings : null, error: item.error, note: typeof item.note === "string" ? item.note : "" };
+        return { revision, status: item.status === "failed" ? "failed" : "verified", source: typeof item.source === "string" ? item.source : "approved", created_at: item.created_at || null, proof: item.proof && typeof item.proof === "object" ? item.proof : current ? result.proof || {} : {}, checks: merged, passed: count.passed, total: count.total, hook_score: item.hook_score, verdict: item.verdict, review: item.review && typeof item.review === "object" ? item.review : current ? result.review : null, applied_patches: normalizePatches(item.applied_patches), video_url: item.video_url || (current ? result.video_url : ""), report_url: item.report_url || (current ? result.report_url : ""), cover_url: item.cover_url || (current ? result.cover_url : ""), bundle_url: item.bundle_url || (current ? result.bundle_url : ""), timings: item.timings && typeof item.timings === "object" ? item.timings : null, error: item.error, note: typeof item.note === "string" ? item.note : "", stopped: typeof item.stopped === "string" ? item.stopped : "" };
       });
     } else if (hasVerifiedResult(job)) {
       const checks = resultChecks(result);
@@ -560,9 +578,10 @@
     const version = selectedVersion(state.job);
     paintJob();
     if (version && version.status === "verified" && !$("preview-final").disabled) setPreview("final");
-    if (version) announce("Version " + version.revision + (version.total ? ", " + version.passed + " of " + version.total + " checks passed" : "") + (version.status === "failed" ? ", failed" : ""));
+    const basis = version ? basisBreakdown(version.checks) : "";
+    if (version) announce("Version " + version.revision + (version.total ? ", " + version.passed + " of " + version.total + " checks passed" + (basis ? ": " + basis : "") : "") + (version.status === "failed" ? ", failed" : ""));
   }
-  function sourceLabel(source) { return { approved: "approved", director: "director’s fixes", auto: "auto fixes", note: "note" }[source] || String(source || ""); }
+  function sourceLabel(source) { return { approved: "approved", director: "director’s fixes", auto: "auto fixes", note: "note", auto_refine: "auto-refine" }[source] || String(source || ""); }
   function clockText(seconds) { const s = Math.max(0, finite(seconds, 0)); return Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0") + "." + String(Math.floor((s % 1) * 10)); }
   function rangeText(range) { return range ? finite(range.start, 0).toFixed(1) + "–" + finite(range.end, 0).toFixed(1) + " s" : ""; }
   function jumpToFinal(where) {
@@ -572,6 +591,7 @@
     if (player.readyState >= 1) seek(); else player.addEventListener("loadedmetadata", seek, { once: true });
   }
   function describePatch(patch) {
+    if (patch.summary) return patch.summary.replace(/\.$/, "");
     const seg = patch.segment !== null ? "moment " + patch.segment : "the story"; // 1-based from the server
     const secs = patch.seconds !== null ? patch.seconds.toFixed(1) + " s" : "";
     const op = patch.op.toLowerCase();
@@ -597,7 +617,8 @@
       button.append(dot, element("strong", "", "v" + item.revision));
       if (item.total) button.append(element("span", "version-count", item.passed + "/" + item.total));
       button.append(element("small", "", item.status === "failed" ? "failed" : sourceLabel(item.source)));
-      const summary = "Version " + item.revision + ", " + (item.status === "failed" ? "failed" : sourceLabel(item.source)) + (item.total ? ", " + item.passed + " of " + item.total + " checks passed" : ", no checks recorded") + (item.note ? ". Note: " + item.note : "");
+      const basis = basisBreakdown(item.checks);
+      const summary = "Version " + item.revision + ", " + (item.status === "failed" ? "failed" : sourceLabel(item.source)) + (item.total ? ", " + item.passed + " of " + item.total + " checks passed" + (basis ? ": " + basis : "") : ", no checks recorded") + (item.note ? ". Note: " + item.note : "");
       button.setAttribute("aria-label", summary); button.title = summary;
       button.addEventListener("click", () => selectVersion(item.revision));
       tabs.append(button);
@@ -616,12 +637,17 @@
     const checks = version ? version.checks : [];
     section.hidden = !checks.length;
     if (!checks.length) return;
-    $("checks-summary").textContent = version.passed + " of " + version.total + " passed · v" + version.revision;
+    const basis = basisBreakdown(checks);
+    $("checks-summary").textContent = version.passed + " of " + version.total + " passed" + (basis ? " · " + basis : "") + " · v" + version.revision;
     const list = $("checks-list"); list.replaceChildren();
     checks.forEach((check) => {
       const item = element("li", "check " + (check.passed ? "is-pass" : "is-fail"));
       const glyph = element("span", "check-glyph", check.passed ? "✓" : "✕"); glyph.setAttribute("aria-hidden", "true");
       const name = element("span", "check-name"); name.append(element("span", "sr", check.passed ? "Passed: " : "Failed: "), document.createTextNode(check.name));
+      if (check.basis) {
+        const tag = element("span", "check-basis is-" + check.basis, basisLabels[check.basis]); tag.title = basisTitle(check);
+        name.append(element("span", "sr", ", "), tag);
+      }
       item.append(glyph, name);
       if (check.at !== null) { const jump = element("button", "text-button check-jump", "Jump to " + clockText(check.at)); jump.type = "button"; jump.title = "Seek the finished video to this moment"; jump.addEventListener("click", () => jumpToFinal(check.at)); item.append(jump); }
       if (check.note) item.append(element("p", "check-note", check.note));
@@ -637,17 +663,17 @@
   function paintVersionChanges(version) {
     const section = $("version-changes");
     const patches = version ? version.applied_patches : [];
-    section.hidden = !patches.length && !(version && version.note);
+    section.hidden = !patches.length && !(version && (version.note || version.stopped));
     if (section.hidden) return;
     $("version-changes-heading").textContent = "What changed in v" + version.revision;
-    $("version-note").hidden = !version.note;
-    $("version-note").textContent = version.note ? "Note: “" + version.note + "”" : "";
+    $("version-note").hidden = !(version.note || version.stopped);
+    $("version-note").textContent = version.note ? "Note: “" + version.note + "”" : version.stopped;
     const list = $("version-changes-list"); list.replaceChildren();
     patches.forEach((patch) => {
       const item = element("li", patch.skipped ? "is-skipped" : "");
       item.append(document.createTextNode(describePatch(patch)));
       if (patch.skipped) item.append(document.createTextNode(" — skipped: " + (patch.skipped !== "Skipped" ? patch.skipped : patch.reason || "not applied")));
-      else if (patch.before) item.append(document.createTextNode(" · "), element("span", "change-range", rangeText(patch.before) + " → " + (patch.after ? rangeText(patch.after) : "removed")));
+      else if (patch.before && /^(trim|remove)/.test(patch.op)) item.append(document.createTextNode(" · "), element("span", "change-range", rangeText(patch.before) + " → " + (patch.after ? rangeText(patch.after) : "removed")));
       if (patch.reason && !patch.skipped) item.append(document.createTextNode(" "), element("span", "change-reason", "— " + patch.reason));
       list.append(item);
     });
@@ -660,14 +686,14 @@
     return null;
   }
   function paintReviseBox(job) {
-    const local = !(job && job.request && job.request.provider === "meta");
+    const older = !!(job && job.request && job.request.provider !== "meta");
     const next = finite(job && job.revision, verifiedRevision(job)) + 1;
-    $("revise-hint").textContent = local ? "Director’s notes need Meta mode. Create the story with Meta director to revise by note." : "Muse Spark turns your note into trims, renders version " + next + ", and re-checks it. Your verified version stays available.";
+    $("revise-hint").textContent = older ? "This project was saved before Briefcut ran on Meta. Create a new story to revise it by note." : "Muse Spark turns your note into changes to the cut, the look, and the captions, renders version " + next + ", and re-checks it. Your verified version stays available.";
   }
-  async function revise(mode) {
+  async function revise(mode, text) {
     if (isActive() || !state.job || !hasVerifiedResult(state.job)) return;
-    const note = mode === "note" ? $("revise-note").value.trim() : "";
-    if (mode === "note" && !(state.job.request && state.job.request.provider === "meta")) { showError("Director’s notes need Meta mode."); return; }
+    const note = mode === "note" ? (text !== undefined ? text : $("revise-note").value.trim()) : "";
+    if (mode === "note" && state.job.request && state.job.request.provider !== "meta") { showError("Create a new story to revise this older project by note."); return; }
     if (mode === "note" && !note) { showError("Write a note for the director first."); $("revise-note").focus(); return; }
     clearError(); state.busy = true; setControls();
     const id = state.job.id;
@@ -683,6 +709,7 @@
       adoptJob(data.job, true);
       toast("Version " + revision + " queued" + (mode === "director" ? " with the director’s fixes." : mode === "auto" ? " with automatic fixes." : " from your note."));
       $("job-progress").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+      return data.job;
     } catch (error) { showError(error); }
     finally { state.busy = false; setControls(); }
   }
@@ -744,7 +771,7 @@
     $("preview-final").setAttribute("aria-pressed", String(version === "final"));
     $("preview-label").textContent = version === "final" ? previewLabel() : "Original footage";
     $("monitor-empty").hidden = !!url;
-    $("player").hidden = !url;
+    $("player").hidden = !url || version === "story";
     $("monitor-picture").classList.toggle("has-video", !!url);
     if (version !== "source") state.loop = false;
     $("scrubber").hidden = version !== "source" || !url || !state.draft;
@@ -753,9 +780,11 @@
       if ($("player").getAttribute("src") !== keyed) { $("player").pause(); $("player").src = keyed; $("player").load(); }
     } else { $("player").pause(); $("player").removeAttribute("src"); $("player").load(); }
     updateMonitorMeta();
+    if (window.BriefcutEditor) BriefcutEditor._preview(version);
   }
 
   function updateMonitorMeta() {
+    if (state.preview === "story") return;
     const source = state.job && state.job.source || {};
     const shown = state.job && state.preview === "final" ? playableVersion(state.job) : null;
     const proof = shown && shown.proof || state.job && state.job.result && state.job.result.proof || {};
@@ -814,7 +843,7 @@
         const inputId = "segment-" + index + "-" + key;
         const timeLabel = element("label", "", key === "start" ? "In" : "Out"); timeLabel.htmlFor = inputId;
         const input = element("input", ""); input.id = inputId; input.type = "number"; input.min = "0"; input.step = "0.1"; input.value = String(Math.round(finite(segment[key], 0) * 100) / 100); if (state.duration) input.max = String(state.duration); input.setAttribute("aria-label", "Moment " + (index + 1) + " " + key + " in seconds");
-        input.addEventListener("input", () => { segment[key] = input.value === "" ? null : Number(input.value); input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby"); saveDraft(); renderTimeline(); const block = $("scrub-moments").children[index]; if (block && segment.start !== null && segment.end !== null) { block.style.left = pct(segment.start) + "%"; block.style.width = Math.max(.6, pct(segment.end) - pct(segment.start)) + "%"; } highlightTranscript(); });
+        input.addEventListener("input", () => { segment[key] = input.value === "" ? null : Number(input.value); input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby"); saveDraft(); renderTimeline(); const block = $("scrub-moments").children[index]; if (block && segment.start !== null && segment.end !== null) { block.style.left = pct(segment.start) + "%"; block.style.width = Math.max(.6, pct(segment.end) - pct(segment.start)) + "%"; } });
         timing.append(timeLabel, input);
       }
       bottom.append(timing);
@@ -823,6 +852,7 @@
       row.append(bottom); $("program-list").append(row);
     });
     renderTimeline(); updateStoryDuration(); renderScrubber(); renderTranscript(); setControls();
+    if (window.BriefcutEditor) BriefcutEditor._story();
   }
 
   function renderTimeline() {
@@ -834,9 +864,13 @@
     });
   }
 
+  function storySeconds() {
+    const clock = window.BriefcutEditor && BriefcutEditor.timeline();
+    return clock && clock.spans.length ? clock.duration : state.draft.segments.reduce((sum, segment) => sum + Math.max(0, finite(segment.end, 0) - finite(segment.start, 0)), 0);
+  }
   function updateStoryDuration() {
     if (!state.draft) return;
-    const total = state.draft.segments.reduce((sum, segment) => sum + Math.max(0, finite(segment.end, 0) - finite(segment.start, 0)), 0);
+    const total = storySeconds();
     $("story-duration").textContent = durationText(total) + " selected";
     $("say-pauses").textContent = state.draft.segments.length + (state.draft.segments.length === 1 ? " selected moment" : " selected moments");
     paintEffectSummary();
@@ -872,7 +906,7 @@
   }
 
   function addSegment(range) {
-    if (isActive() || !state.draft || state.draft.segments.length >= 8) { if (state.draft && state.draft.segments.length >= 8) toast("A story holds up to eight moments."); return; }
+    if (isActive() || !state.draft || state.draft.segments.length >= maxSegments()) { if (state.draft && state.draft.segments.length >= maxSegments()) toast("A story holds up to " + maxSegments() + " moments."); return; }
     const segments = state.draft.segments; const end = segments.length ? finite(segments[segments.length - 1].end, 0) : 0;
     const start = range ? range.start : end < state.duration - .1 ? end : 0;
     const stop = range ? range.end : Math.min(state.duration || start + 5, start + 5);
@@ -890,12 +924,12 @@
       if (segment.end === null || !Number.isFinite(Number(segment.end)) || Number(segment.end) - Number(segment.start) < .099999) invalid("Moment " + (index + 1) + " must end at least 0.1 seconds after its in time.", "segment-" + index + "-end");
       if (state.duration && Number(segment.end) > state.duration + .001) invalid("Moment " + (index + 1) + " ends after the source footage. Choose an out time below " + state.duration.toFixed(2) + " seconds.", "segment-" + index + "-end");
     });
-    if (state.draft.segments.reduce((total, segment) => total + segment.end - segment.start, 0) > 180.05) invalid("Keep the story under 180 seconds. Shorten or remove a moment.", "segment-" + (state.draft.segments.length - 1) + "-end");
+    if (storySeconds() > 180.05) invalid("Keep the story under 180 seconds. Shorten or remove a moment.", "segment-" + (state.draft.segments.length - 1) + "-end");
     if (!state.draft.title.trim()) invalid("Give your campaign a title before rendering.", "story-title");
     if (state.draft.hashtags.length > 15 || state.draft.hashtags.some((tag) => tag.length > 80)) invalid("Use at most 15 hashtags, each under 80 characters.", "hashtags");
     const effect = readEffect();
     if (effect && effect.intensity > 0) {
-      const length = state.draft.segments.reduce((total, segment) => total + segment.end - segment.start, 0);
+      const length = storySeconds();
       if (!Number.isFinite(effect.start) || effect.start < 0 || effect.start >= length) invalid("Start the effect inside your finished story, before " + durationText(length) + ".", "effect-start");
       if (!Number.isFinite(effect.duration) || effect.duration <= 0 || effect.start + effect.duration > length + .001) invalid("The effect must fit inside the " + durationText(length) + " story. Shorten its duration or move its start.", "effect-duration");
     }
@@ -908,11 +942,11 @@
     if (state.settingsDirty) { showError("Create a story to apply your changed settings before rendering."); return; }
     clearError();
     let plan;
-    try { plan = validateDraft(); } catch (error) { showError(error); const field = error.fieldId && $(error.fieldId); if (field) { field.setAttribute("aria-invalid", "true"); field.setAttribute("aria-describedby", "error-text"); if (field.closest("details")) field.closest("details").open = true; field.focus(); } return; }
+    try { plan = validateDraft(); } catch (error) { showError(error); const field = error.fieldId && $(error.fieldId); if (field) { if (window.BriefcutEditor) BriefcutEditor._setMode("story"); field.setAttribute("aria-invalid", "true"); field.setAttribute("aria-describedby", "error-text"); if (field.closest("details")) field.closest("details").open = true; field.focus(); } return; }
     state.busy = true; setControls();
     const id = state.job.id;
     try {
-      const body = { plan, effect: readEffect() };
+      const body = Object.assign({ plan, effect: readEffect() }, window.BriefcutRenderOptions ? BriefcutRenderOptions() : {});
       if (typeof overrides.tracking === "boolean") body.tracking = overrides.tracking;
       const data = await request("/api/campaigns/" + encodeURIComponent(id) + "/render", { method: "POST", body });
       if (!data.job) throw new Error("The render was not started. Your story is still saved.");
@@ -956,12 +990,13 @@
     state.file = null; state.paths = []; state.sourceURL = ""; state.duration = 0; state.job = null; state.draft = null; state.selected = -1; state.sourceName = ""; state.rangeEnd = null; state.settingsSnapshot = ""; state.settingsDirty = false; state.pendingCreate = null; state.effectTimingEdited = false; state.version = null; state.notes = {};
     $("version-tabs").hidden = true; $("checks-section").hidden = true; $("version-changes").hidden = true; $("director-notes").hidden = true; $("revise-note").value = "";
     storageRemove(storageKey);
-    if (clearForm) { $("desk-form").reset(); $("clip").value = ""; $("language-field").hidden = true; updateMode(); updateEffectControls(); }
+    if (clearForm) { $("desk-form").reset(); $("clip").value = ""; updateCaptionNote(); updateEffectControls(); }
     $("project-name").textContent = "Untitled project"; $("result").textContent = "A little raw footage. A story worth sharing."; $("project-status").textContent = "Ready to start"; $("project-status").className = "status-pill";
     $("clip-name").textContent = "The original stays untouched."; $("drop-title").textContent = "Choose your footage"; $("source-badge").textContent = "No clip selected";
     $("job-progress").hidden = true; $("delivery-panel").hidden = true; $("delivery-panel").classList.remove("is-previous"); $("recovery-panel").hidden = true; $("preview-final").disabled = true; $("preview-final").textContent = "Finished video"; $("budget-status").hidden = true; $("save-status").textContent = ""; $("story-description").textContent = "Review the moments before you make the video.";
     state.loop = false; $("scrubber").hidden = true; $("transcript-panel").hidden = true; $("analysis-badge").hidden = true; $("analysis-notes").hidden = true; $("run-facts").hidden = true;
     clearError(); renderStory(); setPreview("source"); updateWorkflow(0); setControls();
+    if (window.BriefcutEditor) BriefcutEditor._reset();
   }
 
   async function copyPost() {
@@ -991,9 +1026,9 @@
     const meta = (job.request && job.request.provider) === "meta" || (analysis && analysis.method === "meta");
     const badge = $("analysis-badge");
     badge.hidden = !(analysis || meta);
-    badge.textContent = meta ? "Meta director" : "Local analysis";
+    badge.textContent = meta ? "Meta director" : "Older project";
     badge.classList.toggle("is-meta", !!meta);
-    badge.title = meta ? "Moments proposed by Muse Spark from the footage. Review every range." : "Moments chosen from scene cuts, speech, and your brief’s words. Deterministic, not AI understanding.";
+    badge.title = meta ? "Moments proposed by Muse Spark from the footage. Review every range." : "Saved before Briefcut ran on Meta. Moments came from scene cuts and pauses.";
     const notes = analysis && Array.isArray(analysis.notes) ? analysis.notes.filter((note) => typeof note === "string" && note) : [];
     $("analysis-notes").hidden = !notes.length;
     $("analysis-notes").textContent = notes.join(" ");
@@ -1098,7 +1133,7 @@
     const block = $("scrub-moments").children[index];
     if (block) { block.style.left = pct(segment.start) + "%"; block.style.width = Math.max(.6, pct(segment.end) - pct(segment.start)) + "%"; block.title = (segment.label || "Moment") + " · " + segment.start.toFixed(1) + "s – " + segment.end.toFixed(1) + "s"; }
     renderTimeline(); updateStoryDuration();
-    if (commit) { saveDraft(); highlightTranscript(); }
+    if (commit) saveDraft();
   }
   function nudgeSegment(index, deltaStart, deltaEnd) {
     const segment = state.draft && state.draft.segments[index];
@@ -1125,51 +1160,7 @@
     const block = $("scrub-moments").children[index]; const handle = block && block.querySelector(".scrub-handle.is-" + edge); if (handle) handle.focus();
   }
 
-  function transcriptCues() {
-    const analysis = analysisOf(state.job);
-    const cues = analysis && Array.isArray(analysis.transcript) ? analysis.transcript : [];
-    return cues.filter((cue) => cue && typeof cue.text === "string" && cue.text.trim() && Number.isFinite(Number(cue.start)) && Number.isFinite(Number(cue.end))).slice(0, 600);
-  }
-  function renderTranscript() {
-    const cues = transcriptCues();
-    const panel = $("transcript-panel");
-    panel.hidden = !cues.length || !state.draft;
-    if (panel.hidden) return;
-    $("transcript-count").textContent = cues.length + (cues.length === 1 ? " line" : " lines") + " · local speech recognition";
-    const list = $("transcript-list"); list.replaceChildren();
-    cues.forEach((cue, index) => {
-      const item = element("li", "transcript-cue"); item.dataset.start = String(cue.start); item.dataset.end = String(cue.end); item.dataset.text = cue.text.toLowerCase();
-      const at = element("button", "cue-time", time(cue.start)); at.type = "button"; at.setAttribute("aria-label", "Jump to " + time(cue.start)); at.addEventListener("click", () => seekTo(Number(cue.start), true));
-      const text = element("span", "cue-text"); text.textContent = cue.text.trim();
-      const add = element("button", "cue-add", "Add as moment"); add.type = "button"; add.setAttribute("aria-label", "Add line " + (index + 1) + " as a moment");
-      add.addEventListener("click", () => addSegment({ start: Number(cue.start), end: Math.max(Number(cue.start) + .5, Number(cue.end)), label: cue.text.trim().split(/\s+/).slice(0, 5).join(" "), reason: "Spoken at " + time(cue.start) + ": “" + cue.text.trim() + "”", kind: "speech", quiet: true }));
-      item.append(at, text, add); list.append(item);
-    });
-    highlightTranscript(); filterTranscript();
-  }
-  function highlightTranscript() {
-    if ($("transcript-panel").hidden || !state.draft) return;
-    const segments = state.draft.segments;
-    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => {
-      const start = Number(item.dataset.start), end = Number(item.dataset.end);
-      item.classList.toggle("is-inside", segments.some((segment) => Number(segment.start) <= start + .05 && Number(segment.end) >= end - .05));
-    });
-  }
-  function filterTranscript() {
-    const query = state.transcriptQuery;
-    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => {
-      const text = item.querySelector(".cue-text"); const raw = text.textContent;
-      const hit = !query || item.dataset.text.includes(query);
-      item.hidden = !hit;
-      if (query && hit) { const at = item.dataset.text.indexOf(query); text.replaceChildren(raw.slice(0, at), Object.assign(document.createElement("mark"), { textContent: raw.slice(at, at + query.length) }), raw.slice(at + query.length)); }
-      else text.textContent = raw;
-    });
-  }
-  function paintCurrentCue() {
-    if ($("transcript-panel").hidden || state.preview !== "source") return;
-    const now = $("player").currentTime;
-    $("transcript-list").querySelectorAll(".transcript-cue").forEach((item) => item.classList.toggle("is-current", Number(item.dataset.start) <= now && Number(item.dataset.end) > now));
-  }
+  function renderTranscript() { if (window.BriefcutEditor) BriefcutEditor._renderTranscript(); }
 
   /* ---------- Run facts ---------- */
   function timingKey(id) { return "vedit.studio.timing." + id; }
@@ -1195,10 +1186,10 @@
     measured(planSeconds, "fact-plan"); measured(renderSeconds, "fact-render");
     const source = job.source || {}; const proof = result && result.proof || {};
     $("fact-shape").textContent = (source.duration ? durationText(source.duration) : "—") + (source.width && source.height ? " · " + source.width + "×" + source.height : "") + " → " + (proof.duration ? durationText(proof.duration) : "—") + (proof.width && proof.height ? " · " + proof.width + "×" + proof.height : "");
-    const provider = job.request && job.request.provider === "meta" ? "Meta director (Muse Spark)" : analysisOf(job) ? "Local analysis" : "Local starting cut";
+    const provider = job.request && job.request.provider === "meta" ? "Meta director (Muse Spark)" : "Older project";
     $("fact-provider").textContent = provider;
     const captionProviderUsed = result && result.caption_provider || job.request && job.request.caption_provider;
-    $("fact-captions").textContent = job.request && job.request.captions ? (captionProviderUsed === "meta" ? "Meta Voice Transcribe" : "Local Whisper") : "None";
+    $("fact-captions").textContent = job.request && job.request.captions ? (captionProviderUsed === "meta" ? "Meta Voice Transcribe" : "Older project") : "None";
     const spend = job.budget && Number.isFinite(Number(job.budget.reserved_usd)) ? Number(job.budget.reserved_usd) : 0;
     $("fact-spend").textContent = job.request && job.request.provider === "meta" || captionProviderUsed === "meta" ? "$" + spend.toFixed(3) + " reserved" : "$0.00";
     const checksNode = $("fact-checks");
@@ -1213,7 +1204,7 @@
     if (event.key === "Escape") { if ($("recent-projects").open) { $("recent-projects").open = false; $("recent-projects").querySelector("summary").focus(); } return; }
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "?" && !editingTarget(event.target)) { event.preventDefault(); openShortcuts(); return; }
-    if ($("shortcuts").open || editingTarget(event.target) || event.target.classList.contains("scrub-handle")) return;
+    if (document.querySelector("dialog[open]") || editingTarget(event.target) || event.target.classList.contains("scrub-handle")) return;
     const player = $("player"); const hasVideo = !player.hidden && player.getAttribute("src");
     const key = event.key.toLowerCase();
     if (key === " " || key === "k") { if (!hasVideo) return; event.preventDefault(); if (player.paused) { const p = player.play(); if (p && p.catch) p.catch(() => {}); } else player.pause(); return; }
@@ -1245,14 +1236,13 @@
   document.querySelectorAll(".prompt-chip").forEach((button) => button.addEventListener("click", () => { $("goal").value = button.dataset.goal; markSettingsChanged(); $("goal").focus(); }));
   $("desk-form").addEventListener("input", (event) => { if (event.target.id !== "clip" && event.target.id !== "cloud-consent") markSettingsChanged(); });
   $("desk-form").addEventListener("change", (event) => { if (event.target.id !== "clip" && event.target.id !== "cloud-consent") markSettingsChanged(); });
-  $("provider-local").addEventListener("change", updateMode); $("provider-meta").addEventListener("change", updateMode);
-  $("captions").addEventListener("change", () => { $("language-field").hidden = !$("captions").checked; updateCaptionProvider(); });
-  $("caption-provider").addEventListener("change", updateCaptionProvider);
+  $("captions").addEventListener("change", updateCaptionNote);
+  $("meta-setup-open").addEventListener("click", openMetaSettings);
   $("effect-preset").addEventListener("change", () => { updateEffectControls(); saveDraft(); paintEffectSummary(); });
   $("effect-intensity").addEventListener("input", () => { updateEffectControls(); saveDraft(); paintEffectSummary(); });
   ["effect-start", "effect-duration"].forEach((id) => { $(id).addEventListener("input", () => { state.effectTimingEdited = true; saveDraft(); paintEffectSummary(); }); });
   $("target-duration").addEventListener("change", boundDefaultEffectDuration);
-  $("new-project").addEventListener("click", () => { const running = isActive(); resetProject(true); if (running) toast("Your previous job keeps running. Find it in Recent projects."); $("clip").focus(); });
+  $("new-project").addEventListener("click", () => { const running = isActive(); resetProject(true); if (running) toast("Your previous job keeps running. Find it in Projects."); $("clip").focus(); });
   $("dismiss-error").addEventListener("click", clearError);
   $("preview-source").addEventListener("click", () => setPreview("source"));
   $("preview-final").addEventListener("click", () => setPreview("final"));
@@ -1270,7 +1260,7 @@
       $("post-caption").focus();
       toast("Caption replaced with the director’s suggestion. Render this version to use it.");
     });
-  $("story-title").addEventListener("input", () => { if (!state.draft) return; state.draft.title = $("story-title").value; $("project-name").textContent = state.draft.title || "Untitled project"; saveDraft(); });
+  $("story-title").addEventListener("input", () => { if (!state.draft) return; state.draft.title = $("story-title").value; $("project-name").textContent = state.job && state.job.name || state.draft.title || "Untitled project"; saveDraft(); });
   $("post-caption").addEventListener("input", () => { if (!state.draft) return; state.draft.caption = $("post-caption").value; saveDraft(); });
   $("hashtags").addEventListener("input", () => { if (!state.draft) return; state.draft.hashtags = $("hashtags").value.split(/[\s,]+/).map((tag) => tag.replace(/^#+/, "")).filter(Boolean); saveDraft(); });
   $("recent-projects").addEventListener("toggle", () => { if ($("recent-projects").open) refreshRecent(); });
@@ -1283,25 +1273,27 @@
     const video = $("player"); if (state.preview === "source" && Number.isFinite(video.duration)) { state.duration = video.duration; $("source-badge").textContent = durationText(state.duration); }
     boundDefaultEffectDuration();
     renderScrubber();
-    updateMonitorMeta(); $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
+    updateMonitorMeta(); if (state.preview !== "story") $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
   });
   $("player").addEventListener("timeupdate", () => {
-    const video = $("player"); $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
+    const video = $("player"); if (state.preview !== "story") $("playback-time").textContent = time(video.currentTime) + " / " + time(video.duration);
     if (state.rangeEnd !== null && video.currentTime >= state.rangeEnd) {
       const segment = state.loop && state.draft && state.draft.segments[state.selected];
       if (segment) { video.currentTime = finite(segment.start, 0); } else { video.pause(); state.rangeEnd = null; }
     }
-    paintPlayhead(); paintCurrentCue();
+    paintPlayhead();
   });
   $("player").addEventListener("error", () => { if (!$("player").getAttribute("src")) return; if (state.job && activeStatuses.has(state.job.status)) return; showError("This video cannot be previewed in the browser. You can still edit supported footage and download the finished MP4."); });
   document.addEventListener("keydown", handleShortcut);
   $("shortcuts-button").addEventListener("click", () => openShortcuts());
   $("shortcuts-close").addEventListener("click", () => $("shortcuts").close());
-  $("transcript-search").addEventListener("input", () => { state.transcriptQuery = $("transcript-search").value.trim().toLowerCase(); filterTranscript(); });
   $("scrub-track").addEventListener("pointerdown", scrubPointerDown);
   window.addEventListener("resize", () => { if (!$("scrubber").hidden) renderScrubber(); });
   window.addEventListener("beforeunload", () => { saveDraft(); });
   setInterval(() => { if (state.busy || state.job && activeStatuses.has(state.job.status)) $("elapsed").textContent = time((Date.now() - state.jobStarted) / 1000); }, 1000);
+
+  window.BriefcutStudio = { selectFile, openJob, adoptJob, revise, resetProject, loadCapabilities, toast, currentJobId: () => (state.job ? state.job.id : "") };
+  if (window.BriefcutEditor) BriefcutEditor._attach({ state, request, announce, toast, showError, saveDraft, renderStory, setPreview, seekTo, seekSegment, isActive, setControls, maxSegments, hasVerifiedResult, addSegment });
 
   async function init() {
     setControls();

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -22,8 +23,22 @@ class Range:
         return max(0.0, self.end - self.start)
 
 
-_START = re.compile(r"silence_start:\s*([0-9.]+)")
-_END = re.compile(r"silence_end:\s*([0-9.]+)")
+# FFmpeg prints these with %g, so a time can be negative or carry an exponent.
+_START = re.compile(r"silence_start:\s*(-?[0-9.]+(?:e[-+]?[0-9]+)?)")
+_END = re.compile(r"silence_end:\s*(-?[0-9.]+(?:e[-+]?[0-9]+)?)")
+_PEAK = re.compile(r"max_volume:\s*(-?[0-9.]+|-?inf|nan) dB")
+# Quieter than this is room tone at best. Normalizing it would turn hiss into a roar.
+_QUIETEST_PROGRAMME_LUFS = -60.0
+# Nothing a listener could hear peaks below this.
+_INAUDIBLE_PEAK_DB = -60.0
+# The bounds FFmpeg declares for each loudnorm option.
+_LOUDNORM_BOUNDS = {
+    "input_i": (-99.0, 0.0),
+    "input_tp": (-99.0, 99.0),
+    "input_lra": (0.0, 99.0),
+    "input_thresh": (-99.0, 0.0),
+    "target_offset": (-99.0, 99.0),
+}
 
 
 def detect_silence(
@@ -31,13 +46,17 @@ def detect_silence(
     *,
     threshold_db: float = -32.0,
     min_silence: float = 0.45,
+    track: int | None = None,
 ) -> list[Range]:
-    """Return silent ranges using ffmpeg silencedetect (audio-only filter)."""
+    """Return silent ranges using ffmpeg silencedetect (audio-only filter).
+
+    ``track`` is the audio stream to measure, for files that hold several.
+    """
     result = run_ffmpeg(
         [
             "-i",
             str(path),
-            "-vn",
+            *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]),
             "-af",
             f"silencedetect=noise={threshold_db}dB:d={min_silence}",
             "-f",
@@ -119,15 +138,29 @@ def detect_scenes(path: str | Path, *, threshold: float = 0.35) -> list[float]:
     return out
 
 
-def measure_loudness(path: str | Path) -> dict[str, float]:
-    """Two-pass loudnorm measurement. Returns the measured_* fields ffmpeg needs."""
+def audible(path: str | Path, *, track: int | None = None) -> bool:
+    """False when a track holds nothing a listener could hear, such as digital silence."""
+    result = run_ffmpeg(["-i", str(path), *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]), "-af", "volumedetect", "-f", "null", "-"])
+    peaks = _PEAK.findall(result.stderr)
+    return not peaks or float(peaks[-1]) > _INAUDIBLE_PEAK_DB
+
+
+def measure_loudness(path: str | Path, *, af: str = "") -> dict[str, float] | None:
+    """Two-pass loudnorm measurement. Returns the measured_* fields ffmpeg needs.
+
+    None means there is nothing to normalize. BS.1770 gates out anything under
+    -70 LUFS and needs 0.4 s of audio, so digital silence and a very short clip
+    measure -inf, a value the loudnorm filter refuses. ``af`` is the chain that
+    runs ahead of loudnorm in the real encode, so the second pass is told about
+    the signal it will actually receive.
+    """
     result = run_ffmpeg(
         [
             "-i",
             str(path),
             "-vn",
             "-af",
-            "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+            ",".join(x for x in (af, "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json") if x),
             "-f",
             "null",
             "-",
@@ -148,6 +181,8 @@ def measure_loudness(path: str | Path) -> dict[str, float]:
         if key not in blob:
             raise AnalysisError(f"loudnorm JSON missing {key}")
         out[key] = float(blob[key])
+    if not all(math.isfinite(value) for value in out.values()) or out["input_i"] < _QUIETEST_PROGRAMME_LUFS:
+        return None
     return out
 
 
@@ -345,12 +380,14 @@ def loudnorm_filter(measured: dict[str, float] | None = None, *, i: float = -14.
     base = f"loudnorm=I={i}:TP={tp}:LRA={lra}"
     if not measured:
         return base
+    # A clipped master can measure above 0 LUFS, which the option refuses.
+    clamped = {key: max(low, min(high, measured[key])) for key, (low, high) in _LOUDNORM_BOUNDS.items()}
     return (
-        f"{base}:measured_I={measured['input_i']}:"
-        f"measured_TP={measured['input_tp']}:"
-        f"measured_LRA={measured['input_lra']}:"
-        f"measured_thresh={measured['input_thresh']}:"
-        f"offset={measured['target_offset']}:linear=true"
+        f"{base}:measured_I={clamped['input_i']}:"
+        f"measured_TP={clamped['input_tp']}:"
+        f"measured_LRA={clamped['input_lra']}:"
+        f"measured_thresh={clamped['input_thresh']}:"
+        f"offset={clamped['target_offset']}:linear=true"
     )
 
 
@@ -362,10 +399,12 @@ def apply_loudnorm(
     tp: float = -1.5,
     lra: float = 11.0,
     has_video: bool = True,
-) -> dict[str, float]:
+) -> dict[str, float] | None:
     """Two-pass EBU R128. Runs at render so plan stays a script writer."""
     measured = measure_loudness(src)
-    argv = ["-i", str(src), "-af", loudnorm_filter(measured, i=i, tp=tp, lra=lra)]
+    argv = ["-i", str(src)]
+    if measured:
+        argv += ["-af", loudnorm_filter(measured, i=i, tp=tp, lra=lra)]
     if has_video:
         argv += [
             "-c:v",
@@ -388,6 +427,12 @@ def apply_scenes(src: Path, dest: Path, *, threshold: float = 0.35) -> list[floa
     times = detect_scenes(src, threshold=threshold)
     dest.write_text(json.dumps({"times": times}, indent=2) + "\n", encoding="utf-8")
     return times
+
+
+# Ordered dither repeats from frame to frame, which GIF's frame differencing can
+# compress. On real footage it halves the file, with no visible loss at this size.
+GIF_PALETTE = ("split[gif_in][gif_stats];[gif_stats]palettegen=max_colors=128:stats_mode=diff[gif_palette];"
+               "[gif_in][gif_palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle")
 
 
 def apply_encode(
@@ -418,11 +463,13 @@ def apply_encode(
         start = max(0.0, duration - fade_out)
         video = ",".join(x for x in (video, f"fade=t=out:st={start:.3f}:d={fade_out}") if x)
         audio = ",".join(x for x in (audio, f"afade=t=out:st={start:.3f}:d={fade_out}") if x)
-    if loudnorm:
-        measured = measure_loudness(src)
-        extra = loudnorm_filter(measured, i=i, tp=tp, lra=lra)
-        audio = ",".join(x for x in (audio, extra) if x)
+    measured = measure_loudness(src, af=audio) if loudnorm and has_audio else None
+    if measured:
+        audio = ",".join(x for x in (audio, loudnorm_filter(measured, i=i, tp=tp, lra=lra)) if x)
     preset_obj = get_preset(preset)
+    if preset_obj.video_codec == "gif":
+        # After any fade, because the palette has to describe the finished frames.
+        video = ",".join(x for x in (video, GIF_PALETTE) if x)
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.stem + ".part" + dest.suffix)
     if part.exists():
@@ -432,7 +479,7 @@ def apply_encode(
         argv: list[str] = ["-i", str(src)]
         if video:
             argv += ["-vf", video]
-        if audio:
+        if audio and has_audio:
             argv += ["-af", audio]
         argv += encode_args(
             preset_obj,

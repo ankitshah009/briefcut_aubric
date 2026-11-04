@@ -10,6 +10,7 @@ this machine. Standard library only.
 
     uv run python scripts/demo_run.py --clip examples/demo/workshop.mp4
     uv run python scripts/demo_run.py --provider meta --subject "oak bowl" --effect float
+    uv run python scripts/demo_run.py --provider meta --auto-refine 2
 """
 
 from __future__ import annotations
@@ -125,6 +126,18 @@ def _wait_for(base: str, job_id: str, *, done: set[str], timeout: float, on_upda
         time.sleep(0.5)
 
 
+def _wait_for_loop(base: str, job_id: str, *, timeout: float, on_update=None) -> dict:
+    """Follow auto-refine round by round until the server says why it stopped."""
+    deadline = time.monotonic() + timeout
+    while True:
+        job = _wait_for(base, job_id, done={"complete"}, timeout=max(1.0, deadline - time.monotonic()), on_update=on_update)
+        if not (job.get("auto_refine") or {}).get("active"):
+            return job
+        if time.monotonic() > deadline:
+            raise DemoError(f"Timed out after {timeout:.0f}s waiting for auto-refine to stop.")
+        time.sleep(0.5)
+
+
 def run(args: argparse.Namespace) -> dict:
     python = args.python or str(REPO / ".venv" / "bin" / "python")
     if not Path(python).is_file():
@@ -203,8 +216,10 @@ def run(args: argparse.Namespace) -> dict:
         }
         if args.caption_provider != "local":
             request["caption_provider"] = args.caption_provider
-        if args.review:
+        if args.review or args.auto_refine:
             request["review"] = True
+        if args.auto_refine:
+            request["auto_refine"] = args.auto_refine
         record["request"] = request
         stages: list[dict] = record["stages"]
 
@@ -237,8 +252,11 @@ def run(args: argparse.Namespace) -> dict:
         print("Rendering the stored plan unchanged ...", flush=True)
         render_started = time.monotonic()
         _json(f"{base}/api/campaigns/{planned['id']}/render", method="POST", body=b"{}")
-        complete = _wait_for(base, planned["id"], done={"complete"}, timeout=args.timeout, on_update=note)
+        complete = _wait_for_loop(base, planned["id"], timeout=args.timeout, on_update=note)
         record["timings_seconds"]["render"] = round(time.monotonic() - render_started, 3)
+        if args.auto_refine:
+            record["auto_refine"] = complete.get("auto_refine")
+            print(f"Auto-refine: {(complete.get('auto_refine') or {}).get('stopped')}", flush=True)
         record["timings_seconds"]["total"] = round(time.monotonic() - started, 3)
         result = complete["result"]
         record["result"] = {
@@ -415,6 +433,9 @@ def write_markdown(record: dict, path: Path) -> None:
             lines.append(f"Mode `{revise.get('mode')}`" + (f" with note: \"{revise.get('note')}\"" if revise.get("note") else "") + f". Version {revise.get('revision')} rendered in {_fmt_seconds(timings.get('revise'))} and passed {revise.get('passed')} of {revise.get('total')} checks.")
             lines += [""] + [f"- {patch.get('op')} moment {patch.get('segment')}: {patch.get('before')} → {patch.get('after')}" + (f" (skipped: {patch['skipped']})" if patch.get("skipped") else "") + (f" — {patch.get('reason')}" if patch.get("reason") else "") for patch in revise.get("applied_patches") or []]
         lines.append("")
+    loop = record.get("auto_refine") or {}
+    if loop:
+        lines += ["## Auto-refine", "", f"Rounds run: {loop.get('rounds')} of {loop.get('limit')}. {loop.get('stopped')}", ""]
     versions = record.get("versions") or []
     if len(versions) > 1:
         lines += ["## Versions", "", "| v | Source | Status | Checks | Duration |", "| --- | --- | --- | --- | --- |"]
@@ -463,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--effect-duration", type=float, default=3)
     parser.add_argument("--revise", choices=["auto", "director", "note"], default=None, help="after the first verified render, apply fixes and render the next version")
     parser.add_argument("--note", default="Hold the finished bowl a beat longer before the first cut.", help="director's note for --revise note")
+    parser.add_argument("--auto-refine", type=int, choices=[0, 1, 2, 3], default=0, help="after a verified render, let the worker apply the fixes and render up to this many more versions (turns --review on)")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--workspace", default=None, help="server workspace (default: a fresh temp dir)")
     parser.add_argument("--python", default=None, help="interpreter (default: .venv/bin/python)")

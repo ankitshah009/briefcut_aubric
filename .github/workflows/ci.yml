@@ -23,3 +23,18 @@ jobs:
         run: uv run pytest -q -n auto
         env:
           PYTHONDONTWRITEBYTECODE: "1"
+      - name: Installer plan
+        run: bash scripts/install.sh --dry-run
+      - name: Install as a tool and open Studio
+        run: |
+          uv tool install --python 3.13 .
+          bin="$(uv tool dir --bin)"
+          "$bin/briefcut" --version
+          "$bin/briefcut" setup
+          BROWSER=/bin/true "$bin/briefcut" &
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            curl -sf http://127.0.0.1:8765/api/health && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8765/api/setup
+          kill %1

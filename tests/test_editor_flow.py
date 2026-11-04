@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -30,7 +31,9 @@ _EDITOR_IDS = (
     "transcript-panel",
     "transcript-list",
     "analysis-badge",
-    "caption-provider",
+    "caption-provider-note",
+    "cloud-consent",
+    "meta-setup",
     "run-facts",
     "review",
     "director-notes",
@@ -60,6 +63,13 @@ _EDITOR_IDS = (
     "make",
     "plan",
     "result",
+    "media-bin-mount",
+    "inspector-mount",
+    "timeline-panel",
+    "preview-stage",
+    "monitor-badge",
+    "transport",
+    "transcript-actions",
 )
 
 
@@ -185,6 +195,28 @@ def test_verify_reports_the_picture_without_waiting_on_vmaf(
     assert not report.with_suffix(".vmaf.json").is_file()
 
 
+STATIC = INDEX.parent
+# Briefcut is Meta-only. Nothing in Studio may offer local mode or a local model.
+_LOCAL_MODE = re.compile(r"whisper|speech model|setup/model|local mode|local edit|local captions|local analysis|local starting cut|provider-local|value=\"local\"|\"local\"", re.IGNORECASE)
+
+
+def test_no_studio_file_offers_whisper_or_local_mode() -> None:
+    files = sorted(path for path in STATIC.iterdir() if path.suffix in {".html", ".js", ".css"})
+    assert files and INDEX in files
+    found = {path.name: sorted({match.group(0) for match in _LOCAL_MODE.finditer(path.read_text(encoding="utf-8"))}) for path in files}
+    assert {name: hits for name, hits in found.items() if hits} == {}
+
+
+def test_every_new_story_is_sent_to_meta_with_consent() -> None:
+    page = INDEX.read_text(encoding="utf-8")
+    studio = (STATIC / "studio.js").read_text(encoding="utf-8")
+    assert 'name="provider"' not in page and 'id="caption-provider"' not in page
+    assert 'id="cloud-consent"' in page and "Send this footage to Meta" in page
+    assert 'provider: "meta"' in studio and 'caption_provider: "meta"' in studio
+    assert '!$("cloud-consent").checked' in studio, "creating a story still needs the consent box"
+    assert "dev.meta.ai" in (STATIC / "settings.js").read_text(encoding="utf-8")
+
+
 def test_editor_page_has_no_path_field() -> None:
     page = INDEX.read_text(encoding="utf-8")
     assert "absolute path" not in page.lower()
@@ -201,6 +233,12 @@ def test_editor_page_has_no_path_field() -> None:
     assert 'id="player"' in body
     assert 'id="decisions"' in body
     assert 'id="make"' in body
+
+
+def test_editor_core_loads_before_studio_binds_to_it() -> None:
+    page = INDEX.read_text(encoding="utf-8")
+    assert page.index('src="timeline.js"') < page.index('src="preview.js"') < page.index('src="studio.js"')
+    assert 'href="editor.css"' in page
 
 
 def test_sentences_change_the_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +351,7 @@ def test_one_upload_supports_replanning_and_verified_render(tmp_path: Path, monk
             }, timeout=90)
             assert status == 200
             session = json.loads(raw)["session"]
-            assert session["status"] == ("verified" if render else "planned")
+            assert session["status"] == ("verified" if render else "planned"), session.get("error") or session
             sessions.append(session)
         assert len({session["root"] for session in sessions}) == 3
         assert len(list((tmp_path / "vedit-sessions").glob("*/inbox/*"))) == 1

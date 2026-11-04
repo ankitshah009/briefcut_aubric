@@ -1,0 +1,506 @@
+"""The creative settings of an edit, as data.
+
+``plan["edit"]`` holds everything a creator chooses beyond which moments play:
+look, transitions, captions, music, text, logo, cleanup, cutout, and export.
+It is editorial data only. Values come from closed catalogues or bounded
+numbers, and media is referenced by asset id, never by path. The compiler is
+still the only thing that turns any of it into executable steps, so a model or
+an API client can propose an edit but can never inject a command.
+
+The catalogues here are also what Studio and agents show as the available
+choices, so adding a look or a transition starts in this file.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+import re
+from typing import Any
+
+MAX_TEXTS = 24
+MAX_OVERLAYS = 12
+MAX_REMOVED = 400
+MAX_TEXT_CHARS = 160
+MAX_EMPHASIS = 240  # punch words across a whole story
+MAX_EMPHASIS_PER_CUE = 2
+MAX_EMPHASIS_INDEX = 159  # a caption line holds at most 300 characters, so far fewer words than this
+MAX_EMPHASIS_WORD = 64
+EMPHASIS_COLOR = "#3CE88C"  # an accent apart from the spoken-word highlight, so the two never read as one
+ASSET_ID = re.compile(r"^[a-f0-9]{8,32}$")
+CUE_KEY = re.compile(r"\d{1,8}")
+COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+LANGUAGE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$")
+
+LOOKS = (
+    ("none", "Original", "Keep the footage as shot."),
+    ("auto", "Auto adjust", "Balance exposure, contrast, and color from this footage."),
+    ("warm", "Warm", "Golden light for people, food, and handmade work."),
+    ("cool", "Cool", "Clean blue-leaning tones for tech and product shots."),
+    ("vivid", "Vivid", "Richer color with a little more contrast."),
+    ("cinematic", "Cinematic", "Teal shadows, warm skin, and a soft contrast curve."),
+    ("film", "Film", "Lifted blacks and gentle grain."),
+    ("mono", "Mono", "Clean black and white."),
+    ("noir", "Noir", "High-contrast black and white with deep shadows."),
+    ("vintage", "Vintage", "Faded color with warm highlights."),
+)
+TRANSITIONS = (
+    ("none", "Cut", "Hard cuts between moments."),
+    ("fade", "Crossfade", "A soft blend between moments."),
+    ("fadeblack", "Dip to black", "Fade through black."),
+    ("fadewhite", "Dip to white", "Fade through white."),
+    ("dissolve", "Dissolve", "A textured dissolve."),
+    ("slideleft", "Slide left", "The next moment pushes in from the right."),
+    ("slideup", "Slide up", "The next moment pushes in from below."),
+    ("wipeleft", "Wipe", "A clean wipe across the frame."),
+    ("circleopen", "Iris", "A circle opens onto the next moment."),
+    ("zoomin", "Zoom", "Zooms through into the next moment."),
+    ("hblur", "Blur", "A horizontal blur between moments."),
+)
+CAPTION_STYLES = (
+    ("boxed", "Boxed", "White text on a dark box. Readable on anything."),
+    ("minimal", "Minimal", "Small clean text with a soft shadow."),
+    ("bold", "Bold", "Large heavy text with a strong outline."),
+    ("karaoke", "Karaoke", "Each word lights up as it is spoken."),
+    ("pop", "Pop", "One short phrase at a time, the current word highlighted."),
+)
+CAPTION_POSITIONS = ("bottom", "middle", "top")
+ZOOM_MODES = (
+    ("none", "No zoom", "Keep the framing steady."),
+    ("slow", "Slow push", "A slow push-in on every moment."),
+    ("punch", "Punch-in", "A quick reframe at the start of alternating moments."),
+)
+TEXT_STYLES = (
+    ("title", "Title", "Large centered text."),
+    ("label", "Label", "A small boxed label."),
+    ("lower_third", "Lower third", "A name or a place, low in the frame."),
+    ("callout", "Callout", "Bold text with a colored box."),
+)
+TEXT_POSITIONS = ("top", "center", "bottom")
+OVERLAY_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right", "center")
+CUTOUT_MODES = (
+    ("none", "Off", "Keep the original background."),
+    ("blur", "Background blur", "Keep the subject sharp and blur everything else."),
+    ("dim", "Spotlight", "Darken everything except the subject."),
+    ("mono", "Color pop", "Keep the subject in color and turn the rest black and white."),
+    ("color", "Solid background", "Put the subject on a solid color."),
+    ("image", "New background", "Put the subject on an image you choose or generate."),
+)
+EXPORT_QUALITIES = ("720p", "1080p", "4k")
+EXPORT_FPS = (24, 30, 60)
+EXPORT_FORMATS = ("mp4", "mov", "webm", "gif")
+# A hero word: one or two spoken words, huge, behind the subject for a moment.
+HERO_SIDES = ("center", "top", "left", "right")
+HERO_FONTS = (
+    ("heavy", "Heavy", "A wide, heavy sans for short words."),
+    ("condensed", "Condensed", "Tall and narrow, so a longer word stays big."),
+    ("rounded", "Rounded", "Heavy with soft corners."),
+)
+HERO_COLORS = ("#FFFFFF", "#FFD60A", "#FF453A", "#FF9F0A", "#30D158", "#0A84FF", "#101014")
+HERO_MIN_SECONDS = 0.5
+HERO_MAX_SECONDS = 3.0
+HERO_MAX_CHARS = 18
+HERO_MAX_WORDS = 2
+# Letters and digits in any script, joined by spaces, apostrophes or hyphens, with one closing mark.
+HERO_WORD = re.compile(r"^[^\W_]+(?:['’\- ][^\W_]+)*[!?.]?$")
+
+_DEFAULT: dict[str, Any] = {
+    "template": "none",
+    "look": {"preset": "none", "intensity": 1.0, "brightness": 0.0, "contrast": 0.0, "saturation": 0.0, "temperature": 0.0, "vignette": 0.0, "sharpen": 0.0},
+    "transition": {"type": "none", "seconds": 0.35},
+    "captions": {"style": "boxed", "position": "bottom", "scale": 1.0, "color": "#FFFFFF", "highlight": "#FFD60A", "language": None, "edits": {},
+                 "emphasize": False, "emphasis": [], "emphasis_color": EMPHASIS_COLOR},
+    "trim_pauses": False,
+    "remove_fillers": False,
+    "removed": [],
+    "audio": {"enhance_voice": False, "denoise": False, "keep_loudness": False, "mute_source": False},
+    "music": None,
+    "zoom": {"mode": "none", "strength": 0.5},
+    "stabilize": False,
+    "denoise_picture": False,
+    "texts": [],
+    "logo": None,
+    "overlays": [],
+    "fade": {"in": 0.0, "out": 0.0},
+    "cutout": {"mode": "none", "subject": "", "color": "#101418", "asset": None, "blur": 0.6},
+    "hero_word": None,
+    "export": {"quality": "1080p", "fps": 30, "format": "mp4"},
+}
+
+TEMPLATES = (
+    {"id": "none", "name": "Blank", "description": "Start from your footage with nothing applied.", "edit": {}},
+    {"id": "product_story", "name": "Product story", "description": "Warm color, soft transitions, and clean captions for showing something you made.",
+     "edit": {"look": {"preset": "warm"}, "transition": {"type": "fade", "seconds": 0.3}, "captions": {"style": "boxed"}, "trim_pauses": True, "zoom": {"mode": "slow", "strength": 0.4}, "fade": {"out": 0.5}}},
+    {"id": "punchy_short", "name": "Punchy short", "description": "Fast cuts, word-by-word captions, and punch-ins for short feeds.",
+     "edit": {"look": {"preset": "vivid"}, "captions": {"style": "pop"}, "trim_pauses": True, "remove_fillers": True, "zoom": {"mode": "punch", "strength": 0.6}}},
+    {"id": "talking_head", "name": "Talking head", "description": "Clean speech, removed fillers, and karaoke captions.",
+     "edit": {"look": {"preset": "auto"}, "captions": {"style": "karaoke"}, "trim_pauses": True, "remove_fillers": True, "audio": {"enhance_voice": True, "denoise": True}}},
+    {"id": "cinematic", "name": "Cinematic", "description": "A graded look, dip-to-black transitions, and slow pushes.",
+     "edit": {"look": {"preset": "cinematic"}, "transition": {"type": "fadeblack", "seconds": 0.5}, "captions": {"style": "minimal"}, "zoom": {"mode": "slow", "strength": 0.5}, "fade": {"in": 0.5, "out": 0.8}}},
+    {"id": "recap", "name": "Event recap", "description": "Bright color and quick slides that keep a day moving.",
+     "edit": {"look": {"preset": "vivid"}, "transition": {"type": "slideleft", "seconds": 0.3}, "captions": {"style": "bold"}}},
+    {"id": "tutorial", "name": "How-to", "description": "Steady framing, big readable captions, and clear speech.",
+     "edit": {"look": {"preset": "auto"}, "captions": {"style": "bold", "scale": 1.15}, "trim_pauses": True, "audio": {"enhance_voice": True}, "transition": {"type": "fade", "seconds": 0.25}}},
+)
+
+
+class EditError(ValueError):
+    """An edit setting is not one Briefcut can apply."""
+
+
+def _ids(rows: tuple[tuple[str, str, str], ...]) -> tuple[str, ...]:
+    return tuple(row[0] for row in rows)
+
+
+def _rows(rows: tuple[tuple[str, str, str], ...]) -> list[dict[str, str]]:
+    return [{"id": ident, "name": name, "description": description} for ident, name, description in rows]
+
+
+def default_edit() -> dict[str, Any]:
+    return copy.deepcopy(_DEFAULT)
+
+
+def merge_edit(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge a partial edit. Lists and scalars replace; objects merge."""
+    merged = copy.deepcopy(base)
+    for key, value in (patch or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_edit(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def template_edit(template: str) -> dict[str, Any]:
+    """A full edit with one template's choices applied."""
+    for row in TEMPLATES:
+        if row["id"] == template:
+            return merge_edit(merge_edit(default_edit(), row["edit"]), {"template": template})
+    raise EditError(f"Unknown template: {template}.")
+
+
+def catalogue() -> dict[str, Any]:
+    """What Studio and agents can choose from."""
+    return {
+        "looks": _rows(LOOKS),
+        "transitions": _rows(TRANSITIONS),
+        "caption_styles": _rows(CAPTION_STYLES),
+        "caption_positions": list(CAPTION_POSITIONS),
+        "zoom_modes": _rows(ZOOM_MODES),
+        "text_styles": _rows(TEXT_STYLES),
+        "text_positions": list(TEXT_POSITIONS),
+        "overlay_positions": list(OVERLAY_POSITIONS),
+        "cutout_modes": _rows(CUTOUT_MODES),
+        "hero_word": {"sides": list(HERO_SIDES), "fonts": _rows(HERO_FONTS), "colors": list(HERO_COLORS),
+                      "min_seconds": HERO_MIN_SECONDS, "max_seconds": HERO_MAX_SECONDS, "max_chars": HERO_MAX_CHARS, "max_words": HERO_MAX_WORDS},
+        "templates":[{"id": row["id"], "name": row["name"], "description": row["description"], "edit": row["edit"]} for row in TEMPLATES],
+        "export": {"qualities": list(EXPORT_QUALITIES), "fps": list(EXPORT_FPS), "formats": list(EXPORT_FORMATS)},
+        "defaults": default_edit(),
+    }
+
+
+def _number(value: Any, name: str, low: float, high: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise EditError(f"{name} must be a number.")
+    number = float(value)
+    if not low <= number <= high:
+        raise EditError(f"{name} must be between {low:g} and {high:g}.")
+    return round(number, 4)
+
+
+def _choice(value: Any, name: str, allowed: tuple[Any, ...]) -> Any:
+    if value not in allowed:
+        raise EditError(f"{name} is not one of the available choices.")
+    return value
+
+
+def _flag(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise EditError(f"{name} must be true or false.")
+    return value
+
+
+def _color(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not COLOR.fullmatch(value):
+        raise EditError(f"{name} must be a color like #FFD60A.")
+    return value.upper()
+
+
+def _text(value: Any, name: str, limit: int = MAX_TEXT_CHARS) -> str:
+    if not isinstance(value, str):
+        raise EditError(f"{name} must be text.")
+    cleaned = " ".join(value.split())
+    if len(cleaned) > limit:
+        raise EditError(f"{name} can be at most {limit} characters.")
+    if any(ord(ch) < 32 for ch in cleaned):
+        raise EditError(f"{name} contains control characters.")
+    return cleaned
+
+
+def _asset(value: Any, name: str, assets: dict[str, Any] | None, kinds: tuple[str, ...]) -> str:
+    if not isinstance(value, str) or not ASSET_ID.fullmatch(value):
+        raise EditError(f"{name} must be an uploaded asset.")
+    if assets is not None:
+        record = assets.get(value)
+        if not isinstance(record, dict):
+            raise EditError(f"{name} is not an asset of this project.")
+        if record.get("kind") not in kinds:
+            raise EditError(f"{name} must be {' or '.join(kinds)}.")
+    return value
+
+
+def _timed(item: dict[str, Any], name: str, duration: float) -> tuple[float, float]:
+    start = _number(item.get("start", 0.0), f"{name} start", 0.0, max(0.0, duration))
+    length = _number(item.get("duration", 3.0), f"{name} length", 0.1, max(0.1, duration))
+    return start, length
+
+
+def _object(value: Any, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise EditError(f"{name} must be an object.")
+    return value
+
+
+def validate_emphasis(value: Any) -> list[dict[str, Any]]:
+    """Punch words, as ``[{cue_key, word_index, word}]``: bounded, unique, and at most two in a line.
+
+    ``word`` is the word as it was written when it was chosen. The renderer draws a
+    word only while the line still has that word at that place, so a caption edit
+    or a translation can never move the emphasis onto a different word.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_EMPHASIS:
+        raise EditError(f"Caption emphasis must be a list of at most {MAX_EMPHASIS} words.")
+    clean: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    per_cue: dict[str, int] = {}
+    for item in value:
+        item = _object(item, "Each emphasised word")
+        key, index, word = item.get("cue_key"), item.get("word_index"), item.get("word")
+        if not isinstance(key, str) or not CUE_KEY.fullmatch(key):
+            raise EditError("Caption emphasis is keyed by the cue's start time in milliseconds.")
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= MAX_EMPHASIS_INDEX:
+            raise EditError(f"An emphasised word's place must be a whole number from 0 to {MAX_EMPHASIS_INDEX}.")
+        if not isinstance(word, str) or not word or len(word) > MAX_EMPHASIS_WORD or word != word.strip() or any(ch.isspace() or ord(ch) < 32 for ch in word):
+            raise EditError(f"An emphasised word must be one word of at most {MAX_EMPHASIS_WORD} characters.")
+        if (key, index) in seen:
+            raise EditError("A word can be emphasised only once.")
+        per_cue[key] = per_cue.get(key, 0) + 1
+        if per_cue[key] > MAX_EMPHASIS_PER_CUE:
+            raise EditError(f"A caption line can emphasise at most {MAX_EMPHASIS_PER_CUE} words.")
+        seen.add((key, index))
+        clean.append({"cue_key": key, "word_index": index, "word": word})
+    return clean
+
+
+def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return a complete, bounded edit, or raise :class:`EditError`.
+
+    ``duration`` is the finished story's length. Unknown keys are dropped.
+    ``assets`` maps asset ids to records; ``None`` skips the membership check
+    for callers that only need the shape.
+    """
+    raw = merge_edit(default_edit(), _object(value if value is not None else {}, "The edit"))
+    clean = default_edit()
+    template_ids = tuple(row["id"] for row in TEMPLATES)
+    clean["template"] = _choice(raw.get("template"), "Template", template_ids)
+
+    look = _object(raw["look"], "Look")
+    clean["look"] = {
+        "preset": _choice(look.get("preset"), "Look", _ids(LOOKS)),
+        "intensity": _number(look.get("intensity", 1.0), "Look strength", 0.0, 1.0),
+        "brightness": _number(look.get("brightness", 0.0), "Brightness", -1.0, 1.0),
+        "contrast": _number(look.get("contrast", 0.0), "Contrast", -1.0, 1.0),
+        "saturation": _number(look.get("saturation", 0.0), "Saturation", -1.0, 1.0),
+        "temperature": _number(look.get("temperature", 0.0), "Temperature", -1.0, 1.0),
+        "vignette": _number(look.get("vignette", 0.0), "Vignette", 0.0, 1.0),
+        "sharpen": _number(look.get("sharpen", 0.0), "Sharpen", 0.0, 1.0),
+    }
+
+    transition = _object(raw["transition"], "Transition")
+    clean["transition"] = {
+        "type": _choice(transition.get("type"), "Transition", _ids(TRANSITIONS)),
+        "seconds": _number(transition.get("seconds", 0.35), "Transition length", 0.1, 2.0),
+    }
+
+    captions = _object(raw["captions"], "Captions")
+    language = captions.get("language")
+    if language is not None and (not isinstance(language, str) or not LANGUAGE.fullmatch(language)):
+        raise EditError("Caption language must be a language code such as es or pt-BR.")
+    edits: dict[str, str] = {}
+    raw_edits = captions.get("edits") or {}
+    if not isinstance(raw_edits, dict) or len(raw_edits) > 600:
+        raise EditError("Caption edits must be a bounded object.")
+    for key, text in raw_edits.items():
+        if not isinstance(key, str) or not re.fullmatch(r"\d{1,8}", key):
+            raise EditError("Caption edits are keyed by the cue's start time in milliseconds.")
+        edits[key] = _text(text, "Caption text", 300)
+    clean["captions"] = {
+        "style": _choice(captions.get("style"), "Caption style", _ids(CAPTION_STYLES)),
+        "position": _choice(captions.get("position"), "Caption position", CAPTION_POSITIONS),
+        "scale": _number(captions.get("scale", 1.0), "Caption size", 0.5, 2.0),
+        "color": _color(captions.get("color", "#FFFFFF"), "Caption color"),
+        "highlight": _color(captions.get("highlight", "#FFD60A"), "Caption highlight"),
+        "language": language,
+        "edits": edits,
+        "emphasize": _flag(captions.get("emphasize", False), "Caption emphasis"),
+        "emphasis": validate_emphasis(captions.get("emphasis")),
+        "emphasis_color": _color(captions.get("emphasis_color", EMPHASIS_COLOR), "Caption emphasis color"),
+    }
+
+    clean["trim_pauses"] = _flag(raw.get("trim_pauses"), "Trim pauses")
+    clean["remove_fillers"] = _flag(raw.get("remove_fillers"), "Remove fillers")
+    clean["stabilize"] = _flag(raw.get("stabilize"), "Stabilize")
+    clean["denoise_picture"] = _flag(raw.get("denoise_picture"), "Picture denoise")
+
+    removed = raw.get("removed") or []
+    if not isinstance(removed, list) or len(removed) > MAX_REMOVED:
+        raise EditError("Removed ranges must be a bounded list.")
+    clean["removed"] = []
+    for item in removed:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise EditError("Each removed range needs a start and an end.")
+        low = _number(item[0], "Removed start", 0.0, 86_400.0)
+        high = _number(item[1], "Removed end", 0.0, 86_400.0)
+        if high <= low:
+            raise EditError("A removed range must end after it starts.")
+        clean["removed"].append([low, high])
+
+    audio = _object(raw["audio"], "Audio")
+    clean["audio"] = {key: _flag(audio.get(key, False), f"Audio setting {key}") for key in ("enhance_voice", "denoise", "keep_loudness", "mute_source")}
+
+    music = raw.get("music")
+    if music is not None:
+        music = _object(music, "Music")
+        clean["music"] = {
+            "asset": _asset(music.get("asset"), "Music", assets, ("audio",)),
+            "volume_db": _number(music.get("volume_db", -18.0), "Music volume", -40.0, 0.0),
+            "duck": _flag(music.get("duck", True), "Music ducking"),
+            "fade_out": _number(music.get("fade_out", 1.5), "Music fade", 0.0, 10.0),
+            "start": _number(music.get("start", 0.0), "Music start", 0.0, 3600.0),
+            "beat_sync": _flag(music.get("beat_sync", False), "Beat sync"),
+        }
+
+    zoom = _object(raw["zoom"], "Zoom")
+    clean["zoom"] = {
+        "mode": _choice(zoom.get("mode"), "Zoom", _ids(ZOOM_MODES)),
+        "strength": _number(zoom.get("strength", 0.5), "Zoom strength", 0.0, 1.0),
+    }
+
+    texts = raw.get("texts") or []
+    if not isinstance(texts, list) or len(texts) > MAX_TEXTS:
+        raise EditError(f"A story can hold at most {MAX_TEXTS} text items.")
+    clean["texts"] = []
+    for index, item in enumerate(texts, 1):
+        item = _object(item, f"Text {index}")
+        body = _text(item.get("text"), f"Text {index}")
+        if not body:
+            raise EditError(f"Text {index} is empty.")
+        start, length = _timed(item, f"Text {index}", duration)
+        clean["texts"].append({
+            "text": body, "start": start, "duration": length,
+            "style": _choice(item.get("style", "label"), f"Text {index} style", _ids(TEXT_STYLES)),
+            "position": _choice(item.get("position", "center"), f"Text {index} position", TEXT_POSITIONS),
+            "scale": _number(item.get("scale", 1.0), f"Text {index} size", 0.5, 2.5),
+            "color": _color(item.get("color", "#FFFFFF"), f"Text {index} color"),
+        })
+
+    logo = raw.get("logo")
+    if logo is not None:
+        logo = _object(logo, "Logo")
+        clean["logo"] = {
+            "asset": _asset(logo.get("asset"), "Logo", assets, ("image",)),
+            "position": _choice(logo.get("position", "top-right"), "Logo position", OVERLAY_POSITIONS),
+            "scale": _number(logo.get("scale", 0.14), "Logo size", 0.03, 0.6),
+            "opacity": _number(logo.get("opacity", 0.9), "Logo opacity", 0.1, 1.0),
+        }
+
+    overlays = raw.get("overlays") or []
+    if not isinstance(overlays, list) or len(overlays) > MAX_OVERLAYS:
+        raise EditError(f"A story can hold at most {MAX_OVERLAYS} overlays.")
+    clean["overlays"] = []
+    for index, item in enumerate(overlays, 1):
+        item = _object(item, f"Overlay {index}")
+        start, length = _timed(item, f"Overlay {index}", duration)
+        clean["overlays"].append({
+            "asset": _asset(item.get("asset"), f"Overlay {index}", assets, ("image",)),
+            "start": start, "duration": length,
+            "position": _choice(item.get("position", "center"), f"Overlay {index} position", OVERLAY_POSITIONS),
+            "scale": _number(item.get("scale", 0.3), f"Overlay {index} size", 0.03, 1.0),
+        })
+
+    fade = _object(raw["fade"], "Fade")
+    clean["fade"] = {"in": _number(fade.get("in", 0.0), "Fade in", 0.0, 5.0), "out": _number(fade.get("out", 0.0), "Fade out", 0.0, 5.0)}
+
+    cutout = _object(raw["cutout"], "Cutout")
+    mode = _choice(cutout.get("mode"), "Cutout", _ids(CUTOUT_MODES))
+    subject = _text(cutout.get("subject", ""), "Cutout subject", 150)
+    if mode != "none" and not subject:
+        raise EditError("Name the subject to cut out, such as “the wooden bowl”.")
+    image = cutout.get("asset")
+    if mode == "image":
+        image = _asset(image, "Cutout background", assets, ("image",))
+    clean["cutout"] = {
+        "mode": mode, "subject": subject,
+        "color": _color(cutout.get("color", "#101418"), "Cutout color"),
+        "asset": image if mode == "image" else None,
+        "blur": _number(cutout.get("blur", 0.6), "Background blur", 0.0, 1.0),
+    }
+
+    export = _object(raw["export"], "Export")
+    clean["export"] = {
+        "quality": _choice(export.get("quality"), "Export quality", EXPORT_QUALITIES),
+        "fps": _choice(export.get("fps"), "Export frame rate", EXPORT_FPS),
+        "format": _choice(export.get("format"), "Export format", EXPORT_FORMATS),
+    }
+    clean["hero_word"] = validate_hero_word(raw.get("hero_word"), duration=duration)
+    return clean
+
+
+def validate_hero_word(value: Any, *, duration: float) -> dict[str, Any] | None:
+    """``edit.hero_word``: a short spoken word, its window on the output clock, and closed style choices.
+
+    The window must sit inside the cut and last 0.5 to 3 seconds. Whether the
+    word is really spoken there, and inside one shot, is ``vedit.hero_word``'s
+    check, because only it holds the transcript and the timeline.
+    """
+    if value is None:
+        return None
+    item = _object(value, "Hero word")
+    word = _text(item.get("word"), "Hero word", HERO_MAX_CHARS)
+    if not word:
+        raise EditError("The hero word is empty.")
+    if len(word.split()) > HERO_MAX_WORDS:
+        raise EditError(f"The hero word can be at most {HERO_MAX_WORDS} words.")
+    if not HERO_WORD.fullmatch(word):
+        raise EditError("The hero word can hold only letters, digits, spaces, apostrophes and hyphens.")
+    start = _number(item.get("start"), "Hero word start", 0.0, max(0.0, duration))
+    end = _number(item.get("end"), "Hero word end", 0.0, max(0.0, duration))
+    if not HERO_MIN_SECONDS - 1e-6 <= end - start <= HERO_MAX_SECONDS + 1e-6:
+        raise EditError(f"The hero word shows for {HERO_MIN_SECONDS:g} to {HERO_MAX_SECONDS:g} seconds.")
+    subject = _text(item.get("subject", ""), "Hero word subject", 150)
+    if not subject:
+        raise EditError("Name the subject the word goes behind, such as “the speaker”.")
+    color = _color(item.get("color", HERO_COLORS[0]), "Hero word color")
+    if color not in HERO_COLORS:
+        raise EditError("The hero word color is not one of the available choices.")
+    return {
+        "word": word, "start": start, "end": end, "subject": subject,
+        "side": _choice(item.get("side", "center"), "Hero word side", HERO_SIDES),
+        "font": _choice(item.get("font", "heavy"), "Hero word font", _ids(HERO_FONTS)),
+        "color": color,
+        "reason": _text(item.get("reason", ""), "Hero word reason", 300),
+    }
+
+
+def asset_ids(edit: dict[str, Any]) -> list[str]:
+    """Every asset an edit refers to, for packaging and validation."""
+    found: list[str] = []
+    for holder in (edit.get("music"), edit.get("logo"), edit.get("cutout")):
+        if isinstance(holder, dict) and isinstance(holder.get("asset"), str):
+            found.append(holder["asset"])
+    for item in edit.get("overlays") or []:
+        if isinstance(item, dict) and isinstance(item.get("asset"), str):
+            found.append(item["asset"])
+    return found

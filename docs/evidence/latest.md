@@ -2,6 +2,8 @@
 
 Recorded 2026-10-31T08:39:45+00:00 by `scripts/demo_run.py`. One run, one machine. Timings are wall-clock and include HTTP polling. Re-run with `uv run python scripts/demo_run.py` to refresh.
 
+This is the best honest run on record. It is the richest live Meta run, and its first verified render passed every check. Muse Spark planned the cut in contributor mode, which permits Meta to train on the submitted clip. SAM 3.1 tracked "the wooden bowl", Meta Voice Transcribe captioned the cut, Muse Image made the cover, and Spark reviewed the render. A typed note then produced version 2, which passed 13 of 15 checks. The clip is the stylised, computer-generated `examples/demo/workshop.mp4`, not real footage. No user footage was sent. Browser presentation was not verified; this run used the Studio HTTP routes.
+
 ## Machine
 
 | Item | Value |
@@ -53,7 +55,7 @@ Provider `meta`, analysis `meta`. 5 segment(s), 21.563 s.
 | Duration | 21.966667 | 21.966667 |
 | Size | 1080×1920 | 1080×1920 |
 | Audio / video | True / True | True / True |
-| Codec | — | h264 @ 30.0 fps |
+| Codec | not reported | h264 @ 30.0 fps |
 | Color | bt709 / tv (bt709/bt709) | not reported by `vedit probe`; see report.json |
 | Bytes | 4501627 | 4501627 |
 
@@ -67,19 +69,19 @@ Warnings from the render: none
 
 | Check | Result | At | Note |
 | --- | --- | --- | --- |
-| auto: cuts land on sentence boundaries | pass | — | every cut sits on a sentence boundary |
-| auto: duration matches the target | pass | — | 21.6 s cut vs 25.0 s target |
-| auto: moments inside the source and in order | pass | — | 5 moments inside the source, no overlaps |
-| auto: captions cover the speech | pass | — | 95% of 15.1 s of speech has a caption |
-| auto: requested edits applied | pass | — | The brief asked for no specific edits. |
-| auto: subject stays in frame (SAM 3.1) | pass | — | 452 tracked boxes cover 100% of 21.6 s; longest gap 0.2 s; subject centre inside the 9:16 crop in 100% of boxes |
+| auto: cuts land on sentence boundaries | pass | none | every cut sits on a sentence boundary |
+| auto: duration matches the target | pass | none | 21.6 s cut vs 25.0 s target |
+| auto: moments inside the source and in order | pass | none | 5 moments inside the source, no overlaps |
+| auto: captions cover the speech | pass | none | 95% of 15.1 s of speech has a caption |
+| auto: requested edits applied | pass | none | The brief asked for no specific edits. |
+| auto: subject stays in frame (SAM 3.1) | pass | none | 452 tracked boxes cover 100% of 21.6 s; longest gap 0.2 s; subject centre inside the 9:16 crop in 100% of boxes |
 | director: Vertical format | pass | 1.5 s | Center vertical column with side bars reads as vertical story. |
 | director: Story about the oak bowl | pass | 2.0 s | All visuals and captions stay on the oak bowl from finish to making. |
 | director: Opens with finished bowl | pass | 0.0 s | Finished bowl on table plays 0.00-4.58s as briefed. |
 | director: Shows how it is made after opening | pass | 9.5 s | Blank at 4.58s, lathe forming at 8.59s, sanding at 12.59s, oiled detail at 17.59s. |
 | director: Runtime within 25s ceiling | pass | 21.6 s | 21.6s cut is under 25s ceiling with complete sentences. |
 | director: Hook inside first 3 seconds | pass | 0.5 s | Finished bowl grain fills frame instantly with clear caption. |
-| director: No mid-sentence cuts | pass | — | All five captions play as complete sentences with no truncation. |
+| director: No mid-sentence cuts | pass | none | All five captions play as complete sentences with no truncation. |
 | director: Pacing holds for short story | pass | 8.6 s | Even ~4s beats move blank-lathe-sand-oil without drag. |
 | director: Caption legibility | pass | 2.1 s | White bottom captions stay legible over dark wood throughout. |
 
@@ -87,9 +89,16 @@ Warnings from the render: none
 
 Mode `note` with note: "Hold the finished bowl a beat longer before the first cut, then tighten the sanding moment.". Version 2 rendered in 130.492 s and passed 13 of 15 checks.
 
-- trim_end moment 1: {'start': 0.0, 'end': 4.585} → {'start': 0.0, 'end': 5.58} — hold the finished bowl a beat longer before the first cut
-- trim_end moment 4: {'start': 24.0, 'end': 29.0} → {'start': 24.0, 'end': 28.0} — tighten the sanding moment
-- trim_end moment 4: {'start': 24.0, 'end': 28.0} → {'start': 24.0, 'end': 28.363} — Moment 4 ends mid-sentence at 28.00 s; snap to the sentence boundary at 28.36 s.
+- trim_end moment 1: {'start': 0.0, 'end': 4.585} → {'start': 0.0, 'end': 5.58}: hold the finished bowl a beat longer before the first cut
+- trim_end moment 4: {'start': 24.0, 'end': 29.0} → {'start': 24.0, 'end': 28.0}: tighten the sanding moment
+- trim_end moment 4: {'start': 24.0, 'end': 28.0} → {'start': 24.0, 'end': 28.363}: Moment 4 ends mid-sentence at 28.00 s; snap to the sentence boundary at 28.36 s.
+
+Checks on version 2: 13 of 15 passed. The failures:
+
+| Check | Result | At | Note |
+| --- | --- | --- | --- |
+| auto: cuts land on sentence boundaries | FAIL | 5.6 s | 1 cut inside a sentence |
+| director: No mid-sentence cuts | FAIL | 5.6 s | Stumble at cut: 'It started as a Here is the raw...'. |
 
 ## Versions
 
@@ -106,8 +115,18 @@ Hook score 4/5. pass
 - Working: Clear reverse-story logic: hero then raw blank to oiled detail
 - Working: Tight 21.6s runtime respects 25s ceiling and keeps momentum
 
-Suggested caption: Finished oak bowl first, then how it's made — blank to lathe to oil.
+Spark's suggested caption is in the full record.
 
 Review cost: $0.0012 (muse-spark-1.3-contributor).
+
+## Other live records
+
+Each of these is a separate run on 2026-10-31. See `docs/SUBMISSION.md` for the full table.
+
+- `20261031T141719Z-auto-refine.json`: auto-refine on `workshop.mp4`. Version 1 passed 12 of 16 checks. Spark's patches (warm look, 2× bold captions, three moments at 1.2×) produced version 2, which passed 16 of 16.
+- `20261031T153614Z.json`: auto-refine on the 3 s `talk.mp4`. Version 1 passed 9 of 11. Two patches (a "Pause in Blue" title and a slow push zoom) produced version 2, which passed 11 of 11.
+- `20261031T100101Z-note.json`: a note ("warmer, bigger captions, slow down the oil moment") on `workshop.mp4`. Version 1 passed 5 of 5 with Director's notes unavailable after a Meta timeout. Version 2 passed 14 of 14.
+- `20261031T153524Z.json`: a note on the 3 s `talk.mp4` produced a 0.8× speed patch. Version 2 passed 5 of 5; the clip had no transcript.
+- `20261031T070719Z.json`: the earlier full loop with `--revise director` (13 of 14, then 12 of 13).
 
 Full record: `docs/evidence/20261031T083945Z.json`.

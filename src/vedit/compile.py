@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from dataclasses import dataclass, field
@@ -9,24 +10,58 @@ from pathlib import Path
 from typing import Any
 
 from vedit.captions import burn_filter, title_filter
+from vedit.edit_spec import COLOR, CUTOUT_MODES as CUTOUT_ROWS, OVERLAY_POSITIONS, TRANSITIONS
 from vedit.effects import EffectError, REQUIRED_EFFECT_FILTERS, validate_effect
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
+from vedit.looks import RECIPES, color_recipes, fallback_filters, is_neutral, lut_filters, spatial_amounts, spatial_filters, write_cube
 from vedit.media import (
     MediaInfo,
     escape_filter_path,
+    filter_file_args,
+    filter_options,
+    filter_value,
+    has_encoder,
     has_filter,
     is_image,
     probe,
     resolve_ffmpeg,
+    source_filters,
 )
+from vedit.motion import MotionError, plan_pieces, zoom_filter
+from vedit.overlays import DEFAULT_FADE, corner, drawtext_filters, image_filter, logo_reserve, text_engine, text_warnings, write_text_ass
 from vedit.pipeline import Pipeline, Step
-from vedit.presets import ExportPreset, encode_args, get_preset
+from vedit.presets import ExportPreset, encode_args, export_preset_name, get_preset
+from vedit.sound import DUCK_THRESHOLD, duck_filter, voice_filters
+from vedit.timeline import MAX_SPEED, MIN_SPEED, Span, build_timeline, effective_transition, output_duration, segment_keeps, segment_speed
+from vedit.edit_spec import HERO_COLORS, HERO_FONTS, HERO_MAX_CHARS, HERO_MAX_SECONDS, HERO_MAX_WORDS, HERO_MIN_SECONDS, HERO_SIDES, HERO_WORD
+from vedit.overlays import HERO_FONT_FILES, hero_font, render_hero_ass, visible_rect
+
+REQUIRED_HERO_FILTERS = ("alphamerge", "overlay", "scale", "lut", "setpts", "fps", "ass", "split", "setparams")
+HERO_ASPECTS = ("9:16", "16:9", "1:1", "4:5", "21:9")
+# Wider than a cutout's edge: the subject layer is the frame's own picture, so
+# covering a few pixels of background only hides the word a little early.
+HERO_EDGE = "lut=y='clip((val-40)*255/120,0,255)'"
+
+CUTOUT_MODES =tuple(row[0] for row in CUTOUT_ROWS if row[0] != "none")
+REQUIRED_CUTOUT_FILTERS = ("alphamerge", "scale", "overlay", "lutyuv", "boxblur", "lut", "premultiply", "unpremultiply")
+CUTOUT_HOLE = 12
+CUTOUT_DIM = 0.32
+CUTOUT_DIM_CHROMA = 0.6
+CUTOUT_EDGE_CENTER = 167
+CUTOUT_EDGE_SPAN = 143
+CUTOUT_EDGE_TIGHTEST = 32
+
+
+# Stored pixels can be non-square (PAL, HDV). Shape decisions need square ones.
+SQUARE_PIXELS = "scale=iw*sar:ih,setsar=1"
+# The tape's own form: nothing after it sets a size, so its width has to stay even.
+SQUARE_TAPE = "scale='trunc(iw*sar/2)*2':ih,setsar=1"
 
 
 def vf_fit(canvas: Canvas) -> str:
     return (
-        f"fps={canvas.fps},"
+        f"fps={canvas.fps},{SQUARE_PIXELS},"
         f"scale={canvas.width}:{canvas.height}:force_original_aspect_ratio=decrease,"
         f"pad={canvas.width}:{canvas.height}:(ow-iw)/2:(oh-ih)/2:color={canvas.background},"
         f"setsar=1,format={canvas.pixel_format}"
@@ -35,7 +70,7 @@ def vf_fit(canvas: Canvas) -> str:
 
 def vf_fill(canvas: Canvas) -> str:
     return (
-        f"fps={canvas.fps},"
+        f"fps={canvas.fps},{SQUARE_PIXELS},"
         f"scale={canvas.width}:{canvas.height}:force_original_aspect_ratio=increase,"
         f"crop={canvas.width}:{canvas.height},"
         f"setsar=1,format={canvas.pixel_format}"
@@ -83,6 +118,11 @@ class Compiler:
     pending_loudnorm: dict[str, float] | None = None
     pending_thumbs: list[dict[str, Any]] = field(default_factory=list)
     pending_fade_out: float | None = None
+    warnings: list[str] = field(default_factory=list)
+    texts: list[dict[str, Any]] = field(default_factory=list)
+    images: int = 0
+    source_size: tuple[int, int] | None = None
+    text_reserve: tuple[int, int] = (0, 0)
 
     @property
     def pipeline(self) -> Pipeline:
@@ -95,7 +135,13 @@ class Compiler:
             "canvas": self.canvas.as_dict(),
             "sources": self.brief.sources,
             "ops": self.brief.ops,
+            "warnings": self.warnings,
         }
+
+    def warn(self, message: str) -> None:
+        """A plain note for the person editing: something was degraded, not silently dropped."""
+        if message not in self.warnings:
+            self.warnings.append(message)
 
     def _next(self, label: str, suffix: str = ".mp4") -> Path:
         self.seq += 1
@@ -191,7 +237,7 @@ class Compiler:
         return self.brief.source_path(text, base=self.work_dir)
 
     def primary_source(self) -> Path | None:
-        for key in ("main", "talk", "input", "video", "src"):
+        for key in ("main", "talk", "input", "video", "src", "footage"):
             if key in self.brief.sources:
                 return Path(self.brief.sources[key])
         if len(self.brief.sources) == 1:
@@ -211,6 +257,11 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
     if primary is not None:
         compiler.set_current(primary)
         compiler._pipeline.meta["primary"] = str(primary)
+        if compiler.info is not None and compiler.info.has_video:
+            # select_ranges squares anamorphic pixels and truncates the tape
+            # width to an even number before a cutout composites the matte.
+            square_width = compiler.info.square_width
+            compiler.source_size = (square_width - square_width % 2, compiler.info.display_height)
     for index, op in enumerate(brief.ops):
         name = str(op.get("op") or "").strip()
         handler = OPS.get(name)
@@ -355,58 +406,194 @@ def _finite_number(value: Any, label: str) -> float:
     return number
 
 
+CUT_RAMP_SECONDS = 0.006
+LOOSE_SEEK_FORMATS = frozenset({"mpegts", "mpeg", "mpegvideo"})
+SEEK_LEAD_IN_SECONDS = 3.0
+
+
+def _sum_expression(terms: list[str]) -> str:
+    """Add many terms. FFmpeg refuses a long flat sum, so nest them as a balanced tree."""
+    while len(terms) > 1:
+        terms = [f"({terms[i]}+{terms[i + 1]})" if i + 1 < len(terms) else terms[i]
+                 for i in range(0, len(terms), 2)]
+    return terms[0]
+
+
+def _range_spec(c: Compiler, item: Any, index: int) -> dict[str, Any]:
+    """One validated selection: source interval, optional keeps, speed, and gain."""
+    if not isinstance(item, dict):
+        raise CompileError(f"select_ranges.ranges[{index}] must contain start and end")
+    start = _finite_number(item.get("start"), f"ranges[{index}].start")
+    end = _finite_number(item.get("end"), f"ranges[{index}].end")
+    if start < 0 or end - start < 0.000001:
+        raise CompileError(f"ranges[{index}] requires 0 <= start < end and at least one microsecond")
+    if c.duration is not None and end > c.duration + 0.001:
+        raise CompileError(f"ranges[{index}].end exceeds the {c.duration:.3f}s clip")
+    spec: dict[str, Any] = {"start": start, "end": end}
+    keep = item.get("keep")
+    if keep is not None:
+        if not isinstance(keep, (list, tuple)) or not keep:
+            raise CompileError(f"ranges[{index}].keep must list [start, end] pieces")
+        pieces = []
+        for part, piece in enumerate(keep):
+            if not isinstance(piece, (list, tuple)) or len(piece) != 2:
+                raise CompileError(f"ranges[{index}].keep[{part}] must be [start, end]")
+            low = _finite_number(piece[0], f"ranges[{index}].keep[{part}] start")
+            high = _finite_number(piece[1], f"ranges[{index}].keep[{part}] end")
+            if low < start - 0.001 or high > end + 0.001 or high <= low:
+                raise CompileError(f"ranges[{index}].keep[{part}] must fall inside its range and end after it starts")
+            pieces.append([low, high])
+        spec["keep"] = pieces
+    if item.get("speed") is not None:
+        speed = _finite_number(item.get("speed"), f"ranges[{index}].speed")
+        if not MIN_SPEED <= speed <= MAX_SPEED:
+            raise CompileError(f"ranges[{index}].speed must be between {MIN_SPEED:g} and {MAX_SPEED:g}")
+        spec["speed"] = speed
+    volume = 1.0
+    if item.get("volume") is not None:
+        volume = _finite_number(item.get("volume"), f"ranges[{index}].volume")
+        if not 0 <= volume <= 2:
+            raise CompileError(f"ranges[{index}].volume must be between 0 and 2")
+    spec["volume"] = volume
+    return spec
+
+
+def _range_transition(op: dict[str, Any]) -> tuple[str, float]:
+    """The transition's closed catalogue id and wanted seconds; ("none", 0) for hard cuts."""
+    raw = op.get("transition")
+    if raw is None:
+        return "none", 0.0
+    if not isinstance(raw, dict):
+        raise CompileError("select_ranges.transition must be {type, seconds}")
+    kind = raw.get("type", "none")
+    if not isinstance(kind, str) or kind not in {row[0] for row in TRANSITIONS}:
+        raise CompileError("select_ranges.transition.type is not an available transition")
+    seconds = _finite_number(raw.get("seconds", 0.35), "select_ranges.transition.seconds")
+    if seconds < 0:
+        raise CompileError("select_ranges.transition.seconds must not be negative")
+    return (kind, seconds) if kind != "none" else ("none", 0.0)
+
+
+def _frame_windows(spans: list[Span], count: int, fps: float, *, overlapping: bool) -> list[tuple[int, int]]:
+    """Each range's ``[first, last)`` frames on the output clock.
+
+    Rounding every edge from the timeline, rather than every length, keeps each
+    cut within half a frame of the plan however many ranges there are. A range
+    always shows a frame, and an overlap always spans one.
+    """
+    edges: dict[int, list[float]] = {}
+    for span in spans:
+        edges.setdefault(span.segment, [span.output_start, span.output_end])[1] = span.output_end
+    windows: list[tuple[int, int]] = []
+    for index in range(1, count + 1):
+        start, end = edges[index]
+        first, last = round(start * fps), round(end * fps)
+        if windows:
+            first = min(first, windows[-1][1] - 1) if overlapping else windows[-1][1]
+        windows.append((first, max(last, first + 1)))
+    return windows
+
+
 def _select_ranges(c: Compiler, op: dict[str, Any]) -> None:
     """Assemble source-time intervals in their declared editorial order.
 
     Separate seekable inputs avoid the unbounded buffering a split/concat
     graph would need when the last part of a long recording is shown first.
     Pending tracking filters see original source timestamps before each
-    interval is reset to zero for concat.
+    interval is placed on its own output clock.
+
+    A range can keep only some of its source (``keep``), play at a ``speed``,
+    and change its ``volume``; the op can overlap neighbours with a
+    ``transition``. All of the timing comes from ``vedit.timeline``, and every
+    range is forced to the exact frames and samples that clock gives it, so a
+    cut never drifts from its captions, and sound never drifts from picture.
     """
     src = c._require_current()
     raw = op.get("ranges")
     if not isinstance(raw, list) or not 1 <= len(raw) <= 32:
         raise CompileError("select_ranges requires between 1 and 32 ranges")
-    ranges: list[tuple[float, float]] = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise CompileError(f"select_ranges.ranges[{index}] must contain start and end")
-        start = _finite_number(item.get("start"), f"ranges[{index}].start")
-        end = _finite_number(item.get("end"), f"ranges[{index}].end")
-        if start < 0 or end - start < 0.000001:
-            raise CompileError(f"ranges[{index}] requires 0 <= start < end and at least one microsecond")
-        if c.duration is not None and end > c.duration + 0.001:
-            raise CompileError(f"ranges[{index}].end exceeds the {c.duration:.3f}s clip")
-        ranges.append((start, end))
+    ranges = [_range_spec(c, item, index) for index, item in enumerate(raw)]
     if not c.has_video and not c.has_audio:
         raise CompileError("select_ranges requires audio or video")
+    kind, wanted = _range_transition(op)
+    overlap = effective_transition(ranges, wanted)
+    if overlap > 0 and c.has_video and not has_filter("xfade"):
+        raise CompileError("Transitions need the FFmpeg xfade filter. Install ffmpeg-full.")
+    spans = build_timeline(ranges, transition=overlap)
 
     # These transforms change which source time a requested tape time means.
     # Settle them before input seeking; geometry-only tracking stays fused.
-    if any(bit.startswith(("setpts=", "reverse", "tpad=")) for bit in c.vf) or any(
+    if any(bit.startswith(("setpts=", "reverse", "tpad=")) or "movie=" in bit for bit in c.vf) or any(
         bit.startswith(("atempo=", "areverse", "apad=")) for bit in c.af
     ):
         c.materialize("pre_select_ranges")
         src = c._require_current()
     video, audio = c.take_filters()
+    fps, rate = c.canvas.fps, c.canvas.sample_rate
+    windows = _frame_windows(spans, len(ranges), fps, overlapping=overlap > 0)
+    # A source can hold cover art, proxies, or several tracks. Our own tape cannot.
+    original = c.info if c.info and c.info.path == src.resolve() else None
+    picture_track, sound_track = (original.video_map, original.audio_map) if original else (0, 0)
+    prepare = source_filters(original) if original else ""
     argv = c._ffmpeg()
-    for start, end in ranges:
-        argv += ["-ss", f"{start:.6f}", "-t", f"{end - start:.6f}", "-i", str(src)]
     graph: list[str] = []
-    labels: list[str] = []
-    for index, (start, end) in enumerate(ranges):
+    picture: list[str] = []
+    sound: list[str] = []
+    # A transport stream seeks to a nearby keyframe, which can land past the
+    # request, so read in early and let the filters find the moment.
+    lead_in = SEEK_LEAD_IN_SECONDS if original and set(original.format_name.split(",")) & LOOSE_SEEK_FORMATS else 0.0
+    for index, (spec, (first, last)) in enumerate(zip(ranges, windows)):
+        keeps = segment_keeps(spec)
+        speed, stop = segment_speed(spec), keeps[-1][1]
+        begin = max(0.0, keeps[0][0] - lead_in)
+        argv += ["-ss", f"{begin:.6f}", "-t", f"{stop - begin:.6f}", "-i", str(src)]
+        selective = len(keeps) > 1 or begin < keeps[0][0]
+        # Half-open pieces: a frame sitting exactly on a shared edge plays once.
+        pick = _sum_expression([f"between(t,{low:.6f},{high - 0.000001:.6f})" for low, high in keeps])
+        frames, samples = last - first, round((last - first) * rate / fps)
         if c.has_video:
-            chain = [f"setpts=PTS-STARTPTS+{start:.6f}/TB", video,
-                     "setpts=PTS-STARTPTS", f"fps={c.canvas.fps}", "setsar=1", "format=yuv420p"]
-            graph.append(f"[{index}:v:0]" + _join(chain) + f"[rv{index}]")
-            labels.append(f"[rv{index}]")
+            # Each kept frame lands where the timeline says, not one frame after
+            # the previous, so rounding cannot build up across many small cuts.
+            # The running sum also saturates, so end of stream maps correctly.
+            clock = _sum_expression([f"clip(T-{low:.6f},0,{high - low:.6f})" for low, high in keeps])
+            chain = [prepare, f"setpts=PTS+{begin:.6f}/TB", video, f"fps={fps}",
+                     f"select='{pick}'" if selective else "",
+                     f"setpts='round(({clock})/{speed:.6f}/TB)'",
+                     f"fps={fps}:start_time=0", "tpad=stop=-1:stop_mode=clone", f"trim=end_frame={frames}",
+                     SQUARE_TAPE, "format=yuv420p"]
+            graph.append(f"[{index}:v:{picture_track}]" + _join(chain) + f"[rv{index}]")
+            picture.append(f"[rv{index}]")
         if c.has_audio:
-            chain = [f"asetpts=PTS-STARTPTS+{start:.6f}/TB", audio,
-                     "asetpts=PTS-STARTPTS", af_norm(c.canvas)]
-            graph.append(f"[{index}:a:0]" + _join(chain) + f"[ra{index}]")
-            labels.append(f"[ra{index}]")
-    outputs = ("[v]" if c.has_video else "") + ("[a]" if c.has_audio else "")
-    graph.append("".join(labels) + f"concat=n={len(ranges)}:v={int(c.has_video)}:a={int(c.has_audio)}" + outputs)
+            # One-millisecond packets let aselect cut close to the sample, and let
+            # a short ramp close each edge so a cut through room tone never clicks.
+            ramp = _sum_expression([f"clip(min(t-{low:.6f},{high:.6f}-t)/{CUT_RAMP_SECONDS},0,1)" for low, high in keeps])
+            # Sound can start after the picture, or drop out. Silence holds its place,
+            # because the N/SR clock below counts samples and cannot see a gap.
+            chain = [f"asetpts=PTS+{begin:.6f}/TB", audio, af_norm(c.canvas), f"aresample=async=1:first_pts={round(begin * rate)}",
+                     f"asetnsamples=n={max(1, rate // 1000)}:p=0", f"volume='{ramp}':eval=frame",
+                     f"aselect='{pick}'" if selective else "",
+                     "asetpts=N/SR/TB", atempo_chain(speed) if speed != 1 else "",
+                     f"volume={spec['volume']:.6f}" if spec["volume"] != 1 else "",
+                     f"apad=whole_len={samples}", f"atrim=end_sample={samples}", f"asettb=1/{rate}"]
+            graph.append(f"[{index}:a:{sound_track}]" + _join(chain) + f"[ra{index}]")
+            sound.append(f"[ra{index}]")
+    if overlap > 0:
+        last_video, last_audio = picture[0] if picture else "", sound[0] if sound else ""
+        for index in range(1, len(ranges)):
+            frames = windows[index - 1][1] - windows[index][0]
+            if c.has_video:
+                graph.append(f"{last_video}{picture[index]}xfade=transition={kind}:duration={frames / fps:.6f}"
+                             f":offset={windows[index][0] / fps:.6f}[xv{index}]")
+                last_video = f"[xv{index}]"
+            if c.has_audio:
+                graph.append(f"{last_audio}{sound[index]}acrossfade=ns={round(frames * rate / fps)}:c1=qsin:c2=qsin[xa{index}]")
+                last_audio = f"[xa{index}]"
+        picture, sound = [last_video] if c.has_video else [], [last_audio] if c.has_audio else []
+    else:
+        outputs = ("[v]" if c.has_video else "") + ("[a]" if c.has_audio else "")
+        streams = [labels for labels in (picture, sound) if labels]
+        graph.append("".join("".join(row) for row in zip(*streams)) + f"concat=n={len(ranges)}:v={int(c.has_video)}:a={int(c.has_audio)}" + outputs)
+        picture, sound = ["[v]"] if c.has_video else [], ["[a]"] if c.has_audio else []
     out = c._next("select_ranges")
     # Dense tracks repeated across source ranges can exceed the OS argument
     # limit. The filter program remains a readable artifact beside the plan.
@@ -416,16 +603,17 @@ def _select_ranges(c: Compiler, op: dict[str, Any]) -> None:
     # Small graphs remain compatible with older FFmpeg releases. Dense
     # graphs use FFmpeg's current file-backed option syntax.
     argv += (["-filter_complex", graph_text] if len(graph_text) < 24000
-             else ["-/filter_complex", str(graph_file)])
-    if c.has_video:
-        argv += ["-map", "[v]"]
-    if c.has_audio:
-        argv += ["-map", "[a]"]
+             else filter_file_args(graph_file))
+    for label in picture + sound:
+        argv += ["-map", label]
     argv += c._encode() + [str(out)]
-    c.pipeline.add(Step("select_ranges", argv, [str(out)], f"assemble {len(ranges)} selected moments"))
+    pieces = sum(len(segment_keeps(spec)) for spec in ranges)
+    joined = f" with {kind} transitions" if overlap > 0 else ""
+    c.pipeline.add(Step("select_ranges", argv, [str(out)], f"assemble {pieces} selected moments{joined}"))
     c.set_current(out)
     c.info = None
-    c.duration = sum(end - start for start, end in ranges)
+    # The same rounded value plan_timeline reports, so later ops and the plan agree.
+    c.duration = round(output_duration(spans), 3)
 
 
 def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
@@ -719,7 +907,7 @@ def _existing_media(c: Compiler, spec: Any | None = None) -> Path:
 def _captions(c: Compiler, op: dict[str, Any]) -> None:
     if op.get("file"):
         # A finished subtitle file (for example from a provider transcript) is
-        # burned as-is; no local transcription step is scheduled.
+        # burned as-is; no transcription step is scheduled.
         provided = Path(str(op["file"]))
         if not provided.is_absolute():
             provided = (c.work_dir / provided).resolve()
@@ -769,7 +957,7 @@ def _captions(c: Compiler, op: dict[str, Any]) -> None:
             "captions_transcribe",
             argv,
             [str(srt), str(ass)],
-            f"transcribe {src.name} → SRT/ASS (local whisper)",
+            f"transcribe {src.name} → SRT/ASS (Meta Voice Transcribe)",
         )
     )
     c.sidecar["srt"] = srt
@@ -783,6 +971,9 @@ def _overlay(c: Compiler, op: dict[str, Any]) -> None:
     overlay = op.get("source") or op.get("image") or op.get("file")
     if not overlay:
         raise CompileError("overlay requires source")
+    if is_image(c.resolve_source(overlay)) and any(key in op for key in ("position", "start", "duration")):
+        _timed_image(c, op, c.resolve_source(overlay))
+        return
     c.materialize("pre_overlay")
     base = c._require_current()
     over = c.resolve_source(overlay)
@@ -826,41 +1017,91 @@ def _pip(c: Compiler, op: dict[str, Any]) -> None:
 
 
 def _music(c: Compiler, op: dict[str, Any]) -> None:
+    """Lay a bed under the tape: looped, offset, faded, and ducked under speech.
+
+    The tape's own sound is optional. A clip with none, or with ``mute_source``,
+    gets the bed alone. Levels are measured at render time, so a quiet voice
+    still ducks the music and a quiet bed still sits where ``volume_db`` says.
+    """
     src = op.get("source") or op.get("file")
     if not src:
         raise CompileError("music requires source")
     base = c._require_current()
     music = c.resolve_source(src)
-    if not c.has_audio:
-        raise CompileError("music duck needs speech audio on the current clip")
-    out = c._next("music")
-    db = float(op.get("volume_db", op.get("db", -18)))
+    if not music.is_file():
+        raise CompileError(f"music file not found: {music}")
+    db = _finite_number(op.get("volume_db", op.get("db", -18)), "music volume")
     duck = bool(op.get("duck", True))
+    fade = _finite_number(op.get("fade_out", 1.5), "music fade")
+    start = _finite_number(op.get("start", 0.0), "music start")
+    if fade < 0 or start < 0:
+        raise CompileError("music fade and start must not be negative")
+    track = probe(music)
+    if not track.has_audio:
+        raise CompileError(f"{music.name} has no sound to use as music")
+    length = track.duration
+    if length > 0:
+        start %= length
+    with_source = c.has_audio and not op.get("mute_source")
+    # Pause trimming sets the tape's length during the render, so here the bed
+    # simply runs until the speech ends.
+    duration = c.duration if c.duration and "keeps" not in c.sidecar else None
+    if duration is None and fade > 0:
+        c.warn("The music could not fade out, because trimming pauses sets the final length during the render.")
+    rate = c.canvas.sample_rate
+    samples = round(duration * rate) if duration else 0
+    # Looping the input restarts the decoder, and AAC and MP3 open with a silent
+    # frame: a 10 ms hole at every repeat. Looping decoded samples has no seam.
+    looped = length > 0 and (duration is None or start + duration > length)
+    c.seq += 1
+    commands = c.work_dir / f"{c.seq:02d}_music.cmd"
+    measure = [sys.executable, "-m", "vedit.sound", "--bed", str(music), "--out", str(commands)]
+    live = has_filter("asendcmd")
+    if live:
+        c.pipeline.add(Step("music_measure", (measure + ["--in", str(base)]) if with_source and duck else measure, [str(commands)], "measure the music and the voice"))
     vf, af = c.take_filters()
-    parts: list[str] = []
-    if af:
-        parts.append(f"[0:a]{af}[a0]")
-        speech = "[a0]"
+    bed = [f"asendcmd=f={filter_value(commands)}" if live else "", af_norm(c.canvas)]
+    first = round(start * rate)
+    if looped:
+        bed.append(f"aloop=loop=-1:size={round(length * rate)}:start=0")
+        bed.append(f"atrim=start_sample={first}" + (f":end_sample={first + samples}" if samples else ""))
+    elif samples:
+        bed.append(f"atrim=end_sample={samples}")
+    bed += ["asetpts=N/SR/TB", "volume@music_level=volume=1", f"volume={db}dB"]
+    if fade > 0 and duration:
+        # Equal-power, so the bed thins out instead of dropping away at the end.
+        bed.append(f"afade=t=out:st={max(0.0, duration - min(fade, duration)):.6f}:d={min(fade, duration):.6f}:c=qsin")
+    parts = [f"[1:a]{_join(bed)}[mus]"]
+    if not with_source:
+        parts.append("[mus]anull[mixed]")
+        desc = f"{music.name} at {db:g} dB, on its own"
     else:
-        speech = "[0:a]"
-    parts.append(f"[1:a]{af_norm(c.canvas)},volume={db}dB[mus]")
-    if duck and has_filter("sidechaincompress"):
-        parts.append(f"{speech}asplit=2[voice][sc]")
-        parts.append("[mus][sc]sidechaincompress=threshold=0.05:ratio=8:attack=40:release=280:makeup=1[ducked]")
-        parts.append("[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
-        desc = f"duck {Path(str(music)).name} under speech ({db} dB)"
-    else:
-        parts.append(f"{speech}[mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
-        desc = f"mix {Path(str(music)).name} at {db} dB"
-    argv = c._ffmpeg() + ["-i", str(base), "-stream_loop", "-1", "-i", str(music)]
+        parts.append(f"[0:a]{af + ',' if af else ''}{af_norm(c.canvas)}[speech]")
+        if duck and has_filter("sidechaincompress"):
+            parts += ["[speech]asplit=2[voice][key]", "[key]volume@duck_key=volume=1[level]", f"[mus][level]{duck_filter()}[ducked]",
+                      "[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"]
+            desc = f"duck {music.name} under speech ({db:g} dB)"
+        else:
+            if duck:
+                c.warn("This FFmpeg cannot duck music under speech, so the music plays at a steady level.")
+            parts.append("[speech][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]")
+            desc = f"mix {music.name} at {db:g} dB"
+    # Voice plus music can pass full scale, and AAC would turn that into clicks.
+    parts.append("[mixed]alimiter=limit=0.97:level=0:latency=1" + (f",atrim=end_sample={samples}" if samples else "") + "[a]")
+    out = c._next("music")
+    argv = c._ffmpeg() + ["-i", str(base)] + ([] if looped else ["-ss", f"{start:.6f}"]) + ["-i", str(music)]
     if vf:
         parts.insert(0, f"[0:v]{vf}[v]")
-        argv += ["-filter_complex", ";".join(parts), "-map", "[v]", "-map", "[a]", "-shortest"] + c._encode()
+        argv += ["-filter_complex", ";".join(parts), "-map", "[v]", "-map", "[a]"] + c._encode()
     else:
-        argv += ["-filter_complex", ";".join(parts), "-map", "0:v?", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"]
+        argv += ["-filter_complex", ";".join(parts), "-map", "0:v?", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+    if not samples:
+        argv.append("-shortest")
     argv.append(str(out))
     c._pipeline.add(Step("music", argv, [str(out)], desc))
     c.set_current(out)
+    c.has_audio = True
+    c.info = None
 
 
 def _replace_audio(c: Compiler, op: dict[str, Any]) -> None:
@@ -893,6 +1134,14 @@ def _extract_audio(c: Compiler, op: dict[str, Any]) -> None:
     c.finals.append(dest)
 
 
+def _canvas_for(c: Compiler, shape: tuple[int, int]) -> tuple[int, int]:
+    """The canvas size when it already has this shape, so a 720p or 4K export is drawn at its own size."""
+    width, height = c.canvas.width, c.canvas.height
+    if width and height and abs(width / height - shape[0] / shape[1]) < 0.005:
+        return width, height
+    return shape
+
+
 def _reframe(c: Compiler, op: dict[str, Any]) -> None:
     aspect = str(op.get("aspect", op.get("ratio", "9:16")))
     mode = str(op.get("mode", "fill"))
@@ -905,7 +1154,7 @@ def _reframe(c: Compiler, op: dict[str, Any]) -> None:
     }
     if aspect not in mapping:
         raise CompileError(f"unknown aspect '{aspect}'")
-    w, h = mapping[aspect]
+    w, h = _canvas_for(c, mapping[aspect])
     c.canvas = Canvas(width=w, height=h, fps=c.canvas.fps, sample_rate=c.canvas.sample_rate)
     if mode == "fit":
         c.add_vf(vf_fit(c.canvas))
@@ -963,7 +1212,7 @@ def _track_reframe(c: Compiler, op: dict[str, Any]) -> None:
         x_points.append((time, min(1.0, x + width / 2)))
         y_points.append((time, min(1.0, y + height / 2)))
         previous = time
-    width, height = mapping[aspect]
+    width, height = _canvas_for(c, mapping[aspect])
     ratio = width / height
     x_expr, y_expr = _tracking_expression(x_points), _tracking_expression(y_points)
     # Compute dimensions against the actual filter input, not stale probe data:
@@ -1063,7 +1312,7 @@ def _spatial_effect(c: Compiler, op: dict[str, Any]) -> None:
     graph_file.write_text(graph_text + "\n", encoding="utf-8")
     argv = c._ffmpeg() + ["-i", str(src)]
     argv += (["-filter_complex", graph_text] if len(graph_text) < 24000
-             else ["-/filter_complex", str(graph_file)])
+             else filter_file_args(graph_file))
     argv += ["-map", "[v]"]
     if c.has_audio:
         argv += ["-map", "0:a:0"]
@@ -1077,6 +1326,248 @@ def _spatial_effect(c: Compiler, op: dict[str, Any]) -> None:
         argv += ["-c:a", "copy"]
     argv += [str(out)]
     c.pipeline.add(Step("spatial_effect", argv, [str(out)], f"{effect['preset']} motion from {start:g}s for {duration:g}s"))
+    c.set_current(out)
+    c.info = None
+
+
+def _limited_yuv(color: str) -> tuple[int, int, int]:
+    """A ``#RRGGBB`` color as limited-range BT.709, the matrix every export is tagged with."""
+    red, green, blue = (int(color[at:at + 2], 16) / 255 for at in (1, 3, 5))
+    luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    return round(16 + 219 * luma), round(128 + 224 * (blue - luma) / 1.8556), round(128 + 224 * (red - luma) / 1.5748)
+
+
+def _cutout_blur(blur: float) -> list[str]:
+    """Blur the tape with the subject taken out, so its color cannot glow around it.
+
+    Premultiplying by "not the subject" and blurring color and alpha alike is a
+    normalized blur: each pixel averages only background. Inside the hole that
+    average means nothing, and the subject covers it.
+    """
+    size = f"{0.004 + 0.04 * blur:.6f}"
+    luma, chroma = f"'max(1,trunc(min(w,h)*{size}))'", f"'max(1,trunc(min(cw,ch)*{size}))'"
+    return [
+        "[sized]split[matte][outline]",
+        f"[outline]lut=y='if(gt(val,{CUTOUT_HOLE}),0,255)'[hole]",
+        "[tape]format=yuva444p[plate]",
+        "[plate][hole]alphamerge,premultiply=inplace=1,"
+        f"boxblur=lr={luma}:lp=2:cr={chroma}:cp=2:ar={luma}:ap=2,unpremultiply=inplace=1,format=yuv444p[behind]",
+    ]
+
+
+def _cutout_edge(tape: tuple[int, int] | None, matte: Path) -> str:
+    """The curve from SAM's soft alpha to the finished edge.
+
+    It starts above zero, which pulls the edge inside the subject so its outer
+    pixels stop carrying the old background. A tape larger than the matte
+    stretches SAM's soft band with it, so the curve steepens to match: a smooth
+    ramp cut steeply stays a clean contour, and the edge stays a few pixels wide
+    at any size. The base curve suits a tape 4/3 of the matte, the usual 720p clip.
+    """
+    info = probe(matte)
+    scale = max(tape) / max(info.width, info.height) if tape and info.width and info.height else 1.0
+    span = max(CUTOUT_EDGE_TIGHTEST, round(CUTOUT_EDGE_SPAN / max(1.0, scale * 0.75)))
+    return f"lut=y='clip((val-{CUTOUT_EDGE_CENTER - span // 2})*255/{span},0,255)'"
+
+
+def _cutout_backdrop(mode: str, color: str) -> str:
+    """The filter that turns the tape into what stands behind the subject."""
+    if mode == "dim":
+        keep = f"128+(val-128)*{CUTOUT_DIM_CHROMA}"
+        return f"lutyuv=y='16+(val-16)*{CUTOUT_DIM}':u='{keep}':v='{keep}'"
+    if mode == "mono":
+        return "lutyuv=u=128:v=128"
+    luma, blue, red = _limited_yuv(color)
+    return f"lutyuv=y={luma}:u={blue}:v={red}"
+
+
+def _cutout(c: Compiler, op: dict[str, Any]) -> None:
+    """Change everything except the subject, from a grayscale matte on this tape's clock.
+
+    The tape stays the length authority: a matte that runs short holds its last
+    frame and one that runs long is cut off. Every stream is normalized to the
+    canvas rate first, so matte frame N lands on tape frame N exactly.
+    Compositing stays in Y'CbCr, so the subject's color never takes a trip
+    through RGB and cannot pick up a matrix mismatch.
+    """
+    src = c._require_current()
+    if not c.has_video:
+        raise CompileError("A cutout needs a video stream.")
+    mode = op.get("mode")
+    if mode not in CUTOUT_MODES:
+        raise CompileError("cutout mode must be one of: " + ", ".join(CUTOUT_MODES))
+    missing = [name for name in REQUIRED_CUTOUT_FILTERS if not has_filter(name)]
+    if missing:
+        raise CompileError("Cutouts need FFmpeg filters: " + ", ".join(missing) + ". Install ffmpeg-full.")
+    if not op.get("matte"):
+        raise CompileError("cutout requires a matte")
+    matte = c.resolve_source(op["matte"])
+    if not matte.is_file():
+        raise CompileError(f"The cutout matte does not exist: {matte}")
+    blur = _finite_number(op.get("blur", 0.6), "cutout blur")
+    if not 0 <= blur <= 1:
+        raise CompileError("cutout blur must be between 0 and 1")
+    color = op.get("color", "#101418")
+    if not isinstance(color, str) or not COLOR.fullmatch(color):
+        raise CompileError("cutout color must look like #101418")
+    image: Path | None = None
+    if mode == "image":
+        if not op.get("image"):
+            raise CompileError("The image cutout requires an image")
+        image = c.resolve_source(op["image"])
+        if not image.is_file():
+            raise CompileError(f"The cutout background does not exist: {image}")
+    fps = _finite_number(c.canvas.fps, "cutout frame rate")
+    if not c.source_size or min(c.source_size) < 1:
+        raise CompileError("Cutouts need the source frame size to scale their matte and background.")
+    frame_width, frame_height = c.source_size
+    video, audio = c.take_filters()
+    rate = f"fps={fps:.8f}"
+    graph = [
+        f"[0:v:0]{_join([video, rate, 'setsar=1', 'format=yuv444p'])},split[picture][tape]",
+        f"[1:v:0]{rate},format=gray[raw]",
+        f"[raw]scale={frame_width}:{frame_height}:flags=bicubic[sized]",
+        f"[picture]format=yuva444p[solid]",
+    ]
+    if mode == "blur":
+        graph += _cutout_blur(blur)
+    else:
+        graph.append("[sized]null[matte]")
+    graph += [f"[matte]{_cutout_edge(c.source_size, matte)}[alpha]", "[solid][alpha]alphamerge[cut]"]
+    if image is not None:
+        # One still, covering the frame: the first overlay holds it for the whole tape.
+        graph += [
+            "[2:v:0]setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv444p[still]",
+            f"[still]scale=w='ceil(max({frame_width},{frame_height}*iw/ih))+2':h='ceil(max({frame_height},{frame_width}*ih/iw))+2':flags=lanczos[cover]",
+            "[tape]null[frame]",
+            "[frame][cover]overlay=x=(W-w)/2:y=(H-h)/2:format=yuv444[behind]",
+        ]
+    elif mode != "blur":
+        graph.append(f"[tape]{_cutout_backdrop(mode, color)}[behind]")
+    graph.append("[behind][cut]overlay=format=yuv444:shortest=1,format=yuv420p[v]")
+    out = c._next("cutout")
+    graph_file = out.with_suffix(".filter.txt")
+    graph_text = ";\n".join(graph)
+    graph_file.write_text(graph_text + "\n", encoding="utf-8")
+    argv = c._ffmpeg() + ["-i", str(src), "-i", str(matte)]
+    if image is not None:
+        argv += ["-i", str(image)]
+    argv += ["-filter_complex", graph_text, "-map", "[v]"]
+    if c.has_audio:
+        argv += ["-map", "0:a:0"]
+        if audio:
+            argv += ["-af", audio]
+    else:
+        argv += ["-an"]
+    argv += c._encode()
+    if c.has_audio and not audio and (c.info is None or c.info.audio and c.info.audio.codec_name in {"aac", "mp3", "ac3", "eac3", "alac"}):
+        argv += ["-c:a", "copy"]
+    argv += [str(out)]
+    c.pipeline.add(Step("cutout", argv, [str(out)], f"{mode} cutout from {matte.name}"))
+    c.set_current(out)
+    c.info = None
+
+
+def _hero_window(c: Compiler, op: dict[str, Any], fps: float) -> tuple[int, int]:
+    """The hero word's ``[first, last)`` frames on the tape's clock, checked against the clip."""
+    start = _finite_number(op.get("start"), "hero word start")
+    end = _finite_number(op.get("end"), "hero word end")
+    if start < 0 or not HERO_MIN_SECONDS - 1e-6 <= end - start <= HERO_MAX_SECONDS + 1e-6:
+        raise CompileError(f"A hero word shows for {HERO_MIN_SECONDS:g} to {HERO_MAX_SECONDS:g} seconds, from a time inside the clip.")
+    if c.duration is not None and end > c.duration + 0.5 / fps:
+        raise CompileError(f"The hero word ends at {end:.3f}s, after the {c.duration:.3f}s clip.")
+    return round(start * fps), round(end * fps)
+
+
+def _hero_word(c: Compiler, op: dict[str, Any]) -> None:
+    """One huge word behind the subject for a moment: the background, then the word, then the subject.
+
+    The subject layer is the tape's own picture with the matte as its alpha,
+    so laying it back on top changes nothing except where the word was drawn:
+    the subject hides the part of the word it stands in front of. The matte
+    covers only the window and is placed at the window's first frame. Outside
+    the window there is no text event and the overlay is switched off, so
+    those frames pass through as they were. Nothing here changes timing.
+    """
+    src = c._require_current()
+    if not c.has_video:
+        raise CompileError("A hero word needs a video stream.")
+    missing = [name for name in REQUIRED_HERO_FILTERS if not has_filter(name)]
+    if missing:
+        raise CompileError("Hero words need FFmpeg filters: " + ", ".join(missing) + ". Install ffmpeg-full.")
+    word = op.get("word")
+    if not isinstance(word, str) or not word.strip():
+        raise CompileError("hero_word requires a word")
+    word = " ".join(word.split())
+    if len(word) > HERO_MAX_CHARS or len(word.split()) > HERO_MAX_WORDS or not HERO_WORD.fullmatch(word):
+        raise CompileError(f"A hero word is at most {HERO_MAX_WORDS} words and {HERO_MAX_CHARS} letters, digits, spaces, apostrophes or hyphens.")
+    side, font, color = op.get("side", "center"), op.get("font", "heavy"), str(op.get("color", HERO_COLORS[0])).upper()
+    if side not in HERO_SIDES:
+        raise CompileError("hero word side must be one of: " + ", ".join(HERO_SIDES))
+    if font not in {row[0] for row in HERO_FONTS}:
+        raise CompileError("hero word font must be one of: " + ", ".join(row[0] for row in HERO_FONTS))
+    if color not in HERO_COLORS:
+        raise CompileError("hero word color must be one of: " + ", ".join(HERO_COLORS))
+    aspect = op.get("aspect")
+    if aspect is not None and aspect not in HERO_ASPECTS:
+        raise CompileError(f"unknown hero word aspect '{aspect}'")
+    focus = op.get("focus")
+    if focus is not None:
+        if not isinstance(focus, (list, tuple)) or len(focus) != 2:
+            raise CompileError("hero word focus is an [x, y] point in 0–1")
+        focus = tuple(_finite_number(value, "hero word focus") for value in focus)
+        if not all(0 <= value <= 1 for value in focus):
+            raise CompileError("hero word focus is an [x, y] point in 0–1")
+    if not op.get("matte"):
+        raise CompileError("hero_word requires a matte")
+    matte = c.resolve_source(op["matte"])
+    if not matte.is_file():
+        raise CompileError(f"The hero word matte does not exist: {matte}")
+    if not c.source_size or min(c.source_size) < 1:
+        raise CompileError("Hero words need the source frame size to scale their matte.")
+    fps = _finite_number(c.canvas.fps, "hero word frame rate")
+    first, last = _hero_window(c, op, fps)
+    frame_width, frame_height = c.source_size
+    family, face, font_file = hero_font(font)
+    if font_file is None or str(font_file) not in HERO_FONT_FILES[font]:
+        c.warn(f"The {font} hero word font is not on this machine, so the word is drawn in {family}.")
+    # Half a frame either side of the window, so neither layer can catch a neighbouring frame.
+    shown, hidden = (first - 0.5) / fps, (last - 0.5) / fps
+    out = c._next("hero_word")
+    subtitle = out.with_suffix(".ass")
+    text, layout = render_hero_ass(word, start=shown, end=hidden, side=side, color=color, family=family, face=face,
+                                   width=frame_width, height=frame_height, visible=visible_rect(frame_width, frame_height, aspect, focus))
+    subtitle.write_text(text, encoding="utf-8")
+    fonts = out.with_name(out.stem + "-fonts")
+    fonts.mkdir(parents=True, exist_ok=True)
+    if font_file is not None:
+        (fonts / font_file.name).write_bytes(font_file.read_bytes())
+    c.pipeline.meta.setdefault("hero_words", []).append({"word": word, "first_frame": first, "last_frame": last, "side": side, **layout})
+    video, audio = c.take_filters()
+    rate = f"fps={fps:.8f}"
+    graph = [
+        # Both layers carry the same color tags, so FFmpeg never converts one of them on the way into the overlay.
+        f"[0:v:0]{_join([video, rate, 'setsar=1', 'format=yuv420p', _bt709()])},split[plate][body]",
+        f"[1:v:0]setpts=PTS-STARTPTS+{first / fps:.6f}/TB,{rate},format=gray,scale={frame_width}:{frame_height}:flags=bicubic,{HERO_EDGE}[alpha]",
+        "[body]format=yuva420p[solid]",
+        "[solid][alpha]alphamerge[subject]",
+        f"[plate]ass={filter_value(subtitle)}:fontsdir={filter_value(fonts)}[worded]",
+        f"[worded][subject]overlay=format=yuv420:enable='between(t,{shown:.6f},{hidden:.6f})'[v]",
+    ]
+    graph_text = ";\n".join(graph)
+    out.with_suffix(".filter.txt").write_text(graph_text + "\n", encoding="utf-8")
+    argv = c._ffmpeg() + ["-i", str(src), "-i", str(matte), "-filter_complex", graph_text, "-map", "[v]"]
+    if c.has_audio:
+        argv += ["-map", "0:a:0"]
+        if audio:
+            argv += ["-af", audio]
+    else:
+        argv += ["-an"]
+    argv += c._encode()
+    if c.has_audio and not audio and (c.info is None or c.info.audio and c.info.audio.codec_name in {"aac", "mp3", "ac3", "eac3", "alac"}):
+        argv += ["-c:a", "copy"]
+    argv += [str(out)]
+    c.pipeline.add(Step("hero_word", argv, [str(out)], f"hero word “{word}” behind the subject, {first / fps:.2f}s to {last / fps:.2f}s"))
     c.set_current(out)
     c.info = None
 
@@ -1098,7 +1589,8 @@ def _slideshow(c: Compiler, op: dict[str, Any]) -> None:
     for path in paths:
         argv += ["-loop", "1", "-t", f"{hold + fade:.3f}", "-i", str(path)]
     n = len(paths)
-    parts = [f"[{i}:v]{vf_fit(c.canvas)},setpts=PTS-STARTPTS[v{i}]" for i in range(n)]
+    shape = vf_fill(c.canvas) if op.get("mode") == "fill" else vf_fit(c.canvas)
+    parts = [f"[{i}:v]{shape},setpts=PTS-STARTPTS[v{i}]" for i in range(n)]
     if n == 1:
         parts.append("[v0]format=yuv420p[v]")
         last = "v"
@@ -1155,6 +1647,208 @@ def _scenes(c: Compiler, op: dict[str, Any]) -> None:
     c.sidecar["scenes"] = dest
 
 
+def _project_source(c: Compiler, op: dict[str, Any]) -> None:
+    from vedit.project_media import compile_project_source
+
+    compile_project_source(c, op)
+
+
+def _look(c: Compiler, op: dict[str, Any]) -> None:
+    """Grade the tape with one LUT, then sharpen, vignette, and grain. See ``vedit.looks``."""
+    if not c.has_video:
+        raise CompileError("A look needs a video stream.")
+    settings = {key: op[key] for key in ("preset", "intensity", "brightness", "contrast", "saturation", "temperature", "vignette", "sharpen") if key in op}
+    for key, value in settings.items():
+        if key != "preset":
+            _finite_number(value, f"look {key}")
+    preset = str(settings.get("preset", "none"))
+    if preset not in RECIPES:
+        raise CompileError(f"unknown look '{preset}'. Known: {', '.join(sorted(RECIPES))}")
+    if is_neutral(settings):
+        return
+    steps = color_recipes(settings)
+    if preset == "auto" or steps:
+        if has_filter("lut3d"):
+            c.seq += 1
+            cube = c.work_dir / f"{c.seq:02d}_look.cube"
+            if preset == "auto":
+                # The tape does not exist until the render reaches it, and the
+                # ffmpeg step only names the file the measurement leaves behind.
+                argv = [sys.executable, "-m", "vedit.looks", "--in", str(c._require_current()), "--out", str(cube), "--look", json.dumps(settings, sort_keys=True)]
+                c.pipeline.add(Step("look_measure", argv, [str(cube)], "measure exposure and color for the auto look"))
+            else:
+                write_cube(cube, steps)
+            c.add_vf(*lut_filters(cube))
+        else:
+            c.warn("This FFmpeg has no lut3d filter, so the look is a rough match.")
+            c.add_vf(*fallback_filters(steps))
+    c.add_vf(*spatial_filters(spatial_amounts(settings), warn=c.warn))
+
+
+def _zoom(c: Compiler, op: dict[str, Any]) -> None:
+    """Two-keyframe moves on the output clock, changing on the exact frame of each cut."""
+    if not c.has_video:
+        raise CompileError("Zoom needs a video stream.")
+    moves = op.get("moves")
+    if not isinstance(moves, list) or len(moves) > 256:
+        raise CompileError("zoom requires a list of up to 256 moves")
+    fps = _finite_number(c.canvas.fps, "zoom frame rate")
+    try:
+        blend = _finite_number(op.get("blend", 0.0), "zoom blend")
+        move = zoom_filter(plan_pieces(moves, fps, blend=blend, end=c.duration))
+    except MotionError as exc:
+        raise CompileError(str(exc)) from exc
+    if move is None:
+        return
+    if not has_filter("perspective"):
+        c.warn("This FFmpeg has no perspective filter, so the zoom was skipped.")
+        return
+    # Frames are counted from here, so the tape has to be constant rate.
+    c.add_vf(f"fps={fps}", move)
+
+
+def _stabilize(c: Compiler, op: dict[str, Any]) -> None:
+    """Two passes of vid.stab. Detection runs small, and its motions are scaled back up."""
+    if not c.has_video:
+        raise CompileError("Stabilizing needs a video stream.")
+    seconds = _finite_number(op.get("smoothing", 1.0), "stabilize smoothing")
+    if not 0 < seconds <= 10:
+        raise CompileError("stabilize smoothing must be between 0 and 10 seconds")
+    if not (has_filter("vidstabdetect") and has_filter("vidstabtransform")):
+        if has_filter("deshake"):
+            c.warn("This FFmpeg has no vid.stab, so a simpler stabilizer was used. Install ffmpeg-full for the steadier one.")
+            c.add_vf("deshake=rx=32:ry=32:edge=mirror")
+        else:
+            c.warn("This FFmpeg has no stabilizer, so the footage was left as shot.")
+        return
+    c.materialize("pre_stabilize")
+    src = c._require_current()
+    width, height = _frame_size(c)
+    factor = max(1, round(min(width, height) / 540))
+    c.seq += 1
+    raw = c.work_dir / f"{c.seq:02d}_stabilize.small.trf"
+    transforms = raw.with_name(f"{c.seq:02d}_stabilize.trf")
+    shrink = f"scale=iw/{factor}:-2:flags=bilinear," if factor > 1 else ""
+    # Text transforms, which older builds always write and have no option for.
+    fileformat = ":fileformat=ascii" if "fileformat" in filter_options("vidstabdetect") else ""
+    detect = f"{shrink}vidstabdetect=result={filter_value(raw)}{fileformat}:shakiness=6:accuracy=9:stepsize=6:mincontrast=0.2"
+    c.pipeline.add(Step("stabilize_detect", c._ffmpeg() + ["-i", str(src), "-map", "0:v:0", "-vf", detect, "-f", "null", "-"], [str(raw)], "find the camera shake"))
+    c.pipeline.add(Step("stabilize_scale", [sys.executable, "-m", "vedit.motion", "--in", str(raw), "--out", str(transforms), "--factor", str(factor)],
+                        [str(transforms)], "scale the shake to the full frame"))
+    frames = max(2, round(seconds * _finite_number(c.canvas.fps, "stabilize frame rate")))
+    # A tiled wall or a fence can fool detection. The limits keep a bad reading
+    # from zooming into the shot, while real handheld shake stays well inside them.
+    limit = max(8, round(min(width, height) * 0.08))
+    c.add_vf(f"vidstabtransform=input={filter_value(transforms)}:smoothing={frames}:maxshift={limit}:maxangle=0.08:optzoom=1:interpol=bilinear")
+
+
+def _voice(c: Compiler, op: dict[str, Any]) -> None:
+    """Clean up speech. Its settings are measured from the tape during the render."""
+    denoise, enhance = bool(op.get("denoise", True)), bool(op.get("enhance", True))
+    if not denoise and not enhance:
+        return
+    if not c.has_audio:
+        c.warn("This video has no sound, so speech cleanup was skipped.")
+        return
+    c.seq += 1
+    commands = c.work_dir / f"{c.seq:02d}_voice.cmd"
+    argv = [sys.executable, "-m", "vedit.sound", "--in", str(c._require_current()), "--out", str(commands)]
+    argv += (["--denoise"] if denoise else []) + (["--enhance"] if enhance else [])
+    c.pipeline.add(Step("voice_measure", argv, [str(commands)], "measure the room and the voice"))
+    c.add_af(af_norm(c.canvas), *voice_filters(denoise=denoise, enhance=enhance, commands=commands, rate=c.canvas.sample_rate, warn=c.warn))
+
+
+def _frame_size(c: Compiler) -> tuple[int, int]:
+    """The picture's size at this point in the chain. A pending reframe has already set the canvas."""
+    if c.info is not None and c.info.has_video and not any("scale=" in bit or "crop=" in bit for bit in c.vf):
+        return c.info.display_width, c.info.display_height
+    return c.canvas.width, c.canvas.height
+
+
+def _bt709() -> str:
+    """Burned text and images take their color from the frame, and the export declares BT.709."""
+    return "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+
+
+def _text(c: Compiler, op: dict[str, Any]) -> None:
+    """One styled text item. All items share one ASS file and one filter."""
+    if not c.has_video:
+        raise CompileError("Text needs a video stream.")
+    body = str(op.get("text") or "").strip()
+    if not body:
+        raise CompileError("text requires text")
+    item: dict[str, Any] = {"text": body, "style": str(op.get("style", "label")), "position": str(op.get("position", "center")),
+                            "color": str(op.get("color", "#FFFFFF"))}
+    for key, fallback in (("start", 0.0), ("duration", c.duration or 3.0), ("scale", 1.0), ("fade", DEFAULT_FADE)):
+        item[key] = _finite_number(op.get(key, fallback), f"text {key}")
+    if item["start"] < 0 or item["duration"] <= 0 or item["scale"] <= 0 or item["fade"] < 0:
+        raise CompileError("text start and fade must not be negative, and its duration and scale must be positive")
+    engine = text_engine()
+    if not engine:
+        c.warn("This FFmpeg cannot draw text, so on-screen text was left out. Install ffmpeg-full.")
+        return
+    width, height = _frame_size(c)
+    c.texts.append(item)
+    if engine == "drawtext":
+        c.warn("This FFmpeg has no libass, so text uses a simpler renderer without font fallback.")
+        c.add_vf(*drawtext_filters([item], work_dir=c.work_dir, width=width, height=height, end_limit=c.duration))
+        return
+    for message in text_warnings([item]):
+        c.warn(message)
+    path = _write_texts(c, width, height)
+    if len(c.texts) == 1:
+        c.add_vf(_bt709(), burn_filter(path))
+
+
+def _write_texts(c: Compiler, width: int, height: int) -> Path:
+    return write_text_ass(c.texts, c.work_dir / "texts.ass", width=width, height=height, end_limit=c.duration, reserve=c.text_reserve)
+
+
+def _timed_image(c: Compiler, op: dict[str, Any], path: Path) -> None:
+    """An image from ``edit.overlays``: placed in the safe area, on the output clock, with a short fade."""
+    position = str(op.get("position", "center"))
+    width, height = _frame_size(c)
+    size = _finite_number(op.get("scale", 0.3), "overlay scale")
+    start = _finite_number(op.get("start", 0.0), "overlay start")
+    duration = _finite_number(op.get("duration", (c.duration or 3.0) - start), "overlay duration")
+    fade = _finite_number(op.get("fade", DEFAULT_FADE), "overlay fade")
+    if not 0 < size <= 1 or start < 0 or duration <= 0 or fade < 0:
+        raise CompileError("overlay scale must be between 0 and 1, and its start and duration must fit the video")
+    if position not in OVERLAY_POSITIONS:
+        raise CompileError(f"unknown overlay position '{position}'")
+    x, y = corner(position, width=width, height=height)
+    c.images += 1
+    c.add_vf(_bt709(), image_filter(path, tag=f"image{c.images}", x=x, y=y, width=max(2, round(width * size / 2) * 2),
+                                    opacity=_finite_number(op.get("opacity", 1.0), "overlay opacity"), start=start, end=start + duration,
+                                    fade=min(fade, duration / 3), fps=c.canvas.fps))
+
+
+def _logo(c: Compiler, op: dict[str, Any]) -> None:
+    """A logo held for the whole video, inside the safe area."""
+    source = op.get("source") or op.get("image") or op.get("file")
+    if not source:
+        raise CompileError("logo requires source")
+    path = c.resolve_source(source)
+    if not path.is_file() or not is_image(path):
+        raise CompileError(f"logo must be an image file: {path}")
+    position = str(op.get("position", "top-right"))
+    if position not in OVERLAY_POSITIONS:
+        raise CompileError(f"unknown logo position '{position}'")
+    size = _finite_number(op.get("scale", 0.14), "logo scale")
+    opacity = _finite_number(op.get("opacity", 0.9), "logo opacity")
+    if not 0 < size <= 1 or not 0 < opacity <= 1:
+        raise CompileError("logo scale and opacity must be between 0 and 1")
+    width, height = _frame_size(c)
+    x, y = corner(position, width=width, height=height)
+    c.images += 1
+    c.add_vf(_bt709(), image_filter(path, tag=f"image{c.images}", x=x, y=y, width=max(2, round(width * size / 2) * 2), opacity=opacity))
+    # Text is planned first, so it moves out of the logo's band here.
+    image = probe(path)
+    c.text_reserve = logo_reserve(position, image_width=image.width, image_height=image.height, width=width, height=height, scale=size)
+    if c.texts and text_engine() == "ass":
+        _write_texts(c, width, height)
+
+
 def _export(c: Compiler, op: dict[str, Any]) -> None:
     src = c._require_current()
     has_video, has_audio = c.has_video, c.has_audio
@@ -1172,13 +1866,21 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
     if isinstance(names, str):
         names = [names]
     explicit = Path(op["path"]) if op.get("path") else None
+    choice = {key: op[key] for key in ("quality", "fps", "format") if op.get(key) is not None}
     first_dest: Path | None = None
     for i, name in enumerate(names):
-        preset = get_preset(str(name))
+        preset = get_preset(export_preset_name(str(name), **choice))
+        for encoder in (preset.video_codec, preset.audio_codec):
+            if encoder in ("libvpx-vp9", "libopus") and not has_encoder(encoder):
+                raise CompileError(f"WebM export needs the {encoder} encoder. Install ffmpeg-full.")
+        if c.source_size and preset.canvas.width and min(preset.canvas.width, preset.canvas.height) > min(c.source_size) * 1.02:
+            c.warn(f"The source is {c.source_size[0]}x{c.source_size[1]}, so this {preset.canvas.width}x{preset.canvas.height} export is upscaled and gains no detail.")
         if explicit is not None and i == 0:
             dest = explicit
             if not dest.is_absolute():
                 dest = c.work_dir / dest
+            if choice.get("format"):
+                dest = dest.with_suffix(f".{preset.container}")
         else:
             dest = c.work_dir / f"{c.brief.name}_{preset.name}.{preset.container}"
         vf_bits: list[str] = []
@@ -1195,10 +1897,12 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
             # appears equal. Equal-size scale/pad is a no-op.
             mode = str(op.get("reframe", "fill" if preset.canvas.height > preset.canvas.width else "fit"))
             vf_bits.append(vf_fill(preset.canvas) if mode == "fill" else vf_fit(preset.canvas))
-        if has_video and preset.video_codec:
-            # FFmpeg 9 carries frame color metadata through the encoder;
-            # codec flags alone can leave primaries/transfer unspecified.
-            vf_bits.append("setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709")
+        if has_video and preset.video_codec and preset.container != "gif":
+            # A full-range source has to be converted, not just relabelled, or its
+            # blacks and whites are crushed on playback. FFmpeg 9 carries frame color
+            # metadata through the encoder; codec flags alone can leave primaries
+            # and transfer unspecified.
+            vf_bits += ["scale=out_range=limited", "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709"]
         src_i = src if i == 0 else first_dest
         assert src_i is not None
         argv = _master_argv(
@@ -1210,7 +1914,7 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
             loudnorm=loudnorm if i == 0 else None,
             preset_name=preset.name,
             has_video=has_video and bool(preset.video_codec),
-            has_audio=has_audio,
+            has_audio=has_audio and bool(preset.audio_codec),
             fade_out=fade_out if i == 0 else None,
         )
         c._pipeline.add(Step(f"export_{preset.name}", argv, [str(dest)], preset.description))
@@ -1253,6 +1957,12 @@ OPS = {
     "title": _title,
     "captions": _captions,
     "overlay": _overlay,
+    "logo": _logo,
+    "text": _text,
+    "look": _look,
+    "zoom": _zoom,
+    "stabilize": _stabilize,
+    "voice": _voice,
     "watermark": _watermark,
     "pip": _pip,
     "music": _music,
@@ -1261,9 +1971,12 @@ OPS = {
     "reframe": _reframe,
     "track_reframe": _track_reframe,
     "spatial_effect": _spatial_effect,
+    "cutout": _cutout,
+    "hero_word": _hero_word,
     "slideshow": _slideshow,
     "thumbnail": _thumbnail,
     "chromakey": _chromakey,
     "scenes": _scenes,
+    "project_source": _project_source,
     "export": _export,
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -15,13 +16,29 @@ import vedit
 
 _README = (
     "Briefcut by Aubric.ai opens a video editor window.\n"
-    "Python 3.13+ and ffmpeg stay on the machine. The bundle does not vendor them.\n"
+    "\n"
+    "1. Drag Briefcut to Applications and open it.\n"
+    "2. This build is not notarized. If macOS says it cannot verify the app, run this once,\n"
+    "   then open it again:\n"
+    "     xattr -dr com.apple.quarantine /Applications/Briefcut.app\n"
+    "3. FFmpeg is not in the app. Briefcut shows the exact command when it opens:\n"
+    "     brew install ffmpeg-full\n"
+    "\n"
+    "Apple Silicon only. Python comes with the app unless it was built with --no-python;\n"
+    "then Python 3.13+ must be on the machine.\n"
     "App Sandbox is off so the window can launch that Python and ffmpeg-full.\n"
     "Minimum system version is macOS 15. Bundle id ai.aubric.briefcut.\n"
     "Projects are stored in ~/Library/Application Support/Vedit/vedit-sessions.\n"
     "VEDIT_WORKSPACE overrides the desktop project folder; VEDIT_PYTHON selects Python.\n"
     "Campaign downloads open a Save dialog and reveal the saved file in Finder.\n"
     "Run the binary inside Contents/MacOS with arguments to use the vedit CLI.\n"
+)
+
+# Parts of a CPython tree that a video editor never loads.
+_PYTHON_LEAVES_OUT = re.compile(
+    r"test|tests|idlelib|tkinter|turtledemo|ensurepip|pydoc_data|lib2to3|site-packages|include|share|pkgconfig|BUILD"
+    r"|config-3\.13-.*|tcl\d.*|tk\d.*|itcl.*|thread\d.*|libtcl.*|libtk.*|_tkinter\..*\.so"
+    r"|idle3.*|pip3?(\.\d+)?|pydoc3.*|python3(\.\d+)?-config"
 )
 
 # Used only when this package is staged off macOS, where swiftc cannot build
@@ -116,21 +133,57 @@ _PLIST = """\
 """
 
 
+def relocatable_python() -> Path | None:
+    """A CPython 3.13 tree that still works after being copied, or None.
+
+    uv's managed builds (python-build-standalone) find their library relative to
+    themselves. Homebrew's and python.org's are tied to where they were installed.
+    """
+    candidates = [Path(sys.base_prefix)]
+    uv = shutil.which("uv")
+    if uv is not None:
+        found = subprocess.run([uv, "python", "find", "--managed-python", "3.13"], capture_output=True, text=True, check=False)
+        if found.returncode == 0 and found.stdout.strip():
+            candidates.append(Path(found.stdout.strip()).parent.parent)
+    for candidate in candidates:
+        prefix = candidate.resolve()
+        if "/uv/python/cpython-3.13" in prefix.as_posix() and (prefix / "bin" / "python3.13").is_file():
+            return prefix
+    return None
+
+
+def _bundle_python(resources: Path, source: Path) -> None:
+    """Copy a slimmed interpreter into the app, with PyYAML beside the package."""
+    target = resources / "python"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target, symlinks=True, ignore=_ignore_python)
+    vendored = resources / "src" / "yaml"
+    if vendored.exists():
+        shutil.rmtree(vendored)
+    import yaml
+
+    # The pure-Python package. PyYAML falls back to it without its C extension.
+    shutil.copytree(Path(yaml.__file__).parent, vendored, ignore=shutil.ignore_patterns("__pycache__", "*.so"))
+
+
+def _ignore_python(_directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if _PYTHON_LEAVES_OUT.fullmatch(name)}
+
+
 def stage_app(
     dest: Path,
     *,
     package_root: Path | None = None,
     version: str | None = None,
+    bundle_python: bool = False,
 ) -> Path:
     dest = Path(dest)
-    if package_root is None:
-        package_root = Path(__file__).resolve().parents[2]
-    else:
-        package_root = Path(package_root)
     if version is None:
         version = vedit.__version__
 
-    pkg = package_root / "src" / "vedit"
+    # An installed package has no src/ folder; use wherever this module lives.
+    pkg = Path(__file__).resolve().parent if package_root is None else Path(package_root) / "src" / "vedit"
     if not pkg.is_dir():
         raise FileNotFoundError(pkg)
 
@@ -139,7 +192,7 @@ def stage_app(
     macos.mkdir(parents=True, exist_ok=True)
     resources.mkdir(parents=True, exist_ok=True)
 
-    _write_executable(macos / "vedit", package_root)
+    _write_executable(macos / "vedit", pkg)
     (dest / "Contents" / "Info.plist").write_text(_info_plist(version), encoding="utf-8")
     (resources / "README.txt").write_text(_README, encoding="utf-8")
 
@@ -147,6 +200,10 @@ def stage_app(
     if bundled.exists():
         shutil.rmtree(bundled)
     shutil.copytree(pkg, bundled, ignore=_ignore_packaged)
+    if bundle_python:
+        python = relocatable_python() if sys.platform == "darwin" else None
+        if python is not None:
+            _bundle_python(resources, python)
     if sys.platform == "darwin" and shutil.which("codesign"):
         subprocess.run(["codesign", "--force", "--sign", "-", str(dest)], check=True)
     return dest
@@ -193,8 +250,8 @@ def create_dmg(
         shutil.rmtree(staging)
 
 
-def _write_executable(launcher: Path, package_root: Path) -> None:
-    swift = package_root / "src" / "vedit" / "macos" / "VeditApp.swift"
+def _write_executable(launcher: Path, pkg: Path) -> None:
+    swift = pkg / "macos" / "VeditApp.swift"
     if sys.platform == "darwin":
         compiler = shutil.which("swiftc")
         if compiler is None:

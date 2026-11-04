@@ -142,9 +142,28 @@ class Edit:
     def pip(self, source: str, **kwargs: Any) -> Self:
         return self._op("pip", source=source, **kwargs)
 
-    def music(self, source: str, *, duck: bool = True, volume_db: float = -18.0) -> Self:
+    def music(self, source: str, *, duck: bool = True, volume_db: float = -18.0, **kwargs: Any) -> Self:
         self.source("music", source)
-        return self._op("music", source="music", duck=duck, volume_db=volume_db)
+        return self._op("music", source="music", duck=duck, volume_db=volume_db, **kwargs)
+
+    def look(self, preset: str = "none", **settings: Any) -> Self:
+        return self._op("look", preset=preset, **settings)
+
+    def zoom(self, moves: list[dict[str, Any]], *, blend: float = 0.0) -> Self:
+        return self._op("zoom", moves=moves, blend=blend)
+
+    def stabilize(self, *, smoothing: float = 1.0) -> Self:
+        return self._op("stabilize", smoothing=smoothing)
+
+    def voice(self, *, denoise: bool = True, enhance: bool = True) -> Self:
+        return self._op("voice", denoise=denoise, enhance=enhance)
+
+    def text(self, text: str, **kwargs: Any) -> Self:
+        return self._op("text", text=text, **kwargs)
+
+    def logo(self, source: str, **kwargs: Any) -> Self:
+        self.source("logo", source)
+        return self._op("logo", source="logo", **kwargs)
 
     def replace_audio(self, source: str) -> Self:
         return self._op("replace_audio", source=source)

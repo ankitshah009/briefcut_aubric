@@ -1,0 +1,2 @@
+Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf ac7023d6a4c704eb9af54ab53e476a66b7f5b6c0ef2fc4a8dde5253c291a6c38 official match: True 7.9s
+dflash-Muse-Glimmer-30B-Q4_K_M.gguf b2e808bf656086fe86bd0d0bd990f01d33e377537a07c02d45371517c8b264ef official match: True 0.7s

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 
@@ -56,6 +57,7 @@ PRESETS: dict[str, ExportPreset] = {
     "youtube_4k": _youtube_x264(3840, 2160, "youtube_4k", "YouTube 4K"),
     "shorts_9x16": _youtube_x264(1080, 1920, "shorts_9x16", "YouTube Shorts / Reels / TikTok 9:16"),
     "square_1x1": _youtube_x264(1080, 1080, "square_1x1", "Square 1:1 social"),
+    "portrait_4x5": _youtube_x264(1080, 1350, "portrait_4x5", "Instagram feed 4:5"),
     "twitter_landscape": _youtube_x264(1280, 720, "twitter_landscape", "X/Twitter landscape"),
     "podcast_video": _youtube_x264(1920, 1080, "podcast_video", "Talking-head / podcast video"),
     "web_preview": ExportPreset(
@@ -67,6 +69,26 @@ PRESETS: dict[str, ExportPreset] = {
         audio_bitrate="128k",
         extra=BROADCAST_COLOR,
         description="Small preview encode",
+    ),
+    "web_preview_9x16": ExportPreset(
+        name="web_preview_9x16",
+        canvas=Canvas(width=540, height=960, fps=30.0),
+        video_codec="libx264",
+        audio_codec="aac",
+        crf=28,
+        audio_bitrate="128k",
+        extra=BROADCAST_COLOR,
+        description="Small vertical preview encode",
+    ),
+    "web_preview_1x1": ExportPreset(
+        name="web_preview_1x1",
+        canvas=Canvas(width=540, height=540, fps=30.0),
+        video_codec="libx264",
+        audio_codec="aac",
+        crf=28,
+        audio_bitrate="128k",
+        extra=BROADCAST_COLOR,
+        description="Small square preview encode",
     ),
     "podcast_audio": ExportPreset(
         name="podcast_audio",
@@ -92,8 +114,59 @@ PRESETS: dict[str, ExportPreset] = {
 }
 
 
+# Short side of the frame, so a quality means the same at any aspect.
+EXPORT_SIZES = {"720p": 720, "1080p": 1080, "4k": 2160}
+# Match the Studio export promise: GIFs support a short side up to 540 pixels.
+GIF_SIZE = 540
+GIF_FPS = 15
+_EXPORT_NAME = re.compile(r"export_(\d{3,4})x(\d{3,4})_(\d{2})_(mp4|mov|webm|gif)")
+_VP9 = ("-crf", "31", "-b:v", "0", "-row-mt", "1", "-cpu-used", "4", "-pix_fmt", "yuv420p",
+        "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv")
+
+
+def _export_preset(width: int, height: int, fps: int, container: str) -> ExportPreset:
+    name = f"export_{width}x{height}_{fps}_{container}"
+    canvas = Canvas(width=width, height=height, fps=float(fps))
+    description = f"{width}x{height} at {fps} fps, {container.upper()}"
+    if container == "webm":
+        return ExportPreset(name, canvas, "libvpx-vp9", "libopus", 31, "128k", _VP9, description, container="webm")
+    if container == "gif":
+        return ExportPreset(name, canvas, "gif", "", 0, "", (), description, container="gif")
+    return ExportPreset(name, canvas, "libx264", "aac", 18, "192k", ("-profile:v", "high", *BROADCAST_COLOR), description, container=container)
+
+
+def export_preset_name(base: str, *, quality: str | None = None, fps: int | None = None, format: str | None = None) -> str:
+    """The preset for an ``edit.export`` choice on a base preset's aspect.
+
+    The name carries the settings, so ``vedit.analyze encode --preset`` resolves
+    it like any other. Nothing to change returns ``base``.
+    """
+    preset = get_preset(base)
+    if quality is None and fps is None and format is None:
+        return preset.name
+    width, height = preset.canvas.width, preset.canvas.height
+    if not width or not height:
+        raise KeyError(f"preset '{base}' has no picture to export")
+    container = format or preset.container
+    short = EXPORT_SIZES[quality] if quality else min(width, height)
+    rate = int(fps or preset.canvas.fps)
+    if container == "gif":
+        short, rate = min(short, GIF_SIZE), min(rate, GIF_FPS)
+    # H.264 and VP9 both need even dimensions.
+    scale = short / min(width, height)
+    return f"export_{round(width * scale / 2) * 2}x{round(height * scale / 2) * 2}_{rate}_{container}"
+
+
+def verification(preset: ExportPreset) -> dict[str, bool]:
+    """What a finished file of this preset can be checked for."""
+    return {"audio": bool(preset.audio_codec), "color": preset.container in ("mp4", "mov")}
+
+
 def get_preset(name: str) -> ExportPreset:
     key = name.strip().lower().replace("-", "_")
+    built = _EXPORT_NAME.fullmatch(key)
+    if built:
+        return _export_preset(int(built[1]), int(built[2]), int(built[3]), built[4])
     aliases = {
         "youtube": "youtube_1080p",
         "yt": "youtube_1080p",

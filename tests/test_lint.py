@@ -37,7 +37,7 @@ def test_checks_come_in_contract_order_and_pass_a_clean_plan() -> None:
     assert named(result, "auto: captions cover the speech")["note"] == "not requested"
     assert result["patches"] == []
     for check in result["checks"]:
-        assert set(check) == {"name", "passed", "at", "note"}
+        assert set(check) == {"name", "passed", "at", "note", "basis", "by"}
 
 
 def test_no_transcript_passes_the_sentence_check_with_a_note() -> None:
@@ -150,7 +150,7 @@ def test_apply_patches_skips_unsafe_edits_and_never_raises() -> None:
         "would be shorter than 0.5 s", "would overlap another moment", "outside the source", "outside the source",
         "unknown moment", "unknown patch operation", "missing seconds", None,
     ]
-    assert applied[-1] == {"op": "trim_end", "segment": 1, "before": {"start": 0.0, "end": 4.0}, "after": {"start": 0.0, "end": 3.0}, "reason": "fine", "source": "director", "skipped": None}
+    assert applied[-1] == {"op": "trim_end", "segment": 1, "before": {"start": 0.0, "end": 4.0}, "after": {"start": 0.0, "end": 3.0}, "reason": "fine", "source": "director", "skipped": None, "seconds": 3.0, "summary": "Moment 1 ends at 3.0 s."}
     assert fixed["segments"][0]["end"] == 3.0 and fixed["segments"][1] == story["segments"][1]
     assert fixed["segments"][0]["reason"].endswith("(end moved to 3.00 s)")
     assert fixed["duration"] == 7.0
@@ -201,3 +201,87 @@ def test_subject_in_frame_check_grades_sam_tracks():
     assert subject_in_frame_check(wide, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]  # centre is what must stay inside
     edge = [{"time": i / 10, "x": 0.9 if i % 2 else 0.0, "y": 0.3, "width": 0.1, "height": 0.3} for i in range(100)]
     assert subject_in_frame_check(edge, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]
+
+
+def test_strict_lint_moves_a_model_cut_to_the_nearest_boundary_however_far() -> None:
+    # The live note run: a model extended moment 1 to 5.58 s, 1.0 s past the sentence end
+    # and 1.9 s short of the next one. Outside the normal tolerances, so only strict snaps it.
+    sentences = [{"start": 0.3, "end": 4.585}, {"start": 4.6, "end": 7.5}, {"start": 8.0, "end": 11.6}]
+    plan = {"duration": 8.98, "segments": [{"start": 0.0, "end": 5.58, "label": "a", "reason": ""}, {"start": 8.0, "end": 11.6, "label": "b", "reason": ""}]}
+    loose = lint_plan(plan, target_duration=25, duration=40, sentences=sentences)
+    assert not loose["checks"][0]["passed"] and loose["patches"] == []
+    strict = lint_plan(plan, target_duration=25, duration=40, sentences=sentences, strict=True)
+    assert [(patch["op"], patch["segment"], patch["seconds"]) for patch in strict["patches"]] == [("trim_end", 1, 4.6)]
+    fixed, applied = apply_patches(plan, strict["patches"], duration=40)
+    assert applied[0]["skipped"] is None
+    assert lint_plan(fixed, target_duration=25, duration=40, sentences=sentences)["checks"][0]["passed"]
+
+
+def edited(*ranges: tuple[float, float], speech=None, **edit) -> dict:
+    story = plan(*ranges)
+    story["edit"] = edit
+    story["analysis"] = {"speech": speech or []}
+    return story
+
+
+def test_output_time_reads_the_clock_when_time_moves() -> None:
+    fast = plan((0.0, 4.0), (10.0, 12.0))
+    fast["segments"][0]["speed"] = 2.0
+    assert output_time(fast, 1, 2.0) == 1.0
+    assert output_time(fast, 2, 11.0) == 3.0
+    cut = edited((0.0, 10.0), (20.0, 22.0), removed=[[2.0, 5.0]])
+    assert output_time(cut, 1, 6.0) == 3.0
+    # A removed time reads as the next moment that still plays.
+    assert output_time(cut, 1, 3.0) == 2.0
+    assert output_time(cut, 2, 20.0) == 7.0
+    blended = edited((0.0, 4.0), (10.0, 14.0), transition={"type": "fade", "seconds": 0.5})
+    assert output_time(blended, 2, 10.0) == 3.5
+
+
+def test_duration_check_counts_the_finished_length() -> None:
+    fast = plan((0.0, 20.0))
+    fast["segments"][0]["speed"] = 2.0
+    assert "10.0 s cut" in named(lint_plan(fast, target_duration=10, duration=30), "auto: duration matches the target")["note"]
+    trimmed = edited((0.0, 20.0), removed=[[5.0, 15.0]])
+    assert named(lint_plan(trimmed, target_duration=10, duration=30), "auto: duration matches the target")["passed"]
+    overlapped = edited((0.0, 6.0), (10.0, 16.0), (20.0, 26.0), transition={"type": "fade", "seconds": 1.0})
+    assert "16.0 s cut" in named(lint_plan(overlapped, target_duration=16, duration=30), "auto: duration matches the target")["note"]
+
+
+def test_a_long_cut_is_shortened_through_speed_and_keep() -> None:
+    fast = plan((0.0, 20.0))
+    fast["segments"][0]["speed"] = 2.0
+    # 10 s of output at 2x is 20 s of source; losing 5 s of output moves the end by 10 s of source.
+    result = lint_plan(fast, target_duration=5, duration=30)
+    assert [(p["op"], p["seconds"]) for p in result["patches"]] == [("trim_end", 10.0)]
+    cut = edited((0.0, 20.0), removed=[[10.0, 18.0]])
+    # 12 s plays; losing 7 s walks back over the removed gap and leaves the first 5 s.
+    result = lint_plan(cut, target_duration=5, duration=30)
+    assert [(p["op"], p["seconds"]) for p in result["patches"]] == [("trim_end", 5.0)]
+
+
+def test_caption_coverage_follows_the_finished_clock() -> None:
+    speech = [{"start": 0.0, "end": 2.0}, {"start": 8.0, "end": 10.0}]
+    cut = edited((0.0, 10.0), removed=[[2.0, 8.0]])
+    covered = lint_plan(cut, target_duration=4, duration=20, captions=[{"start": 0.0, "end": 4.0}], speech=speech)
+    assert named(covered, "auto: captions cover the speech")["passed"] is True
+    missing = lint_plan(cut, target_duration=4, duration=20, captions=[{"start": 0.0, "end": 2.0}], speech=speech)
+    check = named(missing, "auto: captions cover the speech")
+    assert check["passed"] is False and check["at"] == 2.0
+
+
+def test_sentence_check_judges_the_cuts_that_really_play() -> None:
+    # A pause trim leaves the moment's own start silent; the real cut sits on sentence two.
+    speech = [{"start": 4.2, "end": 8.0}]
+    trimmed = edited((3.0, 8.0), trim_pauses=True, speech=speech)
+    result = lint_plan(trimmed, target_duration=4, duration=20, sentences=SENTENCES)
+    assert named(result, "auto: cuts land on sentence boundaries")["passed"] is True
+    # A filler removed inside a sentence is a deliberate join, not a story cut.
+    inner = edited((0.0, 8.0), removed=[[1.0, 1.4], [5.0, 5.3]])
+    assert named(lint_plan(inner, target_duration=7, duration=20, sentences=SENTENCES), "auto: cuts land on sentence boundaries")["passed"] is True
+    # A removal that reaches the moment's edge makes a real cut inside a sentence, and
+    # moving the moment's own edge could not fix it, so it is reported without a patch.
+    outer = edited((0.0, 8.0), removed=[[0.0, 2.0]])
+    result = lint_plan(outer, target_duration=6, duration=20, sentences=SENTENCES)
+    check = named(result, "auto: cuts land on sentence boundaries")
+    assert check["passed"] is False and check["at"] == 0.0 and result["patches"] == []

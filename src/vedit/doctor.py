@@ -5,9 +5,9 @@ from __future__ import annotations
 import shutil
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from vedit.captions import find_whisper_model
 from vedit.media import (
     FULL_FFMPEG,
     has_encoder,
@@ -20,12 +20,57 @@ from vedit.media import (
 )
 
 
+# Where a person creates the one key Briefcut needs.
+META_KEY_URL = "https://dev.meta.ai"
+
+
 @dataclass
 class Check:
     name: str
     ok: bool
     detail: str
     required: bool = False
+
+
+def package_manager() -> str | None:
+    """The package manager a person on this machine would use, if any."""
+    if sys.platform == "darwin":
+        known = (shutil.which("brew"), "/opt/homebrew/bin/brew", "/usr/local/bin/brew")
+        return "brew" if any(path and Path(path).is_file() for path in known) else None
+    for name, tool in (("apt", "apt-get"), ("dnf", "dnf"), ("pacman", "pacman"), ("brew", "brew")):
+        if shutil.which(tool):
+            return name
+    return None
+
+
+_HOMEBREW = {
+    "label": "Install Homebrew (brew.sh), the Mac package manager.",
+    "command": '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+}
+
+
+def ffmpeg_install() -> dict[str, Any]:
+    """The exact commands that give this machine an FFmpeg Briefcut can use."""
+    manager = package_manager()
+    if sys.platform == "darwin":
+        steps = [] if manager == "brew" else [_HOMEBREW]
+        steps.append({"label": "Install FFmpeg with titles and captions. Homebrew's plain ffmpeg has neither.", "command": "brew install ffmpeg-full"})
+        return {"steps": steps, "note": ""}
+    commands = {
+        "apt": "sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core",
+        "pacman": "sudo pacman -S --needed ffmpeg ttf-dejavu",
+        "brew": "brew install ffmpeg-full",
+    }
+    if manager in commands:
+        return {"steps": [{"label": "Install FFmpeg.", "command": commands[manager]}], "note": ""}
+    if manager == "dnf":
+        return {"steps": [{"label": "Install FFmpeg.", "command": "sudo dnf install ffmpeg"}], "note": "On Fedora this package comes from RPM Fusion; enable that repository first."}
+    return {"steps": [], "note": "Install FFmpeg with your system's package manager. It needs libx264, drawtext, and subtitles."}
+
+
+def _ffmpeg_hint() -> str:
+    steps = ffmpeg_install()["steps"]
+    return steps[-1]["command"] if steps else "install an FFmpeg with drawtext and subtitles"
 
 
 def run_doctor() -> list[Check]:
@@ -52,11 +97,12 @@ def run_doctor() -> list[Check]:
         checks.append(Check("ffprobe", False, str(exc), required=True))
 
     full = FULL_FFMPEG.is_file()
+    titles = has_filter("drawtext") and has_filter("subtitles")
     checks.append(
         Check(
             "ffmpeg-full",
-            full or (has_filter("drawtext") and has_filter("subtitles")),
-            str(FULL_FFMPEG) if full else "not installed — brew install ffmpeg-full for drawtext/subtitles",
+            full or titles,
+            str(FULL_FFMPEG) if full else "this build has drawtext and subtitles" if titles else f"no drawtext/subtitles here — {_ffmpeg_hint()}",
         )
     )
     for filt, why in (
@@ -92,36 +138,30 @@ def run_doctor() -> list[Check]:
     except Exception as exc:
         checks.append(Check("font", False, str(exc)))
 
-    whisper = which_optional("whisper-cli")
-    model = find_whisper_model()
-    stub = find_whisper_model(allow_stub=True)
-    if whisper and model:
-        checks.append(Check("whisper-cli", True, f"{whisper}  model={model}"))
-    elif whisper and stub:
-        checks.append(
-            Check(
-                "whisper-cli",
-                False,
-                f"{whisper} found but only the empty brew stub ({stub.name}). Set VEDIT_WHISPER_MODEL to a real ggml .bin",
-            )
-        )
-    elif whisper:
-        checks.append(
-            Check(
-                "whisper-cli",
-                False,
-                f"{whisper} found but no ggml model. Set VEDIT_WHISPER_MODEL, or drop ggml-base.en.bin in ~/.vedit/models/ (or $VEDIT_MODELS_DIR), .vedit-models/ (checkout) or ~/.cache/whisper/",
-            )
-        )
-    else:
-        checks.append(Check("whisper-cli", False, "not on PATH — brew install whisper-cpp (captions optional)"))
+    checks.append(meta_check())
 
     magick = which_optional("magick", "convert")
     checks.append(Check("imagemagick", bool(magick), magick or "optional title fallback"))
     sox = which_optional("sox")
     checks.append(Check("sox", bool(sox), sox or "optional audio diagnostics"))
-    checks.append(Check("ffmpeg-full preferred", full, "VEDIT_FFMPEG can point at any build"))
+    if sys.platform == "darwin":
+        checks.append(Check("ffmpeg-full preferred", full, "VEDIT_FFMPEG can point at any build"))
     return checks
+
+
+def meta_check() -> Check:
+    """Briefcut's models are all Meta models, so a working key is required."""
+    try:
+        from vedit import meta
+
+        status = meta.capabilities()
+    except Exception:  # an unreadable config must not hide the other checks
+        return Check("meta", False, "Meta settings could not be read. Open Settings in Studio and save your key again.", required=True)
+    if status.get("available"):
+        return Check("meta", True, f"key configured, Meta calls allowed, mode {status.get('mode')}", required=True)
+    if not status.get("configured"):
+        return Check("meta", False, f"no Meta API key. Create one at {META_KEY_URL}, then paste it in Studio Settings or set MODEL_API_KEY", required=True)
+    return Check("meta", False, str(status.get("reason") or "Meta calls are not allowed. Turn them on in Settings."), required=True)
 
 
 def doctor_dict() -> dict[str, Any]:
@@ -144,16 +184,5 @@ def format_doctor(checks: list[Check]) -> str:
     if required_fail:
         lines.append("Host is not ready. Fix the required rows, then re-run `vedit doctor`.")
     else:
-        lines.append("Required tools are present. Optional gaps only disable the features named above.")
+        lines.append("Required tools and Meta access are present. Optional gaps only disable the features named above.")
     return "\n".join(lines) + "\n"
-
-
-def suggest_whisper_model() -> str:
-    dest = shutil.which("whisper-cli")
-    return (
-        "Download a real model (one-time, free) into the shared model directory; every checkout finds it:\n"
-        "  mkdir -p ~/.vedit/models\n"
-        "  curl -L -o ~/.vedit/models/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin\n"
-        "  # optional: VEDIT_MODELS_DIR=/other/dir or VEDIT_WHISPER_MODEL=/path/to/ggml-*.bin override the lookup\n"
-        + (f"  whisper-cli is at: {dest}\n" if dest else "")
-    )

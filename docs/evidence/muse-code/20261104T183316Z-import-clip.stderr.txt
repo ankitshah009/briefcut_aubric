@@ -1,0 +1,5 @@
+muse: workspace root: /Users/ankit_aubric/GitHub/briefcut_aubric (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: Including your Claude Code personal rules — manage with /settings.
+muse: plugins: foreign:claude: foreign claude plugin artifact observed as diagnostics only; observe-only by default (/Users/ankit_aubric/GitHub/briefcut_aubric/.claude-plugin/plugin.json)
+muse: Agent delegation: auto unavailable: child tool 'mcp__briefcut__*' is unavailable.

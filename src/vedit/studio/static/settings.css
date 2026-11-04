@@ -1,0 +1,90 @@
+/* First-run setup, Settings, and the project library. Tokens come from studio.css. */
+.bc-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--paper); color: var(--ink); width: min(640px, calc(100vw - 24px)); max-height: min(86vh, 900px); box-shadow: 0 24px 70px var(--shadow); overflow: hidden; }
+.bc-dialog[open] { display: flex; flex-direction: column; }
+.bc-dialog:modal { overscroll-behavior: contain; }
+.bc-dialog::backdrop { background: #0b1220aa; overflow: hidden; overscroll-behavior: contain; }
+#library.bc-dialog { width: min(1040px, calc(100vw - 24px)); }
+
+.bc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 20px 24px 14px; border-bottom: 1px solid var(--line-soft); flex: none; }
+.bc-head h2 { font-size: 18px; font-weight: 650; letter-spacing: -.3px; }
+.bc-lead { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.bc-close { font-size: 20px; line-height: 1; color: var(--muted); width: 32px; height: 32px; flex: none; border-radius: 6px; }
+.bc-close:hover { background: var(--tint); color: var(--ink); }
+.bc-body { padding: 4px 24px 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+
+.bc-row { padding: 16px 0; border-bottom: 1px solid var(--line-soft); font-size: 12px; line-height: 1.6; }
+.bc-row:last-of-type { border-bottom: 0; }
+.bc-row h3 { font-size: 13px; font-weight: 650; }
+.bc-row-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.bc-why { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.bc-row > .button { margin-top: 10px; }
+
+.bc-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.bc-steps p { font-weight: 600; color: var(--ink-soft); font-size: 11px; }
+.bc-command { display: flex; gap: 8px; align-items: stretch; margin-top: 5px; }
+.bc-command code { flex: 1 1 auto; min-width: 0; padding: 8px 10px; border-radius: 6px; background: var(--tint); border: 1px solid var(--line); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--ink); user-select: all; }
+.bc-copy { min-height: 0; padding: 4px 12px; font-size: 11px; flex: none; }
+
+.bc-meta-steps { display: grid; gap: 12px; margin-top: 10px; }
+.bc-meta-steps .bc-steps { list-style: decimal; padding-left: 18px; margin: 0; }
+.bc-meta-steps .button { justify-self: start; }
+.bc-dialog a { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.bc-good { color: var(--green); font-weight: 600; }
+.bc-bad { color: var(--red); }
+
+.bc-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 16px; }
+.bc-sticky { position: sticky; bottom: -20px; background: var(--paper); padding-block: 12px; margin-bottom: -8px; border-top: 1px solid var(--line-soft); }
+.bc-status { flex: 1 1 auto; font-size: 12px; color: var(--ink-soft); min-height: 18px; }
+.bc-form input[type="password"] { width: 100%; background: var(--paper); border: 1px solid var(--field-border); padding: 9px 10px; color: var(--ink); min-height: 39px; font-size: 12px; outline: none; }
+.bc-field { margin-top: 12px; }
+.bc-check { margin-top: 12px; font-size: 12px; }
+.bc-check small { display: block; margin-top: 2px; line-height: 1.55; font-size: 11px; }
+.bc-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; }
+.bc-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.bc-inline .field-note { margin-top: 0; flex: 1 1 180px; }
+.bc-key-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.bc-details { margin-top: 10px; font-size: 11px; }
+.bc-details summary { color: var(--ink-soft); }
+.bc-checks { list-style: none; margin: 8px 0 0; padding: 10px; max-height: 200px; overflow: auto; border-radius: 6px; background: var(--tint); border: 1px solid var(--line); font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.bc-diagnostics { margin-top: 8px; max-height: 200px; overflow: auto; padding: 10px; border-radius: 6px; background: var(--tint); border: 1px solid var(--line); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.bc-storage { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+#bc-library-status { flex: none; padding: 8px 24px 0; }
+#bc-library-status:empty { display: none; }
+.bc-grid { list-style: none; margin: 0; padding: 14px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 16px; }
+.bc-card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--paper-2); display: flex; flex-direction: column; min-width: 0; }
+.bc-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--well-dark) center / 34px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%2393a1b7' stroke-width='2'%3E%3Cpath d='m19 14 17 10-17 10V14Z'/%3E%3C/svg%3E"); padding: 0; overflow: hidden; }
+.bc-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.bc-thumb:hover { filter: brightness(1.08); }
+.bc-card-body { padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.bc-card-title h3 { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bc-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bc-card-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: auto; }
+.bc-rename { display: flex; gap: 8px; align-items: center; }
+.bc-rename input { min-height: 30px; flex: 1 1 auto; min-width: 0; }
+.bc-text-danger { color: var(--red); }
+.text-button:disabled { color: var(--steel-2); }
+.bc-empty { padding: 36px 8px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.bc-confirm { width: min(440px, calc(100vw - 24px)); }
+.bc-confirm-body { padding: 22px 24px 18px; font-size: 12px; line-height: 1.6; }
+.bc-confirm-body h2 { font-size: 16px; font-weight: 650; letter-spacing: -.3px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.bc-danger { background: var(--red); border: 1px solid var(--red); color: var(--on-blue); }
+.bc-danger:hover { filter: brightness(.92); }
+
+#settings-button { min-width: 36px; padding-inline: 9px; position: relative; }
+#settings-button svg { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+#settings-button.needs-setup::after, #recent-projects.has-interrupted > summary::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+#settings-button.needs-setup::after { position: absolute; top: 5px; right: 5px; }
+.autosave { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.autosave.is-warning { color: var(--amber); }
+@media (max-width: 1100px) { .autosave { display: none; } }
+/* A phone leaves the project heading no width. Its pill must not sit over Projects. */
+@media (max-width: 520px) { .topbar .editor-heading { overflow: hidden; } }
+@media (max-width: 700px) {
+  .bc-head { padding: 16px 16px 12px; }
+  .bc-body { padding: 4px 16px 16px; }
+  .bc-command { flex-direction: column; }
+  .bc-copy { align-self: flex-end; }
+  .bc-grid { grid-template-columns: 1fr; }
+}

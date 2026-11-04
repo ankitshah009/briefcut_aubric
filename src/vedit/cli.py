@@ -9,7 +9,7 @@ from pathlib import Path
 
 from vedit import __version__
 from vedit.compile import compile_brief
-from vedit.doctor import format_doctor, run_doctor, suggest_whisper_model
+from vedit.doctor import format_doctor, run_doctor
 from vedit.dsl import parse_do
 from vedit.errors import VeditError
 from vedit.ir import brief_dumps, load_brief
@@ -19,8 +19,8 @@ from vedit.presets import PRESETS
 from vedit.recipes import apply_recipe, list_recipes
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = _parser()
+def main(argv: list[str] | None = None, *, prog: str = "vedit") -> int:
+    parser = _parser(prog)
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
@@ -29,20 +29,36 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return func(args)
     except VeditError as exc:
-        print(f"vedit: {exc}", file=sys.stderr)
+        print(f"{prog}: {exc}", file=sys.stderr)
         return 2
 
 
-def _parser() -> argparse.ArgumentParser:
+def briefcut_main(argv: list[str] | None = None) -> int:
+    """`briefcut` opens Studio. With arguments it is the same tool as `vedit`."""
+    args = sys.argv[1:] if argv is None else argv
+    if args:
+        return main(args, prog="briefcut")
+    from vedit import settings
+    from vedit.studio.server import open_studio
+
+    settings.load_checkout_env()
+    settings.enter_workspace(settings.default_workspace())
+    return open_studio()
+
+
+def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="vedit",
-        description="Local agent-native video editor. Intent → inspectable FFmpeg program → render.",
+        prog=prog,
+        description="Agent-native video editor. Meta models understand the footage; FFmpeg renders it on this machine.",
     )
-    parser.add_argument("-V", "--version", action="version", version=f"vedit {__version__}")
+    parser.add_argument("-V", "--version", action="version", version=f"{prog} {__version__}")
     sub = parser.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("doctor", help="check local toolchain")
+    p = sub.add_parser("doctor", help="check FFmpeg and Meta access")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("setup", help="show what this machine still needs (FFmpeg and a Meta API key), with the exact commands")
+    p.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("probe", help="print media info as JSON")
     p.add_argument("file")
@@ -121,16 +137,6 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("mcp", help="MCP server over stdio for coding agents (Claude Code, Cursor, ...)")
     p.set_defaults(func=cmd_mcp)
 
-    p = sub.add_parser("story", help="deterministic local story plan from scene cuts, speech, and transcript keywords")
-    p.add_argument("clip", help="source video")
-    p.add_argument("--goal", required=True, help="what the finished video should do")
-    p.add_argument("--target", type=float, default=30.0, help="target duration in seconds (default 30)")
-    p.add_argument("--language", default="en", help="spoken language code for the optional local transcript")
-    p.add_argument("--no-transcribe", action="store_true", help="skip the local Whisper transcript")
-    p.add_argument("--work-dir", default=None, help="where analysis files are written (default: a temp dir)")
-    p.add_argument("--json", action="store_true", help="print the plan as JSON")
-    p.set_defaults(func=cmd_story)
-
     p = sub.add_parser("meta", help="Meta Model API status (no inference is purchased)")
     msub = p.add_subparsers(dest="meta_cmd", required=True)
     m = msub.add_parser("status", help="show whether Meta is configured and enabled")
@@ -138,7 +144,7 @@ def _parser() -> argparse.ArgumentParser:
     m = msub.add_parser("check", help="verify credentials with the free model listing")
     m.set_defaults(func=cmd_meta_check)
 
-    p = sub.add_parser("studio", help="local review server")
+    p = sub.add_parser("studio", help="open the Studio editor on this machine")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--open", action="store_true", help="open a browser")
@@ -147,6 +153,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("package", help="package the desktop app")
     psub = p.add_subparsers(dest="package_cmd", required=True)
     d = psub.add_parser("dmg", help="build a macOS disk image")
+    d.add_argument("--no-python", action="store_true", help="leave Python out; the app then needs 3.13+ on the machine")
     d.add_argument("--out", default="dist/Briefcut.dmg")
     d.add_argument("--app-dir")
     d.set_defaults(func=cmd_package_dmg)
@@ -156,9 +163,23 @@ def _parser() -> argparse.ArgumentParser:
 def cmd_doctor(_args: argparse.Namespace) -> int:
     checks = run_doctor()
     sys.stdout.write(format_doctor(checks))
-    if not any(c.name == "whisper-cli" and c.ok for c in checks):
-        sys.stdout.write("\n" + suggest_whisper_model())
     return 0 if all(c.ok for c in checks if c.required) else 1
+
+
+def cmd_setup(_args: argparse.Namespace) -> int:
+    from vedit import onboarding
+
+    status = onboarding.setup_status(refresh=True)
+    for item in status["items"]:
+        print(f"{'OK' if item['ok'] else 'NO'}  {item['title']}: {item['summary']}")
+        if item["ok"]:
+            continue
+        for step in (item.get("install") or {}).get("steps") or []:
+            print(f"    {step['label']}\n    $ {step['command']}")
+        if item["id"] == "meta":
+            print(f"    Create a key at {item['key_url']}, then open Settings in Briefcut (run `briefcut`) and paste it.")
+            print("    Or set MODEL_API_KEY and VEDIT_META_ENABLED=1 in the environment.")
+    return 0 if status["ready"] else 1
 
 
 def cmd_probe(args: argparse.Namespace) -> int:
@@ -429,31 +450,12 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
     return serve_stdio()
 
 
-def cmd_story(args: argparse.Namespace) -> int:
-    import tempfile
-
-    from vedit.story import format_plan, plan_local_story
-
-    if not 0.5 <= args.target <= 180:
-        print("vedit: --target must be between 0.5 and 180 seconds", file=sys.stderr)
-        return 2
-    work_dir = Path(args.work_dir) if args.work_dir else Path(tempfile.mkdtemp(prefix="vedit-story-"))
-    plan = plan_local_story(Path(args.clip), goal=args.goal, target_duration=args.target, work_dir=work_dir, language=args.language, transcribe=not args.no_transcribe)
-    if args.json:
-        json.dump(plan, sys.stdout, indent=2, ensure_ascii=False)
-        sys.stdout.write("\n")
-    else:
-        sys.stdout.write(format_plan(plan))
-        sys.stdout.write(f"analysis: {work_dir / 'story-analysis.json'}\n")
-    return 0
-
-
 def cmd_meta_status(_args: argparse.Namespace) -> int:
     from vedit import meta
 
     status = meta.capabilities()
-    print(f"configured  {'yes' if status['configured'] else 'no (set MODEL_API_KEY)'}")
-    print(f"enabled     {'yes' if status['enabled'] else 'no (set VEDIT_META_ENABLED=1)'}")
+    print(f"configured  {'yes' if status['configured'] else 'no (add a key in Settings, or set MODEL_API_KEY)'}")
+    print(f"enabled     {'yes' if status['enabled'] else 'no (turn on Meta in Settings, or set VEDIT_META_ENABLED=1)'}")
     print(f"mode        {status['mode']}  prices as of {status['prices_as_of']}")
     for feature, model in sorted(status.get("models", {}).items()):
         print(f"  {feature:<10} {model}")
@@ -479,6 +481,9 @@ def cmd_studio(args: argparse.Namespace) -> int:
     except ImportError:
         from vedit.studio import serve
 
+    from vedit import settings
+
+    settings.enter_workspace()
     serve(args.host, args.port, open_browser=args.open)
     return 0
 
@@ -488,10 +493,12 @@ def cmd_package_dmg(args: argparse.Namespace) -> int:
 
     app_dir = Path(args.app_dir) if args.app_dir else Path("dist/Briefcut.app")
     out = args.out
-    stage_app(app_dir)
+    stage_app(app_dir, bundle_python=not args.no_python)
     create_dmg(app_dir, Path(out))
     print(f"app      : {app_dir}")
     print(f"dmg      : {Path(out)}")
+    if not (app_dir / "Contents" / "Resources" / "python").is_dir():
+        print("python   : not bundled. The app needs Python 3.13+ on the machine.")
     return 0
 
 

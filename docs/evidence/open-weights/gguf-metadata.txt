@@ -1,0 +1,24 @@
+# GGUF header of ~/.vedit/models/open-weights/Muse-Glimmer-30B-KQuant-Dynamic-Q4_K_XL.gguf (read with the gguf package; tokenizer and chat template omitted)
+GGUF.version = 3
+GGUF.tensor_count = 731
+GGUF.kv_count = 32
+general.architecture = muse-glimmer
+general.type = model
+general.name = Muse Glimmer Hf
+general.size_label = 28B
+muse-glimmer.block_count = 52
+muse-glimmer.context_length = 131072
+muse-glimmer.embedding_length = 6656
+muse-glimmer.feed_forward_length = 19968
+muse-glimmer.attention.head_count = 32
+muse-glimmer.attention.head_count_kv = 2
+muse-glimmer.rope.freq_base = 500000.0
+muse-glimmer.attention.layer_norm_rms_epsilon = 9.999999747378752e-06
+muse-glimmer.attention.key_length = 128
+muse-glimmer.attention.value_length = 128
+muse-glimmer.final_logit_softcapping = 20.0
+muse-glimmer.logit_scale = 0.1961161345243454
+muse-glimmer.attention.sliding_window = 2048
+general.quantization_version = 2
+general.file_type = 15
+tensors = 731

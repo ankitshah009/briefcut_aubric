@@ -1,0 +1,45 @@
+{
+  "patches": [
+    {
+      "op": "set_edit",
+      "segment": null,
+      "seconds": null,
+      "path": "look.preset",
+      "value": "warm",
+      "reason": "warmer",
+      "source": "director"
+    },
+    {
+      "op": "set_edit",
+      "segment": null,
+      "seconds": null,
+      "path": "captions.scale",
+      "value": 1.4,
+      "reason": "bigger captions",
+      "source": "director"
+    },
+    {
+      "op": "set_speed",
+      "segment": 6,
+      "seconds": null,
+      "value": 0.85,
+      "reason": "slow down the oil moment",
+      "source": "director"
+    }
+  ],
+  "summary": "The patches warm the look preset, enlarge the captions, and slow down the oil finish moment.",
+  "warnings": [],
+  "provider": "meta",
+  "model": "meta-models/Muse-Glimmer-30B",
+  "usage": {
+    "estimated_max_usd": 0.0,
+    "cached": false,
+    "cost_usd": 0.0,
+    "local": true,
+    "input_tokens": 1585,
+    "output_tokens": 1304,
+    "total_tokens": 2889
+  },
+  "runtime": "llama.cpp",
+  "private": true
+}

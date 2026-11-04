@@ -1,0 +1,9 @@
+{
+  "what": "Measured facts about the soundtrack of the caption-free cut, used to grade each model's hearing probe",
+  "clip": "render-1/01_select_ranges.mp4 (the same cut as video.mp4, before captions were burned in), review proxy 540x960",
+  "generator": "scripts/make_demo.py: narration from macOS `say` (asks for the Samantha voice), padded with digital silence; no music, tool or room sound is generated, and the campaign plan has music: null",
+  "ffmpeg_silencedetect_-50dB_0.3s": [[3.252, 3.563], [6.221, 6.646], [8.829, 9.148], [11.754, 12.111], [15.602, 15.914]],
+  "ffmpeg_astats": {"noise_floor_db": "-inf", "rms_level_db": -19.37, "peak_level_db": -4.47},
+  "narration_pitch_hz": {"method": "autocorrelation on voiced 64 ms frames at 16 kHz", "voiced_frames": 266, "median": 179.8, "iqr": [164.9, 188.2]},
+  "reading": "Between sentences the track is digital silence (noise floor -inf), so there is no lathe, hum or music anywhere. A 180 Hz median pitch is in the usual adult female range. The voice is text-to-speech."
+}

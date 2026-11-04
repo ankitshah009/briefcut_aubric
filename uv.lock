@@ -479,6 +479,15 @@ wheels = [
 ]
 
 [[package]]
+name = "meta-sam-parser"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/bc/af93a1fa4834124816b3fa0165aa9a6c35eb90d11a1dfe7c257992381f44/meta_sam_parser-0.1.0.tar.gz", hash = "sha256:d59ca55993c5975fc8910f29b76e33499bc2870f79e9afcc30c916f17ef3bb40", size = 33694, upload-time = "2026-10-06T18:37:45.432Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/6b/4f079abae8fbef65d08a5f315444ca96a3e267ad017576a97264ee17b26b/meta_sam_parser-0.1.0-py3-none-any.whl", hash = "sha256:eca156907911c56cef3a350ffc81c34b7e70655e5fa3ccdddb77042c541a0152", size = 40810, upload-time = "2026-10-06T18:37:44.229Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1059,6 +1068,9 @@ dev = [
 mcp = [
     { name = "mcp" },
 ]
+sam = [
+    { name = "meta-sam-parser" },
+]
 stt = [
     { name = "faster-whisper" },
 ]
@@ -1066,6 +1078,7 @@ stt = [
 [package.dev-dependencies]
 dev = [
     { name = "mcp" },
+    { name = "meta-sam-parser" },
     { name = "pytest" },
     { name = "pytest-xdist" },
 ]
@@ -1074,14 +1087,16 @@ dev = [
 requires-dist = [
     { name = "faster-whisper", marker = "extra == 'stt'", specifier = ">=1.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2" },
+    { name = "meta-sam-parser", marker = "extra == 'sam'", specifier = "==0.1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["dev", "stt", "mcp"]
+provides-extras = ["dev", "stt", "mcp", "sam"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mcp", specifier = ">=1.2" },
+    { name = "meta-sam-parser", specifier = "==0.1.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
 ]

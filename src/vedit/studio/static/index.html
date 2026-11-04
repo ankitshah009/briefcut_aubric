@@ -8,23 +8,36 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f141c">
   <title>Briefcut by Aubric.ai — Video Studio</title>
   <link rel="stylesheet" href="studio.css">
+  <link rel="stylesheet" href="editor.css">
+  <link rel="stylesheet" href="inspector.css">
+  <link rel="stylesheet" href="settings.css">
+  <link rel="stylesheet" href="meta-calls.css">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to editor</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Briefcut by Aubric.ai home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>Briefcut</strong><span class="brand-divider" aria-hidden="true"></span><span>by Aubric.ai</span></a>
-    <nav class="workflow" aria-label="Campaign progress">
-      <ol><li id="step-source" aria-current="step"><span>1</span>Source</li><li id="step-story"><span>2</span>Story</li><li id="step-deliver"><span>3</span>Deliver</li></ol>
+    <div class="editor-heading"><h2 id="project-name" tabindex="-1">Untitled project</h2><span id="project-status" class="status-pill">Ready to start</span></div>
+    <nav class="workflow" aria-label="Project stages">
+      <ol><li id="step-source" aria-current="step"><button type="button" data-mode="story" aria-pressed="true"><span>1</span>Story</button></li><li id="step-story"><button type="button" data-mode="edit" aria-pressed="false" disabled><span>2</span>Edit</button></li><li id="step-deliver"><button type="button" data-mode="deliver" aria-pressed="false" disabled><span>3</span>Deliver</button></li></ol>
     </nav>
     <div class="top-actions">
+      <button id="meta-calls-toggle" class="button button-quiet mc-toggle" type="button" aria-controls="meta-calls" aria-expanded="false" title="Every call this project makes to the Meta Model API" hidden><span class="mc-dot" aria-hidden="true"></span>Meta calls<span id="meta-calls-count" class="mc-count">0</span></button>
       <details id="recent-projects" class="recent">
-        <summary>Recent projects <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+        <summary>Projects <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
         <div class="recent-popover"><h2>Recent projects</h2><ul id="recent-list"><li class="empty-recent">Your projects will appear here.</li></ul></div>
       </details>
       <button id="new-project" class="button button-quiet" type="button">New project</button>
       <button id="shortcuts-button" class="button button-quiet" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
+      <button type="button" id="make" class="button button-primary" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg>Make the video</button>
     </div>
   </header>
+  <section id="meta-calls" class="mc" aria-labelledby="meta-calls-heading" hidden>
+    <div class="mc-head"><div><h2 id="meta-calls-heading">Meta calls</h2><p id="meta-calls-sub" class="mc-sub">Reading the call log.</p></div><button type="button" id="meta-calls-close" class="mc-close" aria-label="Close Meta calls"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
+    <p id="meta-calls-empty" class="mc-empty" hidden>No Meta calls yet. They appear here as Briefcut works.</p>
+    <ol id="meta-calls-list" class="mc-list" aria-label="Meta calls, newest first"></ol>
+    <div class="mc-foot"><p id="meta-calls-total" class="mc-total"></p><p class="mc-where">All calls go to the Meta Model API from this computer.</p></div>
+  </section>
 
   <main id="workspace" class="workspace" tabindex="-1">
     <aside class="brief-panel" aria-labelledby="brief-heading">
@@ -37,7 +50,7 @@
             <label for="clip" class="file-label"><span id="drop-title">Choose your footage</span><span class="file-hint">or drop a video here</span></label>
             <input id="clip" name="clip" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-describedby="clip-name upload-limit">
             <p id="clip-name">The original stays untouched.</p>
-            <p id="upload-limit" class="fine-print">MP4, MOV or WebM · Up to 200 MB</p>
+            <p id="upload-limit" class="fine-print">Video, photos, and audio. Up to 30 clips, 4 GB each, 2 hours in all.</p>
           </div>
         </section>
 
@@ -72,37 +85,51 @@
 
         <section class="engine-section" aria-labelledby="engine-heading">
           <div class="section-title"><h2 id="engine-heading">How to shape it</h2><span id="connection-status" class="connection-status">Connecting</span></div>
-          <fieldset class="engine-picker"><legend class="sr">Editing mode</legend>
-            <label class="engine-option"><input type="radio" name="provider" id="provider-local" value="local" checked><span><strong>Local edit</strong><small>Choose and refine the cut yourself.</small></span><span class="engine-tag">No API cost</span></label>
-            <label class="engine-option" id="meta-option"><input type="radio" name="provider" id="provider-meta" value="meta" disabled><span><strong>Meta director</strong><small>Find moments and follow a subject.</small></span><span class="engine-tag" id="meta-tag">Unavailable</span></label>
-          </fieldset>
-          <p id="engine-note" class="field-note">Local mode creates an editable starting cut. It does not interpret the footage.</p>
-          <details id="meta-setup" class="setup-details" hidden><summary>About Meta access</summary><p id="meta-reason"></p><p>Your video is sent to Meta only when you choose Meta director and create a story.</p></details>
-          <div id="meta-options" class="meta-options" hidden>
+          <div class="engine-card" id="meta-option"><span><strong>Meta director</strong><small>Muse Spark finds the moments. SAM 3.1 follows your subject.</small></span><span class="engine-tag" id="meta-tag">Checking</span></div>
+          <p id="engine-note" class="field-note">Meta reads the footage and proposes a story. You review every moment before rendering.</p>
+          <div id="meta-setup" class="meta-setup" role="status" hidden><p id="meta-reason">Add your Meta API key to start.</p><button type="button" id="meta-setup-open" class="button button-secondary">Add Meta key</button></div>
+          <div id="meta-options" class="meta-options">
             <label for="subject">Keep this subject in frame <span class="optional">optional</span></label><input type="text" id="subject" maxlength="150" placeholder="The person in the blue apron">
             <div class="field-pair"><div><label for="budget">Project API limit</label><select id="budget"><option value="0.25">$0.25</option><option value="0.5">$0.50</option><option value="1">$1.00</option><option value="2">$2.00</option></select></div><div><label for="cover-mode">Cover</label><select id="cover-mode"><option value="frame">Frame from video</option><option value="meta">Generate with Meta</option></select></div></div>
             <p id="budget-status" class="field-note" hidden></p>
             <label class="check-field"><input type="checkbox" id="review"><span>Ask Meta to review the finished cut <small class="fine-print">Director’s notes · Muse Spark</small></span></label>
-            <label class="check-field consent"><input type="checkbox" id="cloud-consent"><span>Send this clip to Meta using my configured API access.</span></label>
           </div>
-          <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" disabled><span>Add captions</span></label><span id="caption-availability" class="fine-print">Checking local speech model</span></div>
-          <div id="language-field" hidden><label for="language">Spoken language</label><select id="language"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="pt">Portuguese</option><option value="ja">Japanese</option></select></div>
-          <div id="caption-provider-field" class="caption-provider-field" hidden><label for="caption-provider">Captions by</label><select id="caption-provider"><option value="local">Local Whisper</option><option value="meta">Meta Voice Transcribe</option></select><p id="caption-provider-note" class="field-note">Local transcription runs on this Mac at no cost.</p></div>
+          <div class="caption-row"><label class="check-field"><input type="checkbox" id="captions" checked><span>Add captions</span></label><span id="caption-availability" class="fine-print">Meta Voice Transcribe</span></div>
+          <div id="language-field"><label for="language">Spoken language</label><select id="language"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="pt">Portuguese</option><option value="ja">Japanese</option></select></div>
+          <p id="caption-provider-note" class="field-note">Meta Voice Transcribe hears the audio on Meta’s servers. The captions render on this computer.</p>
+          <label class="check-field consent"><input type="checkbox" id="cloud-consent"><span>Send this footage to Meta using my API key. Required to create a story.</span></label>
         </section>
-        <div class="plan-actions"><button id="plan" class="button button-primary" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 3 1.6 4.8L14 9.5l-4.4 1.7L8 16l-1.6-4.8L2 9.5l4.4-1.7L8 3Zm7 9 1 2.5 2.5 1-2.5 1L15 19l-1-2.5-2.5-1 2.5-1L15 12Z"/></svg>Create story</button><p id="privacy-note">Rendered on your Mac. Ready when you are.</p></div>
+        <div class="plan-actions"><button id="plan" class="button button-primary" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 3 1.6 4.8L14 9.5l-4.4 1.7L8 16l-1.6-4.8L2 9.5l4.4-1.7L8 3Zm7 9 1 2.5 2.5 1-2.5 1L15 19l-1-2.5-2.5-1 2.5-1L15 12Z"/></svg>Create story</button><p id="privacy-note">Meta understands it. Your computer renders it. You have the final say.</p></div>
       </form>
     </aside>
 
     <div class="editing-panel">
-      <div class="editor-heading"><div><h2 id="project-name" tabindex="-1">Untitled project</h2><p id="result">A little raw footage. A story worth sharing.</p></div><span id="project-status" class="status-pill">Ready to start</span></div>
+      <p id="result">A little raw footage. A story worth sharing.</p>
       <div id="error" class="error-message" role="alert" hidden><span id="error-text"></span><button type="button" id="dismiss-error" aria-label="Dismiss error">×</button></div>
+      <section id="media-panel" class="ed-panel ed-left" aria-label="Transcript and media">
+        <div class="ed-tabs" role="tablist" aria-label="Transcript and media">
+          <button type="button" role="tab" id="left-tab-transcript" aria-controls="left-transcript" aria-selected="true">Transcript</button>
+          <button type="button" role="tab" id="left-tab-media" aria-controls="media-bin-mount" aria-selected="false" tabindex="-1">Media</button>
+        </div>
+        <div id="left-transcript" class="ed-tabpanel" role="tabpanel" aria-labelledby="left-tab-transcript">
+          <div id="transcript-empty" class="tx-empty" hidden><p>No transcript yet.</p><span>Turn on Add captions in Story, then create the story again to transcribe this footage.</span></div>
+          <div id="transcript-panel" class="transcript-panel" hidden>
+            <div class="transcript-tools"><input id="transcript-search" type="search" placeholder="Find a word in the speech" aria-label="Search the transcript"><span id="transcript-count"></span></div>
+            <div id="transcript-actions" class="tx-actions" role="toolbar" aria-label="Transcript actions"></div>
+            <ol id="transcript-list" class="transcript-list"></ol>
+          </div>
+        </div>
+        <div id="media-bin-mount" class="ed-tabpanel" role="tabpanel" aria-labelledby="left-tab-media" hidden></div>
+      </section>
       <section class="monitor" aria-label="Video preview">
-        <div class="monitor-toolbar"><div class="preview-tabs" role="group" aria-label="Preview version"><button type="button" id="preview-source" aria-pressed="true">Source</button><button type="button" id="preview-final" aria-pressed="false" disabled>Finished video</button></div><span id="monitor-meta">Your canvas awaits</span></div>
+        <div class="monitor-toolbar"><div class="preview-tabs" role="group" aria-label="Preview version"><button type="button" id="preview-story" aria-pressed="false">Preview</button><button type="button" id="preview-source" aria-pressed="true">Source</button><button type="button" id="preview-final" aria-pressed="false" disabled>Finished video</button></div><span id="monitor-meta">Your canvas awaits</span></div>
         <div class="monitor-picture" id="monitor-picture">
           <video id="player" controls playsinline preload="metadata" hidden></video>
+          <div id="preview-stage" class="pv-stage" hidden></div>
+          <span id="monitor-badge" class="mon-badge" data-kind="source">Source footage</span>
           <div id="monitor-empty" class="monitor-empty"><div class="empty-frame" aria-hidden="true"><span></span><span></span><span></span><span></span><svg viewBox="0 0 48 48"><path d="m19 14 17 10-17 10V14Z"/></svg></div><h3>Start with something real.</h3><p>A product, a process, a moment.<br>Drop in your footage to begin.</p></div>
         </div>
-        <div class="monitor-footer"><span id="preview-label">Original footage</span><span id="playback-time">00:00 / 00:00</span></div>
+        <div class="monitor-footer"><span id="preview-label">Original footage</span><div id="transport" class="transport" role="group" aria-label="Playback"></div><span id="playback-time">00:00 / 00:00</span></div>
         <div id="scrubber" class="scrubber" hidden>
           <div id="scrub-track" class="scrub-track" aria-label="Source timeline. Click to seek. Drag a moment or its edges to change the cut." role="group">
             <div id="scrub-speech" class="scrub-layer scrub-speech" aria-hidden="true"></div>
@@ -113,6 +140,8 @@
           <div class="scrub-legend"><span class="key-moment"><i></i>Moment</span><span class="key-speech" id="key-speech" hidden><i></i>Speech</span><span class="key-scene" id="key-scene" hidden><i></i>Scene cut</span><span id="scrub-hint">Drag to move · Edges to trim · Arrows nudge</span></div>
         </div>
       </section>
+      <section id="inspector-panel" class="ed-panel ed-right" aria-label="Inspector"><div id="inspector-mount"></div></section>
+      <section id="timeline-panel" class="tl" aria-label="Timeline"></section>
 
       <section id="job-progress" class="job-progress" aria-label="Current job" hidden>
         <div class="progress-heading"><div><p id="busy" class="progress-title">Preparing your story</p><p id="progress-detail">Your project is saved as it progresses.</p></div><span id="elapsed">0:00</span></div>
@@ -131,13 +160,9 @@
           <div class="segments-heading"><h3>Selected moments</h3><span>Times refer to your source footage</span></div>
           <section id="program" aria-label="Editable story sequence"><ol id="program-list" class="segment-list"></ol></section>
           <button type="button" id="add-segment" class="text-button add-segment">+ Add a moment</button>
-          <details id="transcript-panel" class="transcript-panel" hidden><summary>Transcript <span id="transcript-count"></span></summary>
-            <div class="transcript-tools"><input id="transcript-search" type="search" placeholder="Find a word in the speech" aria-label="Search the transcript"><p>Click a time to jump. Add a line as a moment.</p></div>
-            <ol id="transcript-list" class="transcript-list"></ol>
-          </details>
           <details id="campaign-copy" class="campaign-copy" open><summary>Title &amp; post copy <span id="draft-status">Saved in this browser</span></summary><div class="copy-fields"><label for="story-title">Title</label><input type="text" id="story-title" maxlength="120"><label for="post-caption">Post copy</label><textarea id="post-caption" rows="3" maxlength="2200"></textarea><div class="hashtags-heading"><label for="hashtags">Hashtags</label><button type="button" id="copy-caption" class="text-button">Copy post</button></div><input type="text" id="hashtags" placeholder="#yourstory #yourcraft" maxlength="500"></div></details>
           <div id="story-warnings" class="warning-message" hidden></div>
-          <div class="render-bar"><p id="render-note">Review your moments, then make the video.</p><button type="button" id="make" class="button button-primary" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg>Make the video</button></div>
+          <div class="render-bar"><p id="render-note">Review your moments, then make the video.</p></div>
         </div>
       </section>
 
@@ -168,20 +193,63 @@
       <footer class="workspace-footer"><span class="local-dot" aria-hidden="true"></span><span>Built around your footage. Finished on your machine.</span><span id="save-status"></span></footer>
     </div>
   </main>
-  <dialog id="shortcuts" class="shortcuts" closedby="any" aria-labelledby="shortcuts-heading"><div class="shortcuts-body"><h2 id="shortcuts-heading">Keyboard shortcuts</h2><p>Work the cut without leaving the keyboard.</p>
-    <table><tbody>
+  <dialog id="shortcuts" class="shortcuts" closedby="any" aria-labelledby="shortcuts-heading"><div class="shortcuts-body"><h2 id="shortcuts-heading" tabindex="-1" autofocus>Keyboard shortcuts</h2><p>Work the cut without leaving the keyboard.</p>
+    <div class="shortcut-columns">
+    <table><caption>Everywhere</caption><tbody>
       <tr><td><kbd>Space</kbd> or <kbd>K</kbd></td><td>Play or pause</td></tr>
       <tr><td><kbd>J</kbd> / <kbd>L</kbd></td><td>Back or forward 5 seconds</td></tr>
-      <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Set the selected moment’s in or out point at the playhead</td></tr>
-      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge the selected moment 0.1 s; hold <kbd>Shift</kbd> for 1 s</td></tr>
-      <tr><td><kbd>1</kbd> – <kbd>8</kbd></td><td>Select and preview a moment</td></tr>
-      <tr><td><kbd>C</kbd></td><td>Switch between source and finished video</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Go to Story, Edit, or Deliver</td></tr>
+      <tr><td><kbd>C</kbd></td><td>Switch to the finished video and back</td></tr>
       <tr><td><kbd>V</kbd></td><td>Cycle through rendered versions</td></tr>
       <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
     </tbody></table>
+    <table><caption>Story</caption><tbody>
+      <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Set the selected moment’s in or out point at the playhead</td></tr>
+      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge the selected moment 0.1 s; hold <kbd>Shift</kbd> for 1 s</td></tr>
+      <tr><td><kbd>1</kbd> – <kbd>8</kbd></td><td>Select and preview a moment</td></tr>
+    </tbody></table>
+    <table><caption>Timeline</caption><tbody>
+      <tr><td><kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>B</kbd></td><td>Split at the playhead</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Remove the selection; the story closes the gap</td></tr>
+      <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
+      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Move the playhead one frame; hold <kbd>Shift</kbd> for 1 s</td></tr>
+      <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Previous or next cut</td></tr>
+      <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>Start or end of the story</td></tr>
+      <tr><td><kbd>1</kbd> – <kbd>9</kbd></td><td>Select a moment and go to it</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd></td><td>Move the selected moment earlier or later</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd></td><td>Speed the selected moment up or down</td></tr>
+      <tr><td><kbd>Q</kbd> / <kbd>W</kbd></td><td>Trim the moment’s start or end to the playhead (<kbd>I</kbd> / <kbd>O</kbd> too)</td></tr>
+      <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Move the moment’s in point 0.1 s earlier, or its out point later</td></tr>
+      <tr><td><kbd>{</kbd> / <kbd>}</kbd></td><td>Move the in point later, or the out point earlier</td></tr>
+      <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>Slide the moment 0.1 s through the source; <kbd>&lt;</kbd> / <kbd>&gt;</kbd> for 1 s</td></tr>
+      <tr><td><kbd>=</kbd> / <kbd>-</kbd></td><td>Zoom in or out</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Fit the story to the timeline</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Ripple: text and overlays follow the footage</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Snapping</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Cancel a drag, or clear the selection</td></tr>
+    </tbody></table>
+    <table><caption>On a focused moment or edge</caption><tbody>
+      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>On a moment, go to the previous or next one</td></tr>
+      <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>On an edge, trim 0.1 s; hold <kbd>Shift</kbd> for 1 s</td></tr>
+    </tbody></table>
+    <table><caption>Transcript</caption><tbody>
+      <tr><td><kbd>Shift</kbd>+arrows</td><td>Select words</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Cut the selected words from the story</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Go to the word at the cursor</td></tr>
+    </tbody></table>
+    </div>
     <div class="shortcuts-footer"><button type="button" id="shortcuts-close" class="button button-secondary">Done</button></div></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <p id="live" class="sr" aria-live="polite" aria-atomic="true"></p>
+<script src="timeline_items.js"></script>
+  <script src="look-styles.js"></script>
+  <script src="timeline.js"></script>
+  <script src="preview.js"></script>
   <script src="studio.js"></script>
+  <script src="mediabin.js"></script>
+  <script src="inspector.js"></script>
+  <script src="settings.js"></script>
+  <script src="meta-calls.js"></script>
 </body>
 </html>

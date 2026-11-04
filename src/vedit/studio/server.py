@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import shutil
 import socketserver
 import webbrowser
 from contextlib import suppress
@@ -13,14 +14,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.request import ProxyHandler, build_opener
 
 from vedit import __version__
 from vedit.agent.loop import _session_dir, load_session, run_session
-from vedit.media import trace
-from vedit.errors import BriefError, VeditError, RenderError
+from vedit.media import plain_failure, trace
+from vedit.errors import BriefError, VeditError
+from vedit.project_media import MAX_SOURCE_BYTES, MediaProblem, inspect_media
+from vedit.studio import product
 
 _MAX_JSON = 1_000_000
-_MAX_UPLOAD = 200_000_000
+_MAX_UPLOAD = MAX_SOURCE_BYTES
+# A form upload sits in memory while it is parsed, so it keeps a small limit.
+# /api/upload streams to disk and can take the full size.
+_MAX_FORM_UPLOAD = 200_000_000
+_UPLOAD_MARGIN = 64 * 1024 * 1024
+_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts", ".ts", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ogv"}
 _UPLOAD_CHUNK = 256 * 1024
 _UPLOAD_TIMEOUT = 30
 _LOCAL_HOSTS = ("127.0.0.1", "localhost")
@@ -153,6 +162,11 @@ def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str
     return goal, paths, do_render, analyze, root
 
 
+def _client_error(exc: Exception) -> str:
+    """A brief error is about the request. Anything else can hold paths and commands."""
+    return str(exc) if isinstance(exc, BriefError) else plain_failure(exc)
+
+
 def _session_root(query: str) -> Path:
     values = parse_qs(query, keep_blank_values=True).get("root")
     if not values or values[0] == "":
@@ -164,11 +178,13 @@ def _session_root(query: str) -> Path:
 
 
 def _safe_filename(raw: str) -> str:
-    name = Path(raw.replace("\\", "/")).name
-    name = _SAFE_NAME.sub("_", name).strip("._")
-    if not name:
+    """A plain ASCII name that keeps its extension, so 写真.jpg stays a .jpg."""
+    name = Path(Path(raw.replace("\\", "/")).name)
+    suffix = _SAFE_NAME.sub("", name.suffix)[:16]
+    stem = _SAFE_NAME.sub("_", name.stem).strip("._")
+    if not stem and not suffix:
         return "clip.mp4"
-    return name[:120]
+    return (stem or "media")[:100] + suffix
 
 
 def _store_clip(root: Path, filename: str, data: bytes) -> Path:
@@ -279,6 +295,9 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
+        if product.owns("GET", path):
+            product.handle(self, "GET", path, split.query)
+            return
         if path == "/api/capabilities" or path == "/api/campaigns" or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=False)
             return
@@ -304,7 +323,10 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
-        if path == "/api/campaigns" or path.startswith("/api/campaigns/"):
+        if product.owns("POST", path):
+            product.handle(self, "POST", path, split.query)
+            return
+        if path in {"/api/campaigns", "/api/script"} or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=True)
             return
         # Loopback is not authentication: every mutating route checks Host/Origin.
@@ -324,7 +346,7 @@ class StudioHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         split = urlsplit(self.path)
         path = unquote(split.path)
-        if path.startswith("/api/campaigns/") and path.endswith("/artifact"):
+        if path.startswith("/api/campaigns/") and path.endswith(("/artifact", "/filmstrip")):
             self._handle_campaign(path, split.query, mutation=False, send_body=False)
             return
         if path == "/api/media":
@@ -337,6 +359,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_DELETE(self) -> None:
+        split = urlsplit(self.path)
+        path = unquote(split.path)
+        if product.owns("DELETE", path):
+            product.handle(self, "DELETE", path, split.query)
+            return
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_PATCH(self) -> None:
@@ -387,17 +414,17 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not self._campaign_origin_allowed(mutation=mutation):
             return
         # Lazy import keeps the existing session API independent of job storage.
-        from vedit.campaign import CampaignError, capabilities, get_manager
+        from vedit.campaign import CampaignError, capabilities, get_manager, product_request
 
         try:
             if path == "/api/capabilities" and not mutation:
                 self._send_json(200, {"ok": True, **capabilities()})
                 return
-            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact))?)?", path)
-            if match is None:
+            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact|timeline|find|shorts|assets|background|filmstrip|waveform|meta-calls))?)?", path)
+            if match is None and path != "/api/script":
                 self._send_json(404, {"ok": False, "error": "Campaign route not found."})
                 return
-            job_id, action = match.groups()
+            job_id, action = match.groups() if match else (None, None)
             manager = get_manager()
             if not mutation:
                 if job_id is None:
@@ -421,10 +448,31 @@ class StudioHandler(BaseHTTPRequestHandler):
                         # video named .html must never execute as an HTML page.
                         ctype, attachment = "application/octet-stream", True
                     self._serve_path(target, send_body=send_body, attachment=attachment, content_type=ctype)
+                elif action == "filmstrip":
+                    self._serve_path(manager.filmstrip(job_id), send_body=send_body, content_type="image/jpeg")
+                elif action == "assets":
+                    ids = parse_qs(query).get("id", [])
+                    if len(ids) != 1:
+                        raise CampaignError("Choose one asset.")
+                    target = manager.asset_file(job_id, ids[0])
+                    ctype = _media_type(target)
+                    # Same rule as the source: only plain pictures and sound display in place.
+                    plain = ctype.startswith(("image/", "audio/"))
+                    self._serve_path(target, send_body=send_body, attachment=not plain, content_type=ctype if plain else "application/octet-stream")
+                elif action == "waveform":
+                    self._send_json(200, {"ok": True, **manager.waveform(job_id)})
+                elif action == "meta-calls":
+                    # The project's Meta call log: purposes, models, sizes and costs only.
+                    from vedit import meta
+
+                    job = manager.get(job_id)
+                    budget = (job.get("request") or {}).get("budget_usd")
+                    report = meta.call_log(manager.root / job["id"], budget_usd=budget if isinstance(budget, (int, float)) and not isinstance(budget, bool) else None)
+                    self._send_json(200, {"ok": True, "status": job.get("status"), **report})
                 else:
                     self._send_json(405, {"ok": False, "error": "This action requires POST."})
                 return
-            if action == "artifact" or (job_id is not None and action is None):
+            if action in {"artifact", "filmstrip", "waveform", "meta-calls"} or (job_id is not None and action is None):
                 self._send_json(405, {"ok": False, "error": "This resource requires GET."})
                 return
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -445,8 +493,27 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             if not isinstance(payload, dict):
                 raise CampaignError("Send a JSON object.")
+            if action == "assets":
+                self._send_json(201, {"ok": True, "asset": manager.add_asset(job_id, payload)})
+                return
+            if action == "background":
+                self._send_json(201, {"ok": True, "asset": manager.generate_background(job_id, payload)})
+                return
+            if action == "timeline":
+                self._send_json(200, {"ok": True, "timeline": manager.timeline(job_id, payload)})
+                return
+            if action == "find":
+                self._send_json(200, {"ok": True, **manager.find(job_id, payload)})
+                return
+            if action == "shorts":
+                self._send_json(202, {"ok": True, "jobs": manager.shorts(job_id, payload)})
+                return
+            if path == "/api/script":
+                self._send_json(202, {"ok": True, "job": manager.create_script(product_request(payload))})
+                return
             if job_id is None:
-                job = manager.create(payload)
+                # Every Studio project runs on Meta. The manager never sees a local request from here.
+                job = manager.create(product_request(payload))
             elif action == "render":
                 job = manager.render(job_id, payload)
             elif action == "revise":
@@ -508,7 +575,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": str(exc)})
             return
         except VeditError as exc:
-            self._send_json(400, {"ok": False, "error": str(exc)})
+            self._send_json(400, {"ok": False, "error": _client_error(exc)})
             return
         self._send_json(200, {"ok": True, "session": session.to_dict()})
 
@@ -582,16 +649,21 @@ class StudioHandler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
     def _handle_upload(self, query: str) -> None:
-        """Store one source, with bounded memory, for many plan/render requests."""
+        """Store one video, photo, or audio file, with bounded memory, for later requests.
+
+        What the file really is comes from probing it, never its name. Video is
+        judged when a project is created, as it always was, so only a file that
+        claims to be something else is refused here.
+        """
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/octet-stream":
             self.close_connection = True
-            self._send_json(415, {"ok": False, "error": "Send the clip as application/octet-stream."})
+            self._send_json(415, {"ok": False, "error": "Send the file as application/octet-stream."})
             return
         size = self._body_size(_MAX_UPLOAD, label="upload")
         if size is None:
             return
         if size == 0:
-            self._send_json(400, {"ok": False, "error": "The clip is empty. Choose a media file."})
+            self._send_json(400, {"ok": False, "error": "The file is empty. Choose a media file."})
             return
         filename = parse_qs(query).get("name", ["clip.mp4"])[0]
         root: Path | None = None
@@ -599,6 +671,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         old_timeout = self.connection.gettimeout()
         try:
             root = _session_dir(None, "source")
+            if shutil.disk_usage(root).free < size + _UPLOAD_MARGIN:
+                raise BriefError("There is not enough free disk space for this file. Free some space, then try again.")
             inbox = root / "inbox"
             inbox.mkdir()
             dest = inbox / _safe_filename(filename)
@@ -627,7 +701,20 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         finally:
             self.connection.settimeout(old_timeout)
-        self._send_json(201, {"ok": True, "paths": [str(dest)], "bytes": size})
+        kind: str | None = None
+        try:
+            kind = inspect_media(dest).kind
+        except MediaProblem as exc:
+            if dest.suffix.lower() not in _VIDEO_SUFFIXES:
+                with suppress(OSError):
+                    dest.unlink(missing_ok=True)
+                    inbox.rmdir()
+                    root.rmdir()
+                self._send_json(415, {"ok": False, "error": str(exc)})
+                return
+        except VeditError:
+            pass  # With no ffprobe here, the file is judged when it is used.
+        self._send_json(201, {"ok": True, "paths": [str(dest)], "bytes": size, "kind": kind})
 
     def _handle_run(self, *, force_render: bool | None) -> None:
         content_type = self.headers.get("Content-Type", "")
@@ -650,19 +737,15 @@ class StudioHandler(BaseHTTPRequestHandler):
             trace("run-session-enter")
             session = run_session(goal, paths, root=root, render=do_render, analyze=analyze)
             trace("run-session-exit")
-        except RenderError:
-            # Render failures carry full command lines and paths; keep them in the session log.
-            self._send_json(400, {"ok": False, "error": "The render failed. Read the session's render log, run vedit doctor, then retry."})
-            return
         except (VeditError, FileNotFoundError) as exc:
-            self._send_json(400, {"ok": False, "error": str(exc)})
+            self._send_json(400, {"ok": False, "error": _client_error(exc)})
             return
         self._send_json(200, {"ok": True, "session": session.to_dict()})
 
     def _read_multipart(
         self, force_render: bool | None
     ) -> tuple[str, list[str], bool, bool, Path | None] | None:
-        raw = self._read_body(_MAX_UPLOAD, label="upload")
+        raw = self._read_body(_MAX_FORM_UPLOAD, label="upload")
         if raw is None:
             return None
         content_type = self.headers.get("Content-Type", "")
@@ -783,13 +866,51 @@ class _LoopbackServer(ThreadingHTTPServer):
     ``HTTPServer.server_bind`` calls ``socket.getfqdn``. On a machine whose
     resolver never answers for 127.0.0.1, that call blocks and the Mac window
     stays on "Opening the editor."
+
+    The accept queue holds a whole page load. The default of 5 resets connections
+    when a render keeps this process busy, which leaves the editor half loaded.
     """
+
+    request_queue_size = 128
 
     def server_bind(self) -> None:
         socketserver.TCPServer.server_bind(self)
         host, port = self.server_address[:2]
         self.server_name = str(host)
         self.server_port = port
+
+
+def _running_studio(port: int) -> str | None:
+    """The address of a Studio already answering on this port, if that is what it is."""
+    url = f"http://127.0.0.1:{port}"
+    try:
+        with build_opener(ProxyHandler({})).open(url + "/api/health", timeout=1) as response:
+            return url if json.load(response).get("product") == "vedit" else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def open_studio(port: int = 8765) -> int:
+    """Open Studio for a person: join one already running, or take a free port."""
+    running = _running_studio(port)
+    if running is not None:
+        print(f"Briefcut is already running at {running}", flush=True)
+        webbrowser.open(running + "/")
+        return 0
+    try:
+        httpd = _LoopbackServer(("127.0.0.1", port), StudioHandler)
+    except OSError:
+        httpd = _LoopbackServer(("127.0.0.1", 0), StudioHandler)
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+    print(f"Briefcut is open at {url}\nPress Control-C to stop it.", flush=True)
+    webbrowser.open(url + "/")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nBriefcut stopped.", flush=True)
+    finally:
+        httpd.server_close()
+    return 0
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False) -> None:

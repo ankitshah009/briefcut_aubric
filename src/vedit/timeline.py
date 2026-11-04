@@ -1,0 +1,415 @@
+"""One clock for the whole edit.
+
+A story is a list of segments on the source clock. Almost everything a creator
+adds changes how source time maps to finished-video time: pauses and filler
+words disappear inside a segment, a segment can run faster or slower, and a
+transition overlaps two neighbours.
+
+This pure module is the only place that arithmetic lives. The compiler, the
+captions, the lint, the preview, and the receipts all read it, so a cut can
+never disagree with its own captions. Nothing here touches a file or a process.
+
+Vocabulary:
+
+* **source clock**: seconds in the project's source video.
+* **output clock**: seconds in the finished video.
+* **segment**: ``{"start", "end", "speed"?, "keep"?}`` on the source clock.
+* **keep**: the sub-ranges of a segment that survive, in order.
+* **span**: one kept piece placed on the output clock.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+MIN_KEEP = 0.08
+MIN_SPEED = 0.25
+MAX_SPEED = 4.0
+PAUSE_SECONDS = 0.6
+PAUSE_PAD = 0.12
+TRANSITION_SHARE = 0.4
+FILLER_PAD = 0.02
+STUTTER_GAP = 0.4
+
+FILLERS = frozenset({"um", "umm", "uhm", "uh", "uhh", "er", "erm", "ah", "ahh", "hmm", "hm", "mm", "mhm"})
+_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)?", re.UNICODE)
+
+
+@dataclass(frozen=True)
+class Span:
+    """One kept source range placed on the output clock."""
+
+    segment: int  # 1-based index in plan["segments"]
+    source_start: float
+    source_end: float
+    output_start: float
+    output_end: float
+    speed: float = 1.0
+
+    @property
+    def duration(self) -> float:
+        return self.output_end - self.output_start
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "segment": self.segment,
+            "source_start": round(self.source_start, 3),
+            "source_end": round(self.source_end, 3),
+            "output_start": round(self.output_start, 3),
+            "output_end": round(self.output_end, 3),
+            "speed": self.speed,
+        }
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def segment_speed(segment: dict[str, Any]) -> float:
+    """The segment's playback rate, clamped to what FFmpeg can do cleanly."""
+    speed = _finite(segment.get("speed"))
+    if speed is None or speed <= 0:
+        return 1.0
+    return min(MAX_SPEED, max(MIN_SPEED, speed))
+
+
+def segment_keeps(segment: dict[str, Any]) -> list[tuple[float, float]]:
+    """The source ranges of a segment that survive, in source order."""
+    start, end = _finite(segment.get("start")), _finite(segment.get("end"))
+    if start is None or end is None or end <= start:
+        return []
+    keep = segment.get("keep")
+    pieces: list[tuple[float, float]] = []
+    if isinstance(keep, (list, tuple)):
+        for item in keep:
+            if isinstance(item, dict):
+                lo, hi = _finite(item.get("start")), _finite(item.get("end"))
+            elif isinstance(item, (list, tuple)) and len(item) == 2:
+                lo, hi = _finite(item[0]), _finite(item[1])
+            else:
+                continue
+            if lo is None or hi is None:
+                continue
+            lo, hi = max(lo, start), min(hi, end)
+            if hi - lo >= MIN_KEEP:
+                pieces.append((lo, hi))
+    if not pieces:
+        return [(start, end)]
+    pieces.sort()
+    merged = [pieces[0]]
+    for lo, hi in pieces[1:]:
+        if lo <= merged[-1][1] + 1e-6:
+            merged[-1] = (merged[-1][0], max(hi, merged[-1][1]))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+def segment_output_seconds(segment: dict[str, Any]) -> float:
+    """How long a segment plays in the finished video, before transitions."""
+    speed = segment_speed(segment)
+    return sum(hi - lo for lo, hi in segment_keeps(segment)) / speed
+
+
+def effective_transition(segments: Iterable[dict[str, Any]], seconds: Any) -> float:
+    """The overlap a transition really uses.
+
+    A transition may not eat more than ``TRANSITION_SHARE`` of the shortest
+    moment, so the compiler and the clock always agree on a value FFmpeg can run.
+    """
+    wanted = _finite(seconds) or 0.0
+    lengths = [segment_output_seconds(segment) for segment in segments]
+    if wanted <= 0 or len(lengths) < 2:
+        return 0.0
+    return round(min(wanted, TRANSITION_SHARE * min(lengths)), 6)
+
+
+def build_timeline(segments: Iterable[dict[str, Any]], *, transition: Any = 0.0) -> list[Span]:
+    """Place every kept piece on the output clock, in editorial order."""
+    items = list(segments)
+    overlap = effective_transition(items, transition)
+    spans: list[Span] = []
+    clock = 0.0
+    for index, segment in enumerate(items, 1):
+        keeps = segment_keeps(segment)
+        if not keeps:
+            continue
+        speed = segment_speed(segment)
+        if spans:
+            clock -= overlap
+        for lo, hi in keeps:
+            length = (hi - lo) / speed
+            spans.append(Span(index, lo, hi, clock, clock + length, speed))
+            clock += length
+    return spans
+
+
+def output_duration(spans: Iterable[Span]) -> float:
+    return max((span.output_end for span in spans), default=0.0)
+
+
+def segment_starts(spans: Iterable[Span]) -> dict[int, float]:
+    """Output time at which each 1-based segment begins."""
+    starts: dict[int, float] = {}
+    for span in spans:
+        starts.setdefault(span.segment, span.output_start)
+    return starts
+
+
+def to_output(spans: Iterable[Span], source_time: float, *, segment: int | None = None) -> float | None:
+    """Output time of a source time, or None when that moment was cut."""
+    for span in spans:
+        if segment is not None and span.segment != segment:
+            continue
+        if span.source_start - 1e-6 <= source_time <= span.source_end + 1e-6:
+            return span.output_start + (source_time - span.source_start) / span.speed
+    return None
+
+
+def to_source(spans: Iterable[Span], output_time: float, *, segment: int | None = None) -> tuple[int, float] | None:
+    """``(segment, source_time)`` at an output time. In an overlap, the incoming moment wins unless ``segment`` names one."""
+    found: tuple[int, float] | None = None
+    for span in spans:
+        if segment is not None and span.segment != segment:
+            continue
+        if span.output_start - 1e-6 <= output_time <= span.output_end + 1e-6:
+            found = (span.segment, span.source_start + (output_time - span.output_start) * span.speed)
+    return found
+
+
+def map_interval(spans: Iterable[Span], start: float, end: float) -> list[tuple[int, float, float]]:
+    """Where a source interval plays: ``(segment, output_start, output_end)`` pieces in output order."""
+    pieces: list[tuple[int, float, float]] = []
+    for span in spans:
+        lo, hi = max(start, span.source_start), min(end, span.source_end)
+        if hi - lo <= 1e-6:
+            continue
+        begin = span.output_start + (lo - span.source_start) / span.speed
+        finish = span.output_start + (hi - span.source_start) / span.speed
+        if pieces and pieces[-1][0] == span.segment and begin - pieces[-1][2] < 1e-3:
+            pieces[-1] = (span.segment, pieces[-1][1], finish)
+        else:
+            pieces.append((span.segment, begin, finish))
+    return pieces
+
+
+def _split_text(text: str, weights: list[float]) -> list[str]:
+    """Share a cue's words among pieces of play time without losing any."""
+    words = text.split()
+    total = sum(weights)
+    if total <= 0 or len(weights) < 2:
+        return [text]
+    parts: list[str] = []
+    used = 0
+    spent = 0.0
+    for index, weight in enumerate(weights):
+        spent += weight
+        upto = len(words) if index == len(weights) - 1 else round(len(words) * spent / total)
+        parts.append(" ".join(words[used:upto]))
+        used = max(used, upto)
+    return parts
+
+
+def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str, Any]]:
+    """Move source-clock cues onto the output clock.
+
+    A cue with ``words`` keeps only the words that survive the edit, so a removed
+    filler also leaves the caption. A cue with no words keeps its text whole
+    unless the edit splits it across two moments, then the words are shared by
+    play time. Cues that were entirely cut are dropped. Each result names the
+    ``segment`` it plays in, which output time alone cannot say inside a transition.
+    """
+    moved: list[dict[str, Any]] = []
+    for cue in cues:
+        start, end = _finite(cue.get("start")), _finite(cue.get("end"))
+        text = str(cue.get("text") or "").strip()
+        if start is None or end is None or end <= start or not text:
+            continue
+        words = cue.get("words") if isinstance(cue.get("words"), list) else None
+        if words:
+            placed: dict[int, list[dict[str, Any]]] = {}
+            for word in words:
+                if not isinstance(word, dict):
+                    continue
+                lo, hi = _finite(word.get("start")), _finite(word.get("end"))
+                if lo is None or hi is None or hi < lo:
+                    continue
+                pieces = map_interval(spans, lo, max(hi, lo + 1e-3))
+                if not pieces:
+                    continue
+                # A word across a cut stays with the moment it starts in. The next
+                # moment can begin earlier on this clock, under a transition.
+                segment, begin = pieces[0][0], pieces[0][1]
+                finish = max(hi for owner, _lo, hi in pieces if owner == segment)
+                placed.setdefault(segment, []).append({"start": round(begin, 3), "end": round(finish, 3), "text": str(word.get("text") or "")})
+            for segment, segment_words in placed.items():
+                if segment_words:
+                    moved.append({"start": segment_words[0]["start"], "end": segment_words[-1]["end"],
+                                  "text": " ".join(item["text"].strip() for item in segment_words if item["text"].strip()),
+                                  "words": segment_words, "segment": segment})
+            continue
+        pieces = map_interval(spans, start, end)
+        if not pieces:
+            continue
+        groups: dict[int, list[float]] = {}
+        for segment, begin, finish in pieces:
+            group = groups.setdefault(segment, [begin, finish])
+            group[0], group[1] = min(group[0], begin), max(group[1], finish)
+        shares = _split_text(text, [hi - lo for lo, hi in groups.values()])
+        for (segment, (lo, hi)), share in zip(groups.items(), shares):
+            if share:
+                moved.append({"start": round(lo, 3), "end": round(hi, 3), "text": share, "segment": segment})
+    moved.sort(key=lambda cue: (cue["start"], cue["end"]))
+    return moved
+
+
+def concat_spans(spans: Iterable[Span]) -> list[Span]:
+    """The same placements, with the kept audio laid end to end at normal speed as the "source".
+
+    A recognizer that hears only the kept pieces reports times on this concat
+    clock. Handing ``map_cues`` these spans covers keep, speed, and transition.
+    """
+    placed: list[Span] = []
+    clock = 0.0
+    for span in spans:
+        length = span.source_end - span.source_start
+        placed.append(Span(span.segment, clock, clock + length, span.output_start, span.output_end, span.speed))
+        clock += length
+    return placed
+
+
+def concat_to_source(spans: Iterable[Span], moment: float) -> float:
+    """The source time at a moment on the concat clock."""
+    clock = 0.0
+    last = moment
+    for span in spans:
+        length = span.source_end - span.source_start
+        if moment <= clock + length + 1e-6:
+            return span.source_start + max(0.0, moment - clock)
+        clock += length
+        last = span.source_end
+    return last
+
+
+def subtract(start: float, end: float, removals: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:
+    """``[start, end]`` minus the removals, dropping slivers too short to play."""
+    cuts = sorted((max(lo, start), min(hi, end)) for lo, hi in removals if min(hi, end) > max(lo, start))
+    keeps: list[tuple[float, float]] = []
+    cursor = start
+    for lo, hi in cuts:
+        if lo - cursor >= MIN_KEEP:
+            keeps.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if end - cursor >= MIN_KEEP:
+        keeps.append((cursor, end))
+    return keeps
+
+
+def pause_removals(speech: Iterable[dict[str, Any]], start: float, end: float, *,
+                   min_pause: float = PAUSE_SECONDS, pad: float = PAUSE_PAD) -> list[tuple[float, float]]:
+    """Pauses inside a moment, from measured speech bands. A moment with no speech keeps its picture."""
+    bands = []
+    for band in speech:
+        lo, hi = _finite(band.get("start")), _finite(band.get("end"))
+        if lo is not None and hi is not None and min(hi, end) > max(lo, start):
+            bands.append((max(lo, start), min(hi, end)))
+    if not bands:
+        return []
+    removals: list[tuple[float, float]] = []
+    cursor = start
+    for lo, hi in sorted(bands):
+        if lo - cursor >= min_pause:
+            begin = cursor + pad if cursor > start else cursor
+            if lo - pad - begin >= MIN_KEEP:
+                removals.append((begin, lo - pad))
+        cursor = max(cursor, hi)
+    if end - cursor >= min_pause and end - cursor - pad >= MIN_KEEP:
+        removals.append((cursor + pad, end))
+    return removals
+
+
+def _plain(word: str) -> str:
+    match = _WORD.search(word.lower())
+    return match.group(0) if match else ""
+
+
+def filler_removals(words: Iterable[dict[str, Any]], start: float, end: float, *, pad: float = FILLER_PAD) -> list[tuple[float, float]]:
+    """Spoken fillers and immediate word repeats. Only what the transcript heard can be removed."""
+    inside = []
+    for word in words:
+        lo, hi = _finite(word.get("start")), _finite(word.get("end"))
+        if lo is not None and hi is not None and hi > lo and lo >= start and hi <= end:
+            inside.append((lo, hi, _plain(str(word.get("text") or ""))))
+    removals: list[tuple[float, float]] = []
+    for index, (lo, hi, plain) in enumerate(inside):
+        if plain in FILLERS:
+            removals.append((max(start, lo - pad), min(end, hi + pad)))
+        elif index + 1 < len(inside) and plain and plain == inside[index + 1][2] and inside[index + 1][0] - hi <= STUTTER_GAP:
+            # "the the shape": the second copy is the clean take.
+            removals.append((max(start, lo - pad), inside[index + 1][0]))
+    return removals
+
+
+def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Fill in each segment's ``keep`` from the edit: manual cuts, pauses, fillers.
+
+    A removal that would erase a whole moment is ignored; deleting a moment is a
+    decision for the story, not a side effect of a cleanup setting.
+    """
+    edit = plan.get("edit") if isinstance(plan.get("edit"), dict) else {}
+    analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
+    speech = [item for item in (analysis.get("speech") or []) if isinstance(item, dict)]
+    words = [item for item in (analysis.get("words") or []) if isinstance(item, dict)]
+    manual = []
+    for item in edit.get("removed") or []:
+        if isinstance(item, dict):
+            lo, hi = _finite(item.get("start")), _finite(item.get("end"))
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            lo, hi = _finite(item[0]), _finite(item[1])
+        else:
+            continue
+        if lo is not None and hi is not None and hi > lo:
+            manual.append((lo, hi))
+    resolved: list[dict[str, Any]] = []
+    for segment in plan.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        item = dict(segment)
+        item.pop("keep", None)
+        start, end = _finite(item.get("start")), _finite(item.get("end"))
+        if start is None or end is None or end <= start:
+            resolved.append(item)
+            continue
+        removals = list(manual)
+        if edit.get("trim_pauses"):
+            removals.extend(pause_removals(speech, start, end))
+        if edit.get("remove_fillers"):
+            removals.extend(filler_removals(words, start, end))
+        if removals:
+            keeps = subtract(start, end, removals)
+            if keeps and keeps != [(start, end)]:
+                item["keep"] = [[round(lo, 3), round(hi, 3)] for lo, hi in keeps]
+        resolved.append(item)
+    return resolved
+
+
+def plan_timeline(plan: dict[str, Any]) -> dict[str, Any]:
+    """The display and compile view of a plan: resolved segments and their spans."""
+    segments = resolve_segments(plan)
+    edit = plan.get("edit") if isinstance(plan.get("edit"), dict) else {}
+    transition = edit.get("transition") if isinstance(edit.get("transition"), dict) else {}
+    seconds = transition.get("seconds") if transition.get("type") not in (None, "none") else 0.0
+    overlap = effective_transition(segments, seconds)
+    spans = build_timeline(segments, transition=overlap)
+    return {
+        "segments": segments,
+        "spans": spans,
+        "transition_seconds": overlap,
+        "duration": round(output_duration(spans), 3),
+    }

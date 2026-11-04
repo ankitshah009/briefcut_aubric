@@ -13,20 +13,24 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
-from vedit.analyze import Range, detect_silence, keep_ranges
+from vedit.analyze import Range, audible, detect_silence, keep_ranges
+from vedit.captions import cue_words, word_records
 from vedit.errors import VeditError
+from vedit.timeline import subtract
 from vedit.media import probe, run_ffmpeg
 
 METHOD = "local-analysis"
 NOTE = "Local analysis: scene cuts + speech energy + transcript keywords. Not AI understanding."
+NO_TRANSCRIPT = "No transcript: Briefcut hears speech only with Meta Voice Transcribe, which a local plan does not call. Moments follow scene cuts and speech energy."
 KINDS = ("hook", "speech", "scene", "opening", "closing")
 
 MAX_SEGMENTS = 8
 MIN_SEGMENT = 0.5
 MIN_PIECE = 1.5
 MAX_PIECE = 12.0
+VARIATION_WEIGHT = 0.25
 PAD = 0.15
 MAX_SCENES = 400
 MAX_SPEECH = 400
@@ -40,8 +44,8 @@ SNAP_EXTEND = 1.6
 SNAP_SHRINK = 0.8
 SNAP_FINISH = 3.0
 SNAP_OVERSHOOT = 0.15
+CUT_TOLERANCE = 0.25
 LABEL_CHARS = 40
-TRANSCRIBE_MAX_SECONDS = 600.0
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9'\-]{1,}")
 _HOOK_HINT = re.compile(r"\b(open with|opening|start with|hook|begin with|first show)\b", re.I)
@@ -207,6 +211,26 @@ def speech_ranges(duration: float, silences: list[Range]) -> list[Range]:
     return [Range(max(0.0, k.start), min(duration, k.end)) for k in keeps if k.end > k.start]
 
 
+def heard_ranges(energy: list[Range], sentences: list[dict[str, Any]]) -> list[Range]:
+    """Speech is what a transcriber turned into words, inside what the meter measured.
+
+    A meter cannot tell a voice from a music bed or street noise: each reads as
+    one long band. Once a transcriber has listened, the rest is only sound.
+    """
+    heard: list[Range] = []
+    for sentence in sentences:
+        for band in energy:
+            start, end = max(float(sentence["start"]), band.start), min(float(sentence["end"]), band.end)
+            if end > start:
+                heard.append(Range(start, end))
+    return heard
+
+
+def _was_transcribed(measured: dict[str, Any]) -> bool:
+    """Did a transcriber listen? An empty transcript alone cannot say, but words can."""
+    return bool(measured.get("transcribed") or measured.get("transcript"))
+
+
 def split_at_scenes(ranges: list[Range], scenes: list[float]) -> list[Range]:
     pieces: list[Range] = []
     for item in ranges:
@@ -240,6 +264,32 @@ def merge_pieces(pieces: list[Range], *, min_len: float = MIN_PIECE, max_len: fl
 
 def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
     return max(0.0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def clip_cuts(clips: list[tuple[float, float]] | None) -> list[float]:
+    """Where the clips of a multi-clip project meet on the source clock."""
+    return [float(start) for start, _ in (clips or [])[1:]]
+
+
+def merge_cuts(scenes: Iterable[float], cuts: Iterable[float], *, tolerance: float = CUT_TOLERANCE) -> list[float]:
+    """Detected scene cuts plus known boundaries. A cut detected at a boundary is that boundary."""
+    known = sorted({round(float(cut), 3) for cut in cuts})
+    kept = [float(scene) for scene in scenes if not any(abs(float(scene) - cut) <= tolerance for cut in known)]
+    return sorted(kept + known)
+
+
+def fit_to_clips(pieces: list[Range], clips: list[tuple[float, float]], *, longest: float = math.inf) -> list[Range]:
+    """Keep every candidate inside one clip, and give silent clips and photos their own.
+
+    A piece that crossed a join would flash a few frames of the next clip, and a
+    clip with no speech would otherwise never be a candidate at all. ``longest``
+    is one clip's fair share of the story, so an early pick leaves room for the rest.
+    """
+    fitted: list[Range] = []
+    for start, end in clips:
+        inside = [Range(max(piece.start, start), min(piece.end, end)) for piece in pieces if _overlap(piece.start, piece.end, start, end) >= MIN_SEGMENT]
+        fitted.extend(Range(piece.start, min(piece.end, piece.start + longest)) for piece in inside or merge_pieces([Range(start, end)]))
+    return fitted
 
 
 def score_candidates(
@@ -408,6 +458,31 @@ def _post_copy(title: str, segments: list[dict[str, Any]], sentences: list[dict[
     return " ".join(parts)
 
 
+def unused_moments(moments: list[Moment], used: list[tuple[float, float]]) -> list[Moment]:
+    """The parts of each moment that another story does not already play."""
+    kept: list[Moment] = []
+    for moment in moments:
+        for low, high in subtract(moment.start, moment.end, used):
+            if high - low >= MIN_SEGMENT:
+                kept.append(Moment(low, high, moment.score, moment.kind, moment.evidence, moment.words, moment.span))
+    return kept
+
+
+def vary_moments(moments: list[Moment], variation: int, *, duration: float) -> list[Moment]:
+    """Lean each short a different way, so a family does not reach for the same kind of moment.
+
+    The leans cycle: later moments, shorter moments, moments near the middle,
+    then earlier moments. They nudge the measured score and never replace it.
+    """
+    lean = variation % 4
+    varied = []
+    for moment in moments:
+        middle = (moment.start + moment.end) / 2 / max(duration, 0.001)
+        nudge = {1: middle, 2: 1 - min(1.0, moment.duration / MAX_PIECE), 3: 1 - abs(middle - 0.5) * 2, 0: 1 - middle}[lean]
+        varied.append(Moment(moment.start, moment.end, round(min(1.0, moment.score + VARIATION_WEIGHT * nudge), 3), moment.kind, moment.evidence, moment.words, moment.span))
+    return varied
+
+
 def _pad_and_order(chosen: list[Moment], duration: float, *, target: float, hook_first: bool, pad: float = PAD) -> list[Moment]:
     """Add breathing room around cuts without exceeding the target length."""
     ordered = sorted(chosen, key=lambda m: m.start)
@@ -451,14 +526,14 @@ def _speech_bounds(speech: Any) -> list[tuple[float, float]]:
 def sentences_from_transcript(transcript: list[dict[str, Any]], *, duration: float = math.inf, speech: Any = None) -> list[dict[str, Any]]:
     """Group consecutive cues into sentences ending at terminal punctuation.
 
-    Whisper and silence detection split at breaths, not sentences, so a cue can
+    Transcript lines and silence detection split at breaths, not sentences, so a cue can
     end with "oiled and". Consecutive cues are joined until one ends with
     ``. ! ? …`` (closing quotes allowed); a pause of ``SENTENCE_GAP`` seconds or
     more between cues also closes a sentence, so unpunctuated transcripts still
     break at natural pauses. Each sentence is ``{start, end, text}`` on the
     source clock, bounded like the transcript itself.
 
-    Whisper cue ends run on to the next cue's start, so a cue-timed "sentence
+    Cue ends can run on to the next cue's start, so a cue-timed "sentence
     end" is really where the next sentence begins. With ``speech`` (measured
     speech ranges, dicts or ``Range`` objects) each sentence is clamped to the
     speech that overlaps it plus ``SENTENCE_PAD``, and never past the next
@@ -778,28 +853,43 @@ def build_plan(
     transcript: list[dict[str, Any]],
     has_audio: bool,
     warnings: list[str] | None = None,
+    clips: list[tuple[float, float]] | None = None,
+    exclude: list[tuple[float, float]] | None = None,
+    variation: int = 0,
+    words: list[dict[str, Any]] | None = None,
+    transcribed: bool = False,
 ) -> dict[str, Any]:
-    """Plan from measured signals. Pure and deterministic; safe to unit test."""
+    """Plan from measured signals. Pure and deterministic; safe to unit test.
+
+    ``exclude`` lists source ranges another story already uses, and ``variation``
+    leans the scoring, so one long source can yield several distinct shorts.
+    ``transcribed`` says a transcriber listened, so an empty transcript means no
+    one spoke, and energy bands stop counting as speech.
+    """
     if not math.isfinite(duration) or duration <= 0:
         raise StoryError("The source has no measurable duration.")
     target_duration = require_target_duration(target_duration)
     warnings = list(warnings or [])
     scenes = sorted({round(float(s), 3) for s in scenes if 0 < float(s) < duration})[:MAX_SCENES]
+    project_clips = clips if clips and len(clips) > 1 else None
     speech = speech_ranges(duration, silences) if has_audio else []
     speech = speech[:MAX_SPEECH]
     transcript = _bound_transcript(transcript, duration)
     sentences = sentences_from_transcript(transcript, duration=duration, speech=speech)
+    heard = heard_ranges(speech, sentences) if transcribed else speech
     target = min(float(target_duration), duration)
     goal_keys = keywords(goal)
     hook_first = bool(_HOOK_HINT.search(goal))
 
-    if duration <= target_duration + 0.05:
+    if duration <= target_duration + 0.05 and not exclude:
         chosen = [Moment(0.0, round(duration, 3), 1.0, "opening", ["The whole clip fits the requested length"])]
     else:
         if speech:
             # Pieces aligned to transcript sentences first, so the budget below
             # is spent on whole sentences instead of breath-sized fragments.
             pieces = snap_ranges(merge_pieces(split_at_scenes(speech, scenes)), sentences, duration=duration)
+            if not heard:
+                warnings.append("No speech was heard, so moments follow the picture and the sound.")
         elif scenes:
             edges = [0.0, *scenes, duration]
             pieces = merge_pieces([Range(a, b) for a, b in zip(edges, edges[1:]) if b - a >= MIN_SEGMENT])
@@ -811,13 +901,26 @@ def build_plan(
         # otherwise equal time spans, so a "how it is made" brief is not spent
         # on four consecutive sentences from the first two scenes.
         spans, span_label = (scenes, "scene") if scenes else (temporal_spans(duration, target, sentences), "span")
-        moments = score_candidates(pieces, duration=duration, scenes=scenes, speech=speech, transcript=transcript, goal_keywords=goal_keys, sentences=sentences, spans=spans, span_label=span_label)
+        coverage = coverage_weight(goal, spans=bool(spans))
+        if project_clips:
+            # Everything a creator brought in is a choice they made, so the clips
+            # themselves are the parts to cover, whatever cuts lie inside them.
+            pieces = fit_to_clips(pieces, project_clips, longest=target / min(len(project_clips), MAX_SEGMENTS))
+            spans, span_label, coverage = clip_cuts(project_clips), "clip", COVERAGE_STRONG
+        moments = score_candidates(pieces, duration=duration, scenes=scenes, speech=heard, transcript=transcript, goal_keywords=goal_keys, sentences=sentences, spans=spans, span_label=span_label)
+        if exclude:
+            moments = unused_moments(moments, exclude)
+            if not moments:
+                raise StoryError("Every moment in this clip is already used by another short.")
+        if variation:
+            moments = vary_moments(moments, variation, duration=duration)
         if not moments:
             moments = [Moment(0.0, min(duration, max(target, MIN_SEGMENT)), 0.2, "opening", ["Opening of the clip"])]
-        selected = select_moments(moments, target, coverage=coverage_weight(goal, spans=bool(spans)))
+        selected = select_moments(moments, target, coverage=coverage)
         # Sentence bounds already include the pauses around speech; padding
-        # would only push an edge back into the neighbouring sentence.
-        chosen = _pad_and_order(selected, duration, target=target, hook_first=hook_first, pad=0.0 if sentences else PAD)
+        # would only push an edge back into the neighbouring sentence, and past
+        # a clip boundary it would flash a few frames of the next clip.
+        chosen = _pad_and_order(selected, duration, target=target, hook_first=hook_first, pad=0.0 if sentences or project_clips else PAD)
 
     segments = []
     for index, moment in enumerate(chosen, 1):
@@ -836,7 +939,7 @@ def build_plan(
     total = round(sum(s["end"] - s["start"] for s in segments), 3)
     transcript_note = f" and {len(transcript)} transcript cues" if transcript else ""
     summary = (
-        f"Local analysis found {len(scenes)} scene cuts and {len(speech)} speech ranges{transcript_note}. "
+        f"Local analysis found {len(scenes)} scene cuts and {len(heard)} speech ranges{transcript_note}. "
         f"Selected {len(segments)} moment{'s' if len(segments) != 1 else ''} totalling {total:g}s of {duration:.1f}s. "
         "This is deterministic signal analysis; local mode does not choose a story with AI. Review every moment before rendering."
     )
@@ -853,9 +956,11 @@ def build_plan(
         "analysis": {
             "method": METHOD,
             "scenes": scenes,
-            "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in speech],
+            "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in heard],
             "transcript": transcript,
             "sentences": sentences,
+            "words": word_records(words or (), duration),
+            "transcribed": transcribed,
             "duration": round(duration, 3),
             "notes": [NOTE],
         },
@@ -883,7 +988,7 @@ def _bound_transcript(transcript: list[dict[str, Any]], duration: float) -> list
 
 
 # ---------------------------------------------------------------------------
-# Measurement (ffmpeg, optional local Whisper)
+# Measurement (ffmpeg only; a transcript arrives from Meta Voice Transcribe)
 # ---------------------------------------------------------------------------
 
 
@@ -929,62 +1034,69 @@ def analyze_source(
     source: Path,
     work_dir: Path,
     *,
-    language: str = "en",
-    transcribe: bool = True,
+    heard: Iterable[Any] | None = None,
     time_budget_s: float = 20.0,
+    cuts: Iterable[float] = (),
 ) -> dict[str, Any]:
-    """Measure scenes, silence and (optionally) a local transcript."""
+    """Measure scenes and silence with FFmpeg. Nothing here calls a model.
+
+    ``heard`` is a transcript Meta Voice Transcribe already made (``captions.Cue``
+    lines on the source clock); None means nobody listened. ``cuts`` are known
+    boundaries, such as where one clip of a project meets the next.
+    """
     info = probe(source)
     if not info.has_video or not math.isfinite(info.duration) or info.duration <= 0:
         raise StoryError("Choose a playable video with a measurable duration.")
     warnings: list[str] = []
     work_dir.mkdir(parents=True, exist_ok=True)
-    scenes = detect_scenes_fast(source, duration=info.duration)
-    silences = detect_silence(source, threshold_db=-35.0, min_silence=0.35) if info.has_audio else []
+    scenes = merge_cuts(detect_scenes_fast(source, duration=info.duration), cuts)
+    track = info.audio_map if info.has_audio else None
+    silences = detect_silence(source, threshold_db=-35.0, min_silence=0.35, track=track) if info.has_audio else []
+    if info.has_audio and not audible(source, track=track):
+        warnings.append("This clip's sound track is silent, so moments follow the picture.")
+    transcribed = False
     transcript: list[dict[str, Any]] = []
-    if transcribe and info.has_audio:
-        from vedit.agent.explain import local_transcriber_ready
-
-        if not local_transcriber_ready():
-            warnings.append("No local speech model: moments are chosen from scene cuts and speech energy without transcript keywords.")
-        elif info.duration > min(TRANSCRIBE_MAX_SECONDS, time_budget_s * 15):
-            warnings.append("The source is long, so the transcript was skipped to keep planning fast; moments use scene cuts and speech energy.")
-        else:
-            try:
-                from vedit.captions import transcribe as run_transcribe
-
-                cues = run_transcribe(source, work_dir, language=language)
-                transcript = [{"start": c.start, "end": c.end, "text": c.text} for c in cues]
-            except VeditError as exc:
-                warnings.append(f"Transcript unavailable ({str(exc).splitlines()[0][:120]}); moments use scene cuts and speech energy.")
-    return {"duration": info.duration, "has_audio": info.has_audio, "scenes": scenes, "silences": silences, "transcript": transcript, "warnings": warnings}
+    words: list[dict[str, Any]] = []
+    if heard is not None and info.has_audio:
+        cues = list(heard)
+        transcript = [{"start": c.start, "end": c.end, "text": c.text} for c in cues]
+        transcribed = True
+        words = word_records(cue_words(cues), info.duration)
+    return {"duration": info.duration, "has_audio": info.has_audio, "scenes": scenes, "silences": silences, "transcript": transcript, "words": words, "transcribed": transcribed, "warnings": warnings}
 
 
 def analyze_signals(
     source: Path,
     *,
     work_dir: Path,
-    language: str = "en",
-    transcribe: bool = True,
+    heard: Iterable[Any] | None = None,
+    transcribed_by: str | None = None,
     time_budget_s: float = 20.0,
+    cuts: Iterable[float] = (),
 ) -> dict[str, Any]:
     """Measured, display-ready signals in the plan ``analysis`` shape.
 
     Shared by local planning and by Meta-mode plans, so the Studio scrubber and
-    transcript panel behave the same whichever planner chose the moments. The
-    optional transcript is local speech recognition; nothing here calls Meta.
+    transcript panel behave the same whichever planner chose the moments.
+    Nothing here calls a model: ``heard`` is a transcript the caller already
+    has, and ``transcribed_by`` names the model that made it.
     """
-    measured = analyze_source(Path(source), Path(work_dir), language=language, transcribe=transcribe, time_budget_s=time_budget_s)
+    measured = analyze_source(Path(source), Path(work_dir), heard=heard, time_budget_s=time_budget_s, cuts=cuts)
     duration = float(measured["duration"])
     scenes = sorted({round(float(s), 3) for s in measured["scenes"] if 0 < float(s) < duration})[:MAX_SCENES]
     speech = (speech_ranges(duration, measured["silences"]) if measured["has_audio"] else [])[:MAX_SPEECH]
     transcript = _bound_transcript(measured["transcript"], duration)
+    sentences = sentences_from_transcript(transcript, duration=duration, speech=speech)
+    heard = heard_ranges(speech, sentences) if _was_transcribed(measured) else speech
     return {
         "method": METHOD,
         "scenes": scenes,
-        "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in speech],
+        "speech": [{"start": round(s.start, 3), "end": round(s.end, 3)} for s in heard],
         "transcript": transcript,
-        "sentences": sentences_from_transcript(transcript, duration=duration, speech=speech),
+        "sentences": sentences,
+        "words": word_records(measured.get("words") or (), duration),
+        "transcribed": bool(measured.get("transcribed")),
+        **({"transcribed_by": transcribed_by} if transcribed_by and measured.get("transcribed") else {}),
         "duration": round(duration, 3),
         "notes": [NOTE],
         "has_audio": bool(measured["has_audio"]),
@@ -1029,18 +1141,30 @@ def plan_local_story(
     target_duration: float,
     work_dir: Path,
     language: str = "en",
-    transcribe: bool = True,
+    transcribe: bool = False,
+    heard: Iterable[Any] | None = None,
     time_budget_s: float = 20.0,
+    clips: list[tuple[float, float]] | None = None,
+    exclude: list[tuple[float, float]] | None = None,
+    variation: int = 0,
 ) -> dict[str, Any]:
-    """Measure the source and return an editable, evidence-cited local plan."""
+    """Measure the source and return an editable, evidence-cited local plan. Calls no model.
+
+    ``clips`` are the ranges of a multi-clip project on the source clock.
+    ``heard`` is a Meta Voice Transcribe transcript the caller already has.
+    ``transcribe`` asks for one this planner cannot make, so without ``heard``
+    the plan says so; ``language`` is kept for callers and changes nothing here.
+    """
     source = Path(source)
     work_dir = Path(work_dir)
     require_target_duration(target_duration)
-    measured = analyze_source(source, work_dir, language=language, transcribe=transcribe, time_budget_s=time_budget_s)
+    measured = analyze_source(source, work_dir, heard=heard, time_budget_s=time_budget_s, cuts=clip_cuts(clips))
+    if transcribe and heard is None and measured["has_audio"]:
+        measured["warnings"].append(NO_TRANSCRIPT)
     plan = build_plan(
         goal=goal, duration=measured["duration"], target_duration=target_duration,
-        scenes=measured["scenes"], silences=measured["silences"], transcript=measured["transcript"],
-        has_audio=measured["has_audio"], warnings=measured["warnings"],
+        scenes=measured["scenes"], silences=measured["silences"], transcript=measured["transcript"], words=measured.get("words"),
+        has_audio=measured["has_audio"], warnings=measured["warnings"], clips=clips, exclude=exclude, variation=variation, transcribed=_was_transcribed(measured),
     )
     (work_dir / "story-analysis.json").write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return plan

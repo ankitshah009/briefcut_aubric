@@ -1,0 +1,585 @@
+{
+  "schema": "briefcut-evidence/1",
+  "recorded_at": "2026-10-31T15:35:24+00:00",
+  "machine": {
+    "hostname_redacted": true,
+    "os": "Darwin 27.0.1",
+    "machine": "arm64",
+    "cpu": "arm",
+    "memory_bytes": 0,
+    "python": "Python 3.13.16",
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "vedit": "1.2.0"
+  },
+  "workspace": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-3pqu44ww",
+  "request": {
+    "paths": [
+      "/private/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-3pqu44ww/vedit-sessions/source-20261031083525-ubkp7yrn/inbox/talk.mp4"
+    ],
+    "goal": "Make a short landscape edit that keeps the spoken sentence clear.",
+    "provider": "meta",
+    "target_duration": 3.0,
+    "aspect": "16:9",
+    "captions": false,
+    "language": "en",
+    "subject": "",
+    "budget_usd": 0.25,
+    "generate_cover": false,
+    "effect": null
+  },
+  "timings_seconds": {
+    "upload": 0.118,
+    "plan": 20.717,
+    "render": 2.525,
+    "total": 23.36,
+    "revise": 17.73
+  },
+  "stages": [
+    {
+      "at": 0.126,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.131,
+      "status": "analyzing",
+      "stage": "reading",
+      "message": "Checking the source video."
+    },
+    {
+      "at": 0.653,
+      "status": "analyzing",
+      "stage": "measuring",
+      "message": "Measuring scene cuts and speech in your footage."
+    },
+    {
+      "at": 1.664,
+      "status": "analyzing",
+      "stage": "preparing",
+      "message": "Making a small analysis copy; your original stays unchanged."
+    },
+    {
+      "at": 3.186,
+      "status": "analyzing",
+      "stage": "planning",
+      "message": "Finding a story in your footage."
+    },
+    {
+      "at": 20.834,
+      "status": "planned",
+      "stage": "review",
+      "message": "Review the story and approve the render."
+    },
+    {
+      "at": 20.838,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Your approved story is queued for rendering."
+    },
+    {
+      "at": 21.341,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 2 of 4: YouTube 1080p H.264 + AAC, CRF 18, +faststart"
+    },
+    {
+      "at": 22.856,
+      "status": "rendering",
+      "stage": "verifying",
+      "message": "Checking the actual exported video."
+    },
+    {
+      "at": 23.36,
+      "status": "complete",
+      "stage": "complete",
+      "message": "Your campaign is ready. The video passed export verification."
+    },
+    {
+      "at": 23.364,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Version 2 is queued with the applied fixes. Version 1 remains available."
+    },
+    {
+      "at": 23.367,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Version 2 is queued with the applied fixes. Version 1 remains available."
+    },
+    {
+      "at": 23.871,
+      "status": "rendering",
+      "stage": "noting",
+      "message": "Asking Meta to turn your note into changes to the story."
+    },
+    {
+      "at": 39.06,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 1 of 4: assemble 1 selected moments"
+    },
+    {
+      "at": 40.582,
+      "status": "rendering",
+      "stage": "verifying",
+      "message": "Checking the actual exported video."
+    },
+    {
+      "at": 41.09,
+      "status": "complete",
+      "stage": "complete",
+      "message": "Your campaign is ready. The video passed export verification."
+    }
+  ],
+  "notes": [
+    "Timings are wall-clock measurements of this single run, including HTTP polling at 0.5 s intervals.",
+    "A local plan is deterministic signal analysis, not model understanding. Meta mode requires live credentials."
+  ],
+  "capabilities": {
+    "local_ready": true,
+    "local_captions": true,
+    "meta_available": true,
+    "effects_supported": true
+  },
+  "job_id": "757d17c86ca34de7bda2df1543559dd0",
+  "source": {
+    "name": "talk.mp4",
+    "duration": 3.0,
+    "width": 640,
+    "height": 360,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "talk.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 3.0
+      }
+    ],
+    "filmstrip": {
+      "columns": 2,
+      "rows": 1,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 2,
+      "seconds_per_tile": 2.0,
+      "url": "/api/campaigns/757d17c86ca34de7bda2df1543559dd0/filmstrip"
+    },
+    "waveform": {
+      "url": "/api/campaigns/757d17c86ca34de7bda2df1543559dd0/waveform",
+      "count": 30,
+      "seconds_per_peak": 0.1
+    }
+  },
+  "plan": {
+    "provider": "meta",
+    "title": "Unbroken Three Second Hold",
+    "summary": "Selected the full 0-3s source as one continuous landscape segment because the visible footage is an unchanging dark blue frame, avoiding any cut that could interrupt the spoken sentence.",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 3.0,
+        "label": "continuous blue frame",
+        "reason": "Visible footage shows a uniform dark blue field with no scene change or on-screen text, so keeping the full range preserves continuity for the spoken sentence.",
+        "score": 1.0,
+        "kind": "speech"
+      }
+    ],
+    "duration": 3.0,
+    "analysis_method": "meta",
+    "analysis_notes": [
+      "Meta director selected the moments; scene cuts, speech bands and transcript come from local analysis."
+    ],
+    "warnings": [
+      "Transcript unavailable (whisper-cli did not write an SRT.); moments use scene cuts and speech energy."
+    ],
+    "usage": {
+      "estimated_max_usd": 0.0033231,
+      "cached": false,
+      "input_tokens": 997,
+      "output_tokens": 1063,
+      "total_tokens": 2060,
+      "cost_usd": 0.0003123
+    }
+  },
+  "result": {
+    "proof": {
+      "duration": 3.0,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 84752
+    },
+    "warnings": [
+      "Transcript unavailable (whisper-cli did not write an SRT.); moments use scene cuts and speech energy.",
+      "The source is 640x360, so this 1920x1080 export is upscaled and gains no detail."
+    ],
+    "cover_kind": "frame",
+    "provider": "meta",
+    "caption_provider": null,
+    "effect": null,
+    "tracked_subject": null,
+    "revision": 1,
+    "review": null,
+    "checks": [
+      {
+        "name": "auto: cuts land on sentence boundaries",
+        "passed": true,
+        "at": null,
+        "note": "no transcript"
+      },
+      {
+        "name": "auto: duration matches the target",
+        "passed": true,
+        "at": null,
+        "note": "3.0 s cut vs 3.0 s target"
+      },
+      {
+        "name": "auto: moments inside the source and in order",
+        "passed": true,
+        "at": null,
+        "note": "1 moment inside the source, no overlaps"
+      },
+      {
+        "name": "auto: captions cover the speech",
+        "passed": true,
+        "at": null,
+        "note": "not requested"
+      },
+      {
+        "name": "auto: requested edits applied",
+        "passed": true,
+        "at": null,
+        "note": "The brief asked for no specific edits."
+      }
+    ],
+    "passed": 5,
+    "total": 5,
+    "patches": []
+  },
+  "budget": {
+    "cap_usd": 0.25,
+    "reserved_usd": 0.0067465,
+    "remaining_usd": 0.2432535,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0033231,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "review": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "patch": {
+        "reserved_usd": 0.0034234,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "translate": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      }
+    }
+  },
+  "timings_server": {
+    "plan_seconds": 20.704,
+    "render_seconds": 2.264,
+    "render_revision": 1
+  },
+  "revise": {
+    "mode": "note",
+    "note": "Hold the final view a little longer.",
+    "applied_patches": [
+      {
+        "op": "set_speed",
+        "segment": 1,
+        "before": {
+          "start": 0.0,
+          "end": 3.0,
+          "speed": 1.0
+        },
+        "after": {
+          "start": 0.0,
+          "end": 3.0,
+          "speed": 0.8
+        },
+        "reason": "Hold the final view a little longer.",
+        "source": "director",
+        "skipped": null,
+        "value": 0.8,
+        "summary": "Moment 1 plays slower (0.8×)."
+      }
+    ],
+    "revision": 2,
+    "checks": [
+      {
+        "name": "auto: cuts land on sentence boundaries",
+        "passed": true,
+        "at": null,
+        "note": "no transcript"
+      },
+      {
+        "name": "auto: duration matches the target",
+        "passed": true,
+        "at": null,
+        "note": "3.8 s cut vs 3.0 s target"
+      },
+      {
+        "name": "auto: moments inside the source and in order",
+        "passed": true,
+        "at": null,
+        "note": "1 moment inside the source, no overlaps"
+      },
+      {
+        "name": "auto: captions cover the speech",
+        "passed": true,
+        "at": null,
+        "note": "not requested"
+      },
+      {
+        "name": "auto: requested edits applied",
+        "passed": true,
+        "at": null,
+        "note": "The brief asked for no specific edits."
+      }
+    ],
+    "passed": 5,
+    "total": 5,
+    "proof": {
+      "duration": 3.733333,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 104505
+    },
+    "review": null
+  },
+  "versions": [
+    {
+      "revision": 1,
+      "status": "verified",
+      "created_at": "2026-10-31T15:35:48.909+00:00",
+      "source": "approved",
+      "proof": {
+        "duration": 3.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv",
+        "color_primaries": "bt709",
+        "color_transfer": "bt709",
+        "size_bytes": 84752
+      },
+      "checks": [
+        {
+          "name": "auto: cuts land on sentence boundaries",
+          "passed": true,
+          "at": null,
+          "note": "no transcript"
+        },
+        {
+          "name": "auto: duration matches the target",
+          "passed": true,
+          "at": null,
+          "note": "3.0 s cut vs 3.0 s target"
+        },
+        {
+          "name": "auto: moments inside the source and in order",
+          "passed": true,
+          "at": null,
+          "note": "1 moment inside the source, no overlaps"
+        },
+        {
+          "name": "auto: captions cover the speech",
+          "passed": true,
+          "at": null,
+          "note": "not requested"
+        },
+        {
+          "name": "auto: requested edits applied",
+          "passed": true,
+          "at": null,
+          "note": "The brief asked for no specific edits."
+        }
+      ],
+      "passed": 5,
+      "total": 5,
+      "hook_score": null,
+      "verdict": null,
+      "applied_patches": [],
+      "note": null,
+      "timings": {
+        "render_seconds": 2.264
+      }
+    },
+    {
+      "revision": 2,
+      "status": "verified",
+      "created_at": "2026-10-31T15:36:06.498+00:00",
+      "source": "note",
+      "proof": {
+        "duration": 3.733333,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv",
+        "color_primaries": "bt709",
+        "color_transfer": "bt709",
+        "size_bytes": 104505
+      },
+      "checks": [
+        {
+          "name": "auto: cuts land on sentence boundaries",
+          "passed": true,
+          "at": null,
+          "note": "no transcript"
+        },
+        {
+          "name": "auto: duration matches the target",
+          "passed": true,
+          "at": null,
+          "note": "3.8 s cut vs 3.0 s target"
+        },
+        {
+          "name": "auto: moments inside the source and in order",
+          "passed": true,
+          "at": null,
+          "note": "1 moment inside the source, no overlaps"
+        },
+        {
+          "name": "auto: captions cover the speech",
+          "passed": true,
+          "at": null,
+          "note": "not requested"
+        },
+        {
+          "name": "auto: requested edits applied",
+          "passed": true,
+          "at": null,
+          "note": "The brief asked for no specific edits."
+        }
+      ],
+      "passed": 5,
+      "total": 5,
+      "hook_score": null,
+      "verdict": null,
+      "applied_patches": [
+        {
+          "op": "set_speed",
+          "segment": 1,
+          "before": {
+            "start": 0.0,
+            "end": 3.0,
+            "speed": 1.0
+          },
+          "after": {
+            "start": 0.0,
+            "end": 3.0,
+            "speed": 0.8
+          },
+          "reason": "Hold the final view a little longer.",
+          "source": "director",
+          "skipped": null,
+          "value": 0.8,
+          "summary": "Moment 1 plays slower (0.8×)."
+        }
+      ],
+      "note": "Hold the final view a little longer.",
+      "timings": {
+        "render_seconds": 17.324
+      }
+    }
+  ],
+  "downloaded": {
+    "video": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-3pqu44ww/evidence-downloads/video.mp4",
+    "video_bytes": 104505,
+    "report": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-3pqu44ww/evidence-downloads/report.json",
+    "bundle_bytes": 121907,
+    "probe": {
+      "path": "/private/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-evidence-3pqu44ww/evidence-downloads/video.mp4",
+      "duration": 3.733333,
+      "format": "mov,mp4,m4a,3gp,3g2,mj2",
+      "size_bytes": 104505,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "has_video": true,
+      "has_audio": true,
+      "streams": [
+        {
+          "index": 0,
+          "type": "video",
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080,
+          "fps": 30.0,
+          "sample_rate": null,
+          "channels": null
+        },
+        {
+          "index": 1,
+          "type": "audio",
+          "codec": "aac",
+          "width": null,
+          "height": null,
+          "fps": null,
+          "sample_rate": 48000,
+          "channels": 2
+        }
+      ]
+    }
+  },
+  "report_proof": {
+    "duration": 3.733333,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "has_audio": true,
+    "has_video": true,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 104505
+  },
+  "report_steps": 4,
+  "json_path": "docs/evidence/20261031T153524Z.json"
+}

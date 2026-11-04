@@ -151,6 +151,43 @@ def test_editor_document_loads_its_assets() -> None:
         assert b"def serve" not in body
 
 
+def test_both_look_previews_read_one_shared_catalogue() -> None:
+    static = ROOT / "src" / "vedit" / "studio" / "static"
+    preview = (static / "preview.js").read_text(encoding="utf-8")
+    media = (static / "mediabin.js").read_text(encoding="utf-8")
+    styles = (static / "look-styles.js").read_text(encoding="utf-8")
+    assert "window.BriefcutLookStyles.preview" in preview
+    assert "window.BriefcutLookStyles.inspector" in media
+    assert "const LOOKS = {" not in preview
+    assert "const LOOK_HINTS = {" not in media
+    assert "vintage:" in styles and "cinematic:" in styles
+
+
+def test_studio_holds_a_burst_of_connections() -> None:
+    """A page load opens many connections at once, and a render can keep the server busy."""
+    width = 48
+    failures: list[str] = []
+
+    def fetch(port: int, barrier: threading.Barrier) -> None:
+        try:
+            barrier.wait()
+            with socket.create_connection(("127.0.0.1", port), timeout=20) as connection:
+                connection.sendall(f"GET /studio.css HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode())
+                assert connection.recv(16).startswith(b"HTTP/1.")
+        except (OSError, AssertionError) as exc:
+            failures.append(type(exc).__name__)
+
+    with _studio_server() as port:
+        for _ in range(5):
+            barrier = threading.Barrier(width)
+            workers = [threading.Thread(target=fetch, args=(port, barrier)) for _ in range(width)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+    assert not failures
+
+
 def test_studio_binds_without_reverse_dns(monkeypatch: pytest.MonkeyPatch) -> None:
     def explode(*_args: object, **_kwargs: object) -> str:
         raise AssertionError("studio bind must not reverse-resolve 127.0.0.1")

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from vedit.agent.model import Decision, Intent, Inventory
 from vedit.agent.policy import contract_for
 from vedit.captions import find_whisper_model
 from vedit.ir import Brief
+from vedit.media import find_whisper_cli
 
 _MIN_MODEL_BYTES = 2_000_000
 
@@ -69,12 +69,7 @@ def drop_captions(brief: Brief) -> tuple[Brief, bool]:
 
 def local_transcriber_ready() -> bool:
     """True only when a local transcriber can run without downloading a model."""
-    cli = shutil.which("whisper-cli")
-    if cli is None:
-        homebrew = Path("/opt/homebrew/bin/whisper-cli")
-        if homebrew.is_file() and os.access(homebrew, os.X_OK):
-            cli = str(homebrew)
-    if cli and find_whisper_model() is not None:
+    if find_whisper_cli() and find_whisper_model() is not None:
         return True
     return _faster_whisper_local()
 

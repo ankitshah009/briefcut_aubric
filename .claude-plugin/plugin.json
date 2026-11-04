@@ -1,0 +1,29 @@
+{
+  "name": "briefcut",
+  "version": "1.2.0",
+  "description": "Edit real footage from your agent. Briefcut plans a story from your clips, renders it locally with FFmpeg, and proves the delivered file with receipts.",
+  "author": {
+    "name": "Ankit Shah",
+    "url": "https://github.com/ankitshah009"
+  },
+  "homepage": "https://github.com/ankitshah009/briefcut_aubric",
+  "repository": "https://github.com/ankitshah009/briefcut_aubric",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "video-editing",
+    "ffmpeg",
+    "captions",
+    "shorts",
+    "mcp-server"
+  ],
+  "skills": "./skills",
+  "mcpServers": {
+    "briefcut": {
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/mcp-launcher.sh"
+      ]
+    }
+  }
+}

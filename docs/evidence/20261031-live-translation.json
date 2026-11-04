@@ -1,0 +1,140 @@
+{
+  "job_id": "4786e98255494c36accc19e04e456036",
+  "clip": "workshop.mp4",
+  "provider": "local",
+  "caption_provider": "meta",
+  "translation_language": "es",
+  "timeline_ok": true,
+  "status": "complete",
+  "error": null,
+  "result": {
+    "video_url": "/api/campaigns/4786e98255494c36accc19e04e456036/artifact?name=video&v=1",
+    "cover_url": "/api/campaigns/4786e98255494c36accc19e04e456036/artifact?name=cover&v=1",
+    "bundle_url": "/api/campaigns/4786e98255494c36accc19e04e456036/artifact?name=bundle&v=1",
+    "brief_url": "/api/campaigns/4786e98255494c36accc19e04e456036/artifact?name=brief&v=1",
+    "report_url": "/api/campaigns/4786e98255494c36accc19e04e456036/artifact?name=report&v=1",
+    "proof": {
+      "duration": 40.033333,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 23753134
+    },
+    "warnings": [
+      "Transcript unavailable (whisper-cli did not write an SRT.); moments use scene cuts and speech energy.",
+      "The source is 1280x720, so this 1920x1080 export is upscaled and gains no detail."
+    ],
+    "cover_kind": "frame",
+    "caption": "The spoken workshop.",
+    "hashtags": [
+      "#spoken",
+      "#workshop",
+      "#add",
+      "#readable"
+    ],
+    "provider": "local",
+    "revision": 1,
+    "stale": false,
+    "effect": null,
+    "tracked_subject": null,
+    "caption_provider": "meta",
+    "review": null,
+    "checks": [
+      {
+        "name": "auto: cuts land on sentence boundaries",
+        "passed": true,
+        "at": null,
+        "note": "no transcript"
+      },
+      {
+        "name": "auto: duration matches the target",
+        "passed": true,
+        "at": null,
+        "note": "40.0 s cut vs 40.0 s target"
+      },
+      {
+        "name": "auto: moments inside the source and in order",
+        "passed": true,
+        "at": null,
+        "note": "1 moment inside the source, no overlaps"
+      },
+      {
+        "name": "auto: captions cover the speech",
+        "passed": true,
+        "at": null,
+        "note": "no transcript to compare with"
+      },
+      {
+        "name": "auto: requested edits applied",
+        "passed": true,
+        "at": null,
+        "note": "The brief asked for no specific edits."
+      }
+    ],
+    "passed": 5,
+    "total": 5,
+    "patches": []
+  },
+  "budget": {
+    "cap_usd": 0.5,
+    "reserved_usd": 0.0053761,
+    "remaining_usd": 0.4946239,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "tracking": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.00205,
+        "calls": 1,
+        "model": "muse-voice-transcribe-1.0"
+      },
+      "review": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "patch": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "translate": {
+        "reserved_usd": 0.0033261,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      }
+    }
+  },
+  "workspace": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-translate-live-2hbqxq9v",
+  "artifacts": {
+    "english_srt": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-translate-live-2hbqxq9v/vedit-sessions/campaigns/4786e98255494c36accc19e04e456036/render-1/captions.srt",
+    "spanish_srt": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-translate-live-2hbqxq9v/vedit-sessions/campaigns/4786e98255494c36accc19e04e456036/render-1/captions.es.srt",
+    "english_cue_count": 10,
+    "spanish_cue_count": 10,
+    "spanish_first_cue": "1\n00:00:00,380 --> 00:00:03,500\nEste es el cuenco de roble terminado,\naceitado y listo para la mesa."
+  },
+  "verification": {
+    "report": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-translate-live-2hbqxq9v/vedit-sessions/campaigns/4786e98255494c36accc19e04e456036/render-1/report.json",
+    "burned_caption_frame": "/tmp/briefcut-translated-caption.jpg",
+    "burned_caption_visually_confirmed": true,
+    "frame_time_seconds": 2.0
+  }
+}

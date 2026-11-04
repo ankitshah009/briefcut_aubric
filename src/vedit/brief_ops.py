@@ -1,31 +1,28 @@
 """Make the English brief drive the campaign edit.
 
-``edit_decisions`` is pure: it reads the goal with the deterministic intent
-parser and returns compile ops to insert after the story assembly (and before
-captions), plus one plain sentence per applied decision and one per request
-that could not be honoured. Unknown words are ignored silently; that is the
-parser's design. Text is passed through untouched — the compile layer escapes.
+``brief_edit`` is pure: it reads the goal with the deterministic intent parser
+and returns edit settings (the same ``plan["edit"]`` a creator changes in
+Studio), plus one plain sentence per applied decision and one per request that
+could not be honoured. Unknown words are ignored silently; that is the parser's
+design. Text is passed through untouched; the compile layer escapes it.
 """
 
 from __future__ import annotations
 
 import re
-import textwrap
-from typing import Any
+from typing import Any, Callable
 
 from vedit.agent.intent import parse_intent
+from vedit.edit_spec import merge_edit
+from vedit.timeline import PAUSE_SECONDS, plan_timeline
 
 TITLE_SECONDS = 2.5
 HOOK_SECONDS = 3.0
 CTA_SECONDS = 3.0
 FADE_SECONDS = 0.5
-PAUSE_SECONDS = 0.6
-PAUSE_THRESHOLD_DB = -32.0
-PAUSE_PAD = 0.12
 MAX_TITLE_CHARS = 80
 MAX_ITEMS = 12
 MAX_ITEM_CHARS = 200
-_WRAP_AT = 26
 
 _CUT_PAUSES = re.compile(
     r"\b(?:trim|cut|remove|drop|tighten|strip|lose|kill|skip|no)\b(?:\s+(?:the|all|any|out|up|those|long|long\s+|awkward|dead))*"
@@ -48,6 +45,22 @@ _NO_LOUDNORM = re.compile(
 )
 
 
+# Only words that name a frame: "landscape" and "portrait" are often the subject.
+_SHAPE_WORDS = (
+    ("1:1", re.compile(r"\b1:1\b|\bsquare\s+(?:clip|video|cut|crop|edit|format|frame|post|version)\b", re.I)),
+    ("9:16", re.compile(r"\b9:16\b|\bvertical\b", re.I)),
+    ("16:9", re.compile(r"\b16:9\b|\bwidescreen\b|\bhorizontal\b", re.I)),
+)
+
+
+def shape_mismatch(goal: str, aspect: str) -> str | None:
+    """One sentence when the goal names a frame shape the project is not set to."""
+    asked = [shape for shape, words in _SHAPE_WORDS if words.search(goal)]
+    if len(asked) == 1 and asked[0] != aspect:
+        return f"Your goal asks for {asked[0]}, but this project is set to {aspect}. Change the frame shape if you meant {asked[0]}."
+    return None
+
+
 def _one_line(text: str, limit: int) -> str:
     cleaned = " ".join(str(text).split())
     if len(cleaned) > limit:
@@ -55,58 +68,67 @@ def _one_line(text: str, limit: int) -> str:
     return cleaned
 
 
-def _wrap(text: str, width: int = _WRAP_AT) -> str:
-    """Break a long card into at most three lines; drawtext renders newlines."""
-    lines = textwrap.wrap(text, width=width, break_long_words=True, max_lines=3, placeholder="…")
-    return "\n".join(lines) if lines else text
-
-
-def _font_size(text: str, canvas_width: int, ratio: float, *, floor: int = 30) -> int:
-    longest = max((len(line) for line in text.split("\n")), default=1) or 1
-    wanted = round(canvas_width * ratio)
-    fits = int(0.86 * canvas_width / (0.56 * longest))
-    return max(floor, min(wanted, fits))
+def card_text(title: str) -> str:
+    """The words of a title card made from a story title."""
+    return _one_line(title, MAX_TITLE_CHARS)
 
 
 def _quote(text: str) -> str:
     return "‘" + text.replace("\n", " ") + "’"
 
 
-def edit_decisions(
+def _pause_seconds(plan: dict[str, Any], edit: dict[str, Any]) -> float:
+    """Source seconds the edit cuts from inside the moments, so a receipt never claims a cut that found nothing."""
+    view = plan_timeline(dict(plan, edit=edit))
+    whole = sum(item["end"] - item["start"] for item in view["segments"] if isinstance(item.get("start"), (int, float)) and isinstance(item.get("end"), (int, float)))
+    return round(whole - sum(span.source_end - span.source_start for span in view["spans"]), 3)
+
+
+def _has_text(edit: dict[str, Any], words: str) -> bool:
+    return any(isinstance(item, dict) and item.get("text") == words for item in edit.get("texts") or [])
+
+
+def brief_edit(
     goal: str,
     *,
     plan: dict[str, Any],
     has_audio: bool,
-    canvas: tuple[int, int] | None = None,
+    alongside: dict[str, Any] | None = None,
+    final: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return ``{"ops": [...], "decisions": [...], "ignored": [...], "loudnorm": bool}``.
+    """Return ``{"edit": {...}, "decisions": [...], "ignored": [...]}``.
 
-    ``ops`` go after the assembled cut and before captions: pause trimming
-    first (captions are then transcribed from the trimmed clip), then picture
-    filters and timed text, then fades. ``loudnorm`` is False when the brief
-    asks to keep the original loudness.
+    ``edit`` is a partial edit holding what the brief asked for. ``alongside`` is
+    what a template and the request add on top of it, which only matters here for
+    timing text against the end of the story. ``final`` is the approved edit: each
+    sentence is then checked against what will really render, so a request the
+    creator changed in the editor is reported that way and not as applied.
     """
     text = str(goal or "")
-    width, height = canvas if canvas else (1080, 1920)
-    width, height = max(16, int(width)), max(16, int(height))
     intent = parse_intent(text)
-    ops: list[dict[str, Any]] = []
+    settings: dict[str, Any] = {}
+    items: list[dict[str, Any]] = []
     decisions: list[str] = []
     ignored: list[str] = []
 
-    wants_cut = _CUT_PAUSES.search(text) is not None and intent.cut_silence
-    cut_applied = False
-    if wants_cut:
+    def settle(sentence: str, label: str, honoured: Callable[[dict[str, Any]], Any]) -> None:
+        if final is None or honoured(final):
+            decisions.append(sentence)
+        else:
+            ignored.append(f"{label}: changed in the editor")
+
+    if _CUT_PAUSES.search(text) is not None and intent.cut_silence:
         if has_audio:
-            ops.append({"op": "cut_silence", "threshold_db": PAUSE_THRESHOLD_DB, "min_silence": PAUSE_SECONDS, "pad": PAUSE_PAD})
-            decisions.append(f"Removed pauses longer than {PAUSE_SECONDS:g} s inside the selected moments")
-            cut_applied = True
+            settings["trim_pauses"] = True
+            found = _pause_seconds(plan, merge_edit(settings, alongside or {}) if final is None else final) > 0
+            sentence = f"Removed pauses longer than {PAUSE_SECONDS:g} s inside the selected moments" if found else f"Found no pauses longer than {PAUSE_SECONDS:g} s inside the selected moments"
+            settle(sentence, "Pause trimming", lambda chosen: chosen.get("trim_pauses"))
         else:
             ignored.append("Pause trimming: this footage has no audio track to find pauses in")
 
     if intent.denoise:
-        ops.append({"op": "denoise", "strength": 3})
-        decisions.append("Reduced picture noise")
+        settings["denoise_picture"] = True
+        settle("Reduced picture noise", "Picture noise reduction", lambda chosen: chosen.get("denoise_picture"))
 
     title_text = intent.title
     if title_text is None:
@@ -116,55 +138,46 @@ def edit_decisions(
         elif _TITLE_CARD.search(text):
             title_text = str(plan.get("title") or "")
     if title_text is not None:
-        title_text = _one_line(title_text, MAX_TITLE_CHARS)
+        title_text = card_text(title_text)
         if title_text:
-            card = _wrap(title_text)
-            ops.append({
-                "op": "title", "text": card, "start": 0, "duration": TITLE_SECONDS,
-                "y_ratio": 0.5, "size": _font_size(card, width, 0.075, floor=36), "box": True,
-            })
-            decisions.append(f"Title card {_quote(title_text)} for {TITLE_SECONDS:g} s")
+            items.append({"text": title_text, "start": 0.0, "duration": TITLE_SECONDS, "style": "title", "position": "center"})
+            settle(f"Title card {_quote(title_text)} for {TITLE_SECONDS:g} s", "Title card", lambda chosen: _has_text(chosen, title_text))
         else:
             ignored.append("Title card: the brief and the plan give no title text")
 
     if intent.hook:
         hook = _one_line(intent.hook, MAX_TITLE_CHARS)
         start = TITLE_SECONDS if title_text else 0.0
-        ops.append({
-            "op": "title", "text": _wrap(hook, 30), "start": start, "duration": HOOK_SECONDS,
-            "y_ratio": 0.2, "size": _font_size(_wrap(hook, 30), width, 0.046), "box": True,
-        })
-        decisions.append(f"Hook {_quote(hook)} for {HOOK_SECONDS:g} s from {start:g} s")
+        items.append({"text": hook, "start": start, "duration": HOOK_SECONDS, "style": "label", "position": "top"})
+        settle(f"Hook {_quote(hook)} for {HOOK_SECONDS:g} s from {start:g} s", "Hook", lambda chosen: _has_text(chosen, hook))
 
     if intent.cta:
         cta = _one_line(intent.cta, MAX_TITLE_CHARS)
-        length = plan.get("duration")
-        if cut_applied:
-            ignored.append(f"Call to action {_quote(cta)}: end-timed text needs the final length, which pause trimming decides at render")
-        elif not isinstance(length, (int, float)) or isinstance(length, bool) or length <= 0:
+        clock = final if final is not None else merge_edit(settings, alongside or {})
+        length = plan_timeline(dict(plan, edit=clock))["duration"]
+        if length <= 0:
             ignored.append(f"Call to action {_quote(cta)}: the story length is not known yet")
         else:
-            start = max(0.0, float(length) - CTA_SECONDS)
-            ops.append({
-                "op": "title", "text": _wrap(cta, 30), "start": round(start, 3), "duration": CTA_SECONDS,
-                "y_ratio": 0.7, "size": _font_size(_wrap(cta, 30), width, 0.046), "box": True,
-            })
-            decisions.append(f"Call to action {_quote(cta)} for the last {CTA_SECONDS:g} s")
+            items.append({"text": cta, "start": round(max(0.0, length - CTA_SECONDS), 3), "duration": min(CTA_SECONDS, length), "style": "callout", "position": "bottom"})
+            settle(f"Call to action {_quote(cta)} for the last {CTA_SECONDS:g} s", "Call to action", lambda chosen: _has_text(chosen, cta))
+
+    if items:
+        settings["texts"] = items
 
     fade_in = _FADE_IN.search(text) is not None
     fade_out = _FADE_OUT.search(text) is not None
     if intent.fade and not fade_in and not fade_out and _FADE_ANY.search(text):
         fade_in = fade_out = True
     if fade_in:
-        ops.append({"op": "fade_in", "duration": FADE_SECONDS})
-        decisions.append(f"Fade in {FADE_SECONDS:g} s")
+        settings.setdefault("fade", {})["in"] = FADE_SECONDS
+        settle(f"Fade in {FADE_SECONDS:g} s", "Fade in", lambda chosen: (chosen.get("fade") or {}).get("in"))
     if fade_out:
-        ops.append({"op": "fade_out", "duration": FADE_SECONDS})
-        decisions.append(f"Fade out {FADE_SECONDS:g} s")
+        settings.setdefault("fade", {})["out"] = FADE_SECONDS
+        settle(f"Fade out {FADE_SECONDS:g} s", "Fade out", lambda chosen: (chosen.get("fade") or {}).get("out"))
 
-    loudnorm = _NO_LOUDNORM.search(text) is None
-    if not loudnorm and has_audio:
-        decisions.append("Kept the original loudness (no normalization)")
+    if _NO_LOUDNORM.search(text) is not None and has_audio:
+        settings["audio"] = {"keep_loudness": True}
+        settle("Kept the original loudness (no normalization)", "Original loudness", lambda chosen: (chosen.get("audio") or {}).get("keep_loudness"))
 
     if intent.watermark:
         ignored.append("Watermark: the campaign render takes one video; upload the logo as a separate step")
@@ -172,10 +185,9 @@ def edit_decisions(
         ignored.append("Music bed: the campaign render takes one video; add music as a separate step")
 
     return {
-        "ops": ops,
+        "edit": settings,
         "decisions": [_one_line(item, MAX_ITEM_CHARS) for item in decisions[:MAX_ITEMS]],
         "ignored": [_one_line(item, MAX_ITEM_CHARS) for item in ignored[:MAX_ITEMS]],
-        "loudnorm": loudnorm,
     }
 
 

@@ -4,7 +4,9 @@
 
 ## Run locally
 
-Use [uv](https://docs.astral.sh/uv/) (it provisions CPython 3.13) and an FFmpeg build with `drawtext` and `subtitles`. From the repository root:
+The [README quickstart](../README.md#quickstart) installs a `briefcut` command, and `briefcut` with no arguments opens Studio on the first free port from 8765, or joins one already running. It stores projects in the same folder as the Mac app (on Linux, `~/.local/share/briefcut`), unless `VEDIT_WORKSPACE` or the project folder in Settings says otherwise.
+
+From a checkout, use [uv](https://docs.astral.sh/uv/) (it provisions CPython 3.13) and an FFmpeg build with `drawtext` and `subtitles`. From the repository root:
 
 ```sh
 ./scripts/studio.sh --port 8765 --open
@@ -24,11 +26,11 @@ The multilingual base model and a requested language are separate choices. Selec
 
 Studio binds to `127.0.0.1` or `localhost`. It is a local application, not a public, authenticated hosting service. The existing CLI, Python API, and legacy session endpoints remain available.
 
-**Briefcut.app** keeps `~/Library/Application Support/Vedit` as its workspace so existing projects remain available; set an absolute `VEDIT_WORKSPACE` to override it. Downloads open a native Save dialog and reveal the completed file in Finder. The app writes to a temporary sibling file and replaces the destination only after the download completes. Python 3.13+ and FFmpeg remain external dependencies. `VEDIT_PYTHON` can select a supported installed interpreter; otherwise the app discovers an installed stable interpreter. Caption-model and Meta configuration must be present in the app's environment; the desktop app does not inherit the checkout launcher's model discovery.
+**Briefcut.app** keeps `~/Library/Application Support/Vedit` as its workspace so existing projects remain available; set an absolute `VEDIT_WORKSPACE` to override it. Downloads open a native Save dialog and reveal the completed file in Finder. The app writes to a temporary sibling file and replaces the destination only after the download completes. FFmpeg remains an external dependency; the first-run panel gives the command. A DMG from `vedit package dmg` carries its own CPython 3.13. `VEDIT_PYTHON` can select another supported interpreter, and an app built with `--no-python` discovers an installed stable one. The speech model and Meta settings come from `~/.vedit`, so the app needs no environment of its own.
 
 ## Use the workspace
 
-1. Choose one video under 200 MB and no longer than 20 minutes. Studio uploads it to the local server once and reuses the stored source.
+1. Choose up to 30 videos and photos, in order: up to 4 GB each and 2 hours in all. Studio uploads each file to the local server once. One video stays your original file, with no re-encode. Anything else becomes one project source at 30 fps with 48 kHz stereo, on a frame taken from the first item (at most 1920 on the long side). Photos hold for 3 seconds, `photo_seconds` changes that, and items of another shape sit over a blurred copy of themselves. The job's `project-source` folder holds the brief and `render.sh` that made it.
 2. Describe the outcome, then choose a duration, frame shape, and provider. Editing phrases in the brief are honoured at render time (see "Brief-driven edits" below); the "Product story, edited" chip is an example brief that asks for pause trimming, a title card, and a fade out.
 3. Create the story plan. Review the selected source ranges and edit their times, labels, title, and post copy. Every proposed cut is snapped to a transcript sentence boundary when a transcript exists; the reason text says when an edge was moved.
 4. Optionally choose a visual effect and its interval in the assembled story. Approve the plan by starting the render. Progress belongs to the job, so a page refresh does not start a second encode.
@@ -39,7 +41,7 @@ The plan is editorial input. A successful render verifies the technical file; it
 
 ### Brief-driven edits
 
-`src/vedit/brief_ops.py` reads the goal with the deterministic intent parser and inserts ops after the story assembly and before captions. Recognised phrases: "trim/cut/remove the pauses" or "cut silence" (`cut_silence`, pauses over 0.6 s inside the selected moments; captions are transcribed from the trimmed clip); "title card" or `title "…"` (a 2.5 s centered title, the quoted text or the plan's title); "fade in", "fade out", "fade to black" (0.5 s); "denoise"; "no loudnorm" or "keep the original loudness"; `hook: …` (3 s upper-third text) and `cta: …` (3 s lower-third text over the last seconds). Requests that cannot be honoured, such as a watermark, a music bed, or pause trimming on silent footage, are listed under `ignored_edits`. The plan carries `decisions` (one sentence per applied edit) and `ignored_edits`; Studio shows both under the plan, and the receipts check "auto: requested edits applied" fails when anything was ignored. Unknown words are ignored silently.
+`src/vedit/brief_ops.py` reads the goal with the deterministic intent parser and fills in `plan["edit"]`, the same settings Studio changes. A request's `template` and partial `edit` merge over what the brief asked for. Recognised phrases: "trim/cut/remove the pauses" or "cut silence" (`edit.trim_pauses`, pauses over 0.6 s inside the selected moments, resolved before the render so captions and receipts share the finished clock); "title card" or `title "…"` (a 2.5 s centered title, the quoted text or the plan's title); "fade in", "fade out", "fade to black" (0.5 s); "denoise"; "no loudnorm" or "keep the original loudness"; `hook: …` (3 s upper-third text) and `cta: …` (3 s lower-third text over the last seconds). Requests that cannot be honoured, such as a watermark, a music bed, or pause trimming on silent footage, are listed under `ignored_edits`. The plan carries `decisions` (one sentence per applied edit) and `ignored_edits`; Studio shows both under the plan. The render reads the brief again against the approved edit, so a request changed in the editor is reported as changed, and the receipts check "auto: requested edits applied" fails when anything was ignored. Unknown words are ignored silently.
 
 ### Receipts, versions, and revisions
 
@@ -56,11 +58,11 @@ Floating frame, Perspective sway, and Push-in reveal use local perspective and f
 | Local | Measures scene cuts, speech ranges, and, when a local Whisper model is installed, a transcript; then selects non-overlapping moments that fit the target length, each with the measurement that chose it. Renders your edited ranges with local tools. | Signal analysis is not understanding. It cannot judge whether a moment is interesting, true, or on-message; it only knows where picture and speech change and which brief words were spoken. |
 | Meta | Requests a structured story plan from footage and can request subject geometry for reframing. | A model's explanation is not independent evidence. Review the ranges against the source. |
 
-The local planner (`src/vedit/story.py`, also `uv run vedit story CLIP --goal "..." --target 20`) is deterministic and offline. It detects scene cuts on a 320-pixel downscale (strong changes first; when there are none, sparse weaker hard cuts at least 2 s apart), inverts `silencedetect` into speech ranges, and runs the local transcriber only when one is installed and the clip is short enough to keep planning fast. Transcript cues become sentences whose edges are clamped to the speech actually measured inside them. Candidates are speech ranges split at scene cuts, merged into 1.5–12 second pieces, and snapped to those sentences; each is scored on speech coverage, overlap between transcript words and your brief, a scene-change bonus, and a bonus for the first and last spoken moments. For a brief that asks how something is made, selection spreads moments across scenes (or equal time spans when no scene cuts were found) instead of spending the budget on consecutive sentences. Titles, labels, hashtags, and post copy come from the brief's subject and the spoken sentences. The plan carries an `analysis` object (scene times, speech ranges, transcript cues, sentences, notes) for review, and every segment states its `kind` and `score`. When the source already fits the target, the plan is the whole clip; with no speech or scenes, it says so in a warning and falls back to the opening. None of this is a model call, and the summary says so.
+The local planner (`src/vedit/story.py`, also `uv run vedit story CLIP --goal "..." --target 20`) is deterministic and offline. It detects scene cuts on a 320-pixel downscale (strong changes first; when there are none, sparse weaker hard cuts at least 2 s apart), inverts `silencedetect` into speech ranges, and runs local transcription synchronously for sources up to 10 minutes when a model is installed. This can slow planning; longer sources still need background transcription. Transcript cues become sentences whose edges are clamped to the speech actually measured inside them. Candidates are speech ranges split at scene cuts, merged into 1.5–12 second pieces, and snapped to those sentences; each is scored on speech coverage, overlap between transcript words and your brief, a scene-change bonus, and a bonus for the first and last spoken moments. For a brief that asks how something is made, selection spreads moments across scenes (or equal time spans when no scene cuts were found) instead of spending the budget on consecutive sentences. Titles, labels, hashtags, and post copy come from the brief's subject and the spoken sentences. The plan carries an `analysis` object (scene times, speech ranges, transcript cues, sentences, notes) for review, and every segment states its `kind` and `score`. When the source already fits the target, the plan is the whole clip; with no speech or scenes, it says so in a warning and falls back to the opening. None of this is a model call, and the summary says so.
 
 In Meta mode the same local measurement runs first and the transcript, with its sentence boundaries listed as preferred cut points, is attached to the Muse Spark prompt as source-clock data. Spark's ranges are then snapped to those sentences locally (`snap_to_sentences`), so the reason text on a Meta plan can say "end moved back to sentence boundary at 4.6 s".
 
-There are no paid model calls in the default local workflow. Keep `VEDIT_META_ENABLED` unset while developing without an approved cloud budget. Configure a server-side `MODEL_API_KEY` and explicitly enable Meta only after confirming the account's credits or billing arrangement. Never put a key into the browser, a brief, or a committed file.
+There are no paid model calls in the default local workflow. Keep `VEDIT_META_ENABLED` unset while developing without an approved cloud budget. Add a key in Settings, or set `MODEL_API_KEY` in the server's environment, and explicitly enable Meta only after confirming the account's credits or billing arrangement. The Settings page sends the key once to the local server, which stores it in the macOS Keychain or, failing that, in `~/.vedit/config.json` with mode 0600; no page can read it back. The environment wins over Settings, and `.env.local` keeps working. Never put a key into a brief or a committed file.
 
 Cloud inference sends an analysis copy and instructions to the configured Meta service. Local rendering does not make those model requests private or offline. A local cover is a frame from the video; generated imagery is a separate operation and must be identified as such.
 
@@ -126,6 +128,17 @@ Clients use the same local origin as Studio. Send JSON mutations with `Content-T
 | `POST /api/campaigns/{id}/revise` | Apply structured patches to the verified plan and queue version N+1. Body `{ "mode": "director" }`, `{ "mode": "auto" }`, or `{ "mode": "note", "note": "..." }`. |
 | `POST /api/campaigns/{id}/retry` | Retry an eligible failed or interrupted operation. |
 | `POST /api/campaigns/{id}/cancel` | Request cancellation. |
+| `DELETE /api/campaigns/{id}` | Delete the project: its folder, and its inbox copy unless anything else references it. HTTP 409 while a job is active. Returns `deleted`, `freed_bytes`, `source_removed`, `source_kept`. |
+| `GET /api/projects` | The library: `projects` (`id`, `title`, `status`, `status_label`, `created_at`, `updated_at`, `duration`, `versions`, `size_bytes`, `reclaimable_bytes`, `thumbnail_url`), `storage` (`total_bytes`, `reclaimable_bytes`, `workspace`), and an `interrupted` count. |
+| `GET /api/projects/{id}/thumbnail` | The verified cover, or a frame of the source. |
+| `POST /api/projects/{id}/rename` | `{ "title": "..." }` names the project. The video's own title in the plan does not change. |
+| `POST /api/projects/{id}/duplicate` | A new project at the review step with the same plan, sharing the stored source. HTTP 201 with `{ "job": ... }`. No renders, versions, or spend are copied. |
+| `POST /api/projects/cleanup` | Remove renders of old versions. `{ "dry_run": true }` reports `freed_bytes` and `removed` without deleting. |
+| `GET /api/setup` | What this machine needs: `ready`, `host`, the doctor's `checks`, and `items` for `ffmpeg`, `speech`, `meta`, each with `ok`, `required`, `summary`, and install commands. `?refresh=1` re-reads FFmpeg, so a fresh install shows without a restart. |
+| `GET /api/setup/model`, `POST /api/setup/model`, `POST /api/setup/model/cancel` | Read, start (HTTP 202), or stop the speech model download. `download` has `state` (`idle`, `downloading`, `verifying`, `complete`, `failed`, `cancelled`), `received`, `total`, and `error`. |
+| `GET /api/settings`, `POST /api/settings` | Read or change settings, kept in `~/.vedit/config.json` (`VEDIT_HOME` moves the folder). A key is write-only: reads give `configured`, the last four characters, and where it is stored. The environment wins over everything saved. |
+| `POST /api/settings/test` | The same free check as `vedit meta check`. |
+| `GET /api/diagnostics` | `{ "text": "..." }` for a bug report. |
 | `GET /api/campaigns/{id}/artifact?name=video&v=N` | Read an allowlisted artifact. Names: `source`, `video`, `cover`, `bundle`, `brief`, `report`. `v` selects a verified version; omit it for the current one. |
 
 A local planning request looks like this. Use the actual path returned by upload:
@@ -146,9 +159,9 @@ A local planning request looks like this. Use the actual path returned by upload
 }
 ```
 
-Poll the returned job ID until its `status` is `planned`. Other statuses are `queued`, `analyzing`, `rendering`, `complete`, `failed`, and `cancelled`. The editable plan contains `title`, `summary`, `segments`, `caption`, `hashtags`, `cover_prompt`, `provider`, `usage`, `analysis` (scenes, speech, transcript, sentences, notes), `decisions`, and `ignored_edits`. Each segment has source-clock `start` and `end` seconds, a `label`, a `reason`, a `kind`, and a `score`. Submit the edited object as `{ "plan": ... }` to the render route, or send `{}` to use the stored plan. Use URLs from the completed job's `result` or `versions` for downloads.
+Poll the returned job ID until its `status` is `planned`. Other statuses are `queued`, `analyzing`, `rendering`, `complete`, `failed`, and `cancelled`. The editable plan contains `title`, `summary`, `segments`, `edit`, `timeline`, `caption`, `hashtags`, `cover_prompt`, `provider`, `usage`, `analysis` (scenes, speech, transcript, sentences, notes), `decisions`, and `ignored_edits`. Each segment has source-clock `start` and `end` seconds, a `label`, a `reason`, a `kind`, a `score`, and optional `speed`, `volume`, and `motion`. See [Editor architecture](EDITOR_ARCHITECTURE.md) for `edit` and `timeline`. Submit the edited object as `{ "plan": ... }` to the render route, or send `{}` to use the stored plan. Use URLs from the completed job's `result` or `versions` for downloads.
 
-Frame shapes are `9:16`, `16:9`, and `1:1`. Target duration is 0.5–180 seconds. An edited plan allows one to eight segments, at least 0.1 seconds each, and no more than 180 seconds in total. A generated cover requires Meta mode and explicit `generate_cover: true`; the default package always includes a local cover frame. A nonempty `subject` enables tracking in Meta mode. Local mode uses a center crop and displays a warning if a subject was requested.
+Frame shapes are `9:16`, `16:9`, and `1:1`. Target duration is 0.5–180 seconds. An edited plan allows 1 to 32 segments, at least 0.1 seconds each, and a finished story of no more than 180 seconds. A generated cover requires Meta mode and explicit `generate_cover: true`; the default package always includes a local cover frame. A nonempty `subject` enables tracking in Meta mode. Local mode uses a center crop and displays a warning if a subject was requested.
 
 An optional `effect` object selects a curated treatment, for example `{ "preset": "float", "intensity": 0.55, "start": 0, "duration": 3 }`. It can be supplied when creating the campaign or approving the render. Its interval must fit the assembled story; `null` disables it. The approved effect is included in the render record.
 
@@ -184,18 +197,41 @@ Check the archive itself: `video.mp4` should play, the cover should open, and `p
 
 | Symptom | Action |
 | --- | --- |
-| Captions unavailable | Install a real local Whisper model, set `VEDIT_WHISPER_MODEL`, and restart Studio. |
-| Meta unavailable | Check server-side credentials and the explicit enable switch. Continue with Local if cloud access is not authorized. |
+| Captions unavailable | Open Settings, then Open setup. It says what is missing, gives the command for `whisper-cli`, and downloads the speech model. No restart. |
+| Meta unavailable | Add the key and allow Meta calls in Settings, then press Test connection. Continue with Local if cloud access is not authorized. |
 | Model request exceeds budget | Review the campaign's retained reservations and reduce input or optional work. A new campaign has a separate cap; creating one does not erase previous charges. |
 | No tracked subject | Use a more specific subject or remove tracking and review the framing manually. Do not treat a center crop as successful tracking. |
-| Interrupted job | Review the retained job and its error before retrying. Do not infer completion from a progress bar. |
+| Interrupted job | Studio marks unfinished jobs "Interrupted" when it restarts; it never claims they went on. Open the project from Projects and retry. Your source and approved plan are saved. Do not infer completion from a progress bar. |
 | Render failed | Read the job error and generated program; correct the source or plan, then retry. |
 | Insufficient disk space | Free space on the workspace drive, then retry. The previous verified version remains available. |
 | Video looks wrong despite passing verification | Revise the plan. Stream checks establish playable media, not editorial quality. |
 
 Campaign export does not publish to Instagram, Facebook, WhatsApp, or Threads. Platform login, approval, publication, and engagement attribution are separate product work. Exporting a package is never reported as publishing it.
 
-Sources and session artifacts stay on disk until removed. Keep customer media out of source control, and do not delete active job files.
+### Local finishing cost snapshot
+
+Measured 2026-10-31 on a 20-second 1080×1920 portrait source made from the public procedural workshop demo. Each case ran twice; the faster wall time is shown. This is one Apple Silicon Mac with FFmpeg 9.0.2, a warm local cache, and hardware video encode. Timings are end-to-end render times, not the isolated filter cost, and changes from baseline are not additive.
+
+| Case | Render time | Difference from export only | Realtime | Output size |
+| --- | ---: | ---: | ---: | ---: |
+| Export only | 7.06 s | 0.00 s | 2.8× | 12.0 MB |
+| Cinematic look | 14.50 s | +7.44 s | 1.4× | 12.4 MB |
+| Auto look | 10.21 s | +3.14 s | 2.0× | 12.6 MB |
+| Film look | 16.27 s | +9.21 s | 1.2× | 22.3 MB |
+| Four slow pushes | 8.17 s | +1.11 s | 2.4× | 11.5 MB |
+| Stabilize | 15.34 s | +8.28 s | 1.3× | 11.3 MB |
+| Denoise and voice enhance | 8.07 s | +1.01 s | 2.5× | 12.0 MB |
+| Three timed text items | 5.92 s | −1.15 s | 3.4× | 12.0 MB |
+| Logo | 6.56 s | −0.50 s | 3.0× | 11.9 MB |
+| Timed overlay | 7.83 s | +0.76 s | 2.6× | 11.8 MB |
+| Ducked music | 8.18 s | +1.11 s | 2.4× | 12.1 MB |
+| All measured finishing ops | 32.67 s | +25.60 s | 0.6× | 13.8 MB |
+
+These are local measurements from `scripts/op_costs.py`, not a promise for other machines or footage. The lower times than baseline for text and logo reflect run-to-run variation; they do not mean those operations make rendering faster.
+
+Sources and session artifacts stay on disk until removed in Projects, which shows the space each project uses. Delete removes a project's folder and Briefcut's stored copy of its clip, unless another project uses that copy. It is refused while a job is active. "Clean up renders of old versions" removes render folders older than each project's latest verified version; that version, a newer failed attempt, and every plan stay. Keep customer media out of source control, and do not delete active job files by hand.
+
+"Copy diagnostics" in Settings gathers versions, tool checks, and the last job's error for a bug report, with no home folder paths, keys, or transcript text. [Privacy](PRIVACY.md) lists everything that leaves the machine.
 
 ## MCP for coding agents
 
@@ -223,8 +259,11 @@ or in a client's JSON config:
 
 | Tool | Does |
 | --- | --- |
-| `briefcut_import_clip(path)` | Copies a local video (≤ 200 MB, must probe as video) into a fresh `vedit-sessions/<id>/inbox/` folder; returns `paths`, `bytes`, duration, and frame size. |
-| `briefcut_create_story(paths, goal, provider="local", target_duration=30, aspect="9:16", captions=true, caption_provider="local", language="en", subject="", budget_usd=0.25, generate_cover=false, review=false, effect=null)` | Queues a plan; same fields as `POST /api/campaigns`. Returns the job. |
+| `briefcut_import_clip(path)` | Copies a local video (≤ 4 GB, must probe as video) into a fresh `vedit-sessions/<id>/inbox/` folder; returns `paths`, `bytes`, duration, and frame size. |
+| `briefcut_create_story(paths, goal, provider="local", target_duration=30, aspect="9:16", captions=true, caption_provider="local", language="en", subject="", budget_usd=0.25, generate_cover=false, review=false, effect=null)` | Queues a plan from 1 to 30 imported clips or photos; same fields as `POST /api/campaigns`. Returns the job. |
+| `briefcut_find_moments(job_id, query)` | Finds matching transcript moments locally, plus visible footage in Meta mode. Returns results, warnings, and budget. |
+| `briefcut_make_shorts(job_id, count=3, target_duration=30, aspect="9:16", budget_usd=null, auto_render=true)` | Starts 2 to 5 linked short projects from distinct moments. Wait on each returned job id. |
+| `briefcut_script_to_video(script, aspect="9:16", provider="meta", budget_usd=0.25, language="en", voice=null, images=[], review=false, auto_refine=0, template="none", edit=null)` | Creates an editable narrated project from a script. Without supplied images, Meta is required for scene pictures. |
 | `briefcut_wait(job_id, timeout_seconds=600)` | Polls every 0.5 s until `planned`, `complete`, `failed`, or `cancelled`; a timeout is a tool error and the job keeps running. |
 | `briefcut_get(job_id)`, `briefcut_list()` | The public job, or `{"jobs": [...]}` newest first. |
 | `briefcut_render(job_id, plan=null)` | Renders the saved plan or an edited copy of `job.plan`. |

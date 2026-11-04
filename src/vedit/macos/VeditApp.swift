@@ -6,10 +6,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-// App Sandbox is off on purpose. The window is a shell around the machine's
-// Python and ffmpeg-full, both of which live outside this bundle. Sandboxing
-// the process would hide them. ATS stays on; only local networking is allowed,
-// via Info.plist NSAllowsLocalNetworking.
+// App Sandbox is off on purpose. The window is a shell around Python (bundled
+// when the app was built with it, otherwise the machine's) and ffmpeg-full, which
+// lives outside this bundle. Sandboxing the process would hide them. ATS stays
+// on; only local networking is allowed, via Info.plist NSAllowsLocalNetworking.
 //
 // Deployment target is macOS 15. WKWebView hosts the studio. The native
 // SwiftUI WebView needs macOS 26, so this binary stays on the older view.
@@ -162,6 +162,9 @@ enum StudioProcess {
         if let override = ProcessInfo.processInfo.environment["VEDIT_PYTHON"], !override.isEmpty {
             return pythonVersion(at: override) == nil ? nil : override
         }
+        if let bundled = bundledPython() {
+            return bundled
+        }
         let names = ["python3.14", "python3.13", "python3"]
         let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
         let directories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
@@ -177,6 +180,14 @@ enum StudioProcess {
             }
         }
         return candidates.max { $0.1.lexicographicallyPrecedes($1.1) }?.0
+    }
+
+    /// The interpreter shipped inside this app. A GUI launch has no shell PATH,
+    /// so without it a person whose Python is under ~/.local would see no editor.
+    private static func bundledPython() -> String? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let path = resources.appendingPathComponent("python/bin/python3.13").path
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
     }
 
     private static func pythonVersion(at path: String) -> [Int]? {
@@ -223,6 +234,10 @@ enum StudioProcess {
         let existing = env["PYTHONPATH"] ?? ""
         env["PYTHONPATH"] = existing.isEmpty ? src : src + ":" + existing
         env["PYTHONUNBUFFERED"] = "1"
+        // Bytecode written inside the bundle would break its code signature.
+        env["PYTHONPYCACHEPREFIX"] = FileManager.default.temporaryDirectory
+            .appendingPathComponent("briefcut-pycache").path
+        env.removeValue(forKey: "PYTHONHOME")
         let ffmpeg = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
         let ffprobe = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
         if (env["VEDIT_FFMPEG"] ?? "").isEmpty, FileManager.default.isExecutableFile(atPath: ffmpeg) {
@@ -570,7 +585,8 @@ enum WindowProof {
     const input = document.getElementById("clip");
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    return input.files.length ? input.files[0].name : "";
+    // The media bin takes the file and clears the input, so report what was offered.
+    return file.name;
     """
 
     private static let sentenceScript = """
@@ -622,7 +638,7 @@ enum WindowProof {
             record["clip"] = clipName
             try await setSentence(webView, "Make a concise landscape story from this footage.")
             _ = try await call(webView, """
-                document.getElementById("provider-local").checked = true;
+                document.getElementById("cloud-consent").checked = true;
                 document.getElementById("captions").checked = false;
                 document.getElementById("aspect").value = "16:9";
                 if (!document.getElementById("effects-section")?.hidden) {

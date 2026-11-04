@@ -1,0 +1,31 @@
+{
+  "style": "Medium: stylized digital painting with soft textured brushwork. Palette: warm earth browns, deep oak amber, muted workshop greens and soft daylight grey, with warm highlights on wood. Light: soft natural daylight from large workshop windows, gentle warm fill, subtle rim light on wood grain. Lens: 50mm cinematic, shallow depth of field, centered composition.",
+  "scenes": [
+    {
+      "title": "Wet Fallen Oak Blank",
+      "prompt": "Medium: stylized digital painting with soft textured brushwork. Palette: warm earth browns, deep oak amber, muted workshop greens and soft daylight grey, with warm highlights on wood. Light: soft natural daylight from large workshop windows, gentle warm fill, subtle rim light on wood grain. Lens: 50mm cinematic, shallow depth of field, centered composition. 9:16 vertical frame, stylized woodworker character with short brown hair, grey work shirt and canvas apron standing in a sunlit workshop, holding a large rough wet fallen oak log blank with visible bark and damp grain, wood is clear of the edges, workshop shelves with tools softly blurred in background, soft daylight, consistent character design No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+    },
+    {
+      "title": "Lathe Shaping Bowl",
+      "prompt": "Medium: stylized digital painting with soft textured brushwork. Palette: warm earth browns, deep oak amber, muted workshop greens and soft daylight grey, with warm highlights on wood. Light: soft natural daylight from large workshop windows, gentle warm fill, subtle rim light on wood grain. Lens: 50mm cinematic, shallow depth of field, centered composition. 9:16 vertical frame, same stylized woodworker character at a wooden lathe in the same sunlit workshop, hands guiding the rough wet oak blank as it spins into a bowl form with long steady wood shavings curling away, face focused, tools on wall behind, wood and character clear of edges, consistent character design and setting No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+    },
+    {
+      "title": "Oiled Grain Glowing",
+      "prompt": "Medium: stylized digital painting with soft textured brushwork. Palette: warm earth browns, deep oak amber, muted workshop greens and soft daylight grey, with warm highlights on wood. Light: soft natural daylight from large workshop windows, gentle warm fill, subtle rim light on wood grain. Lens: 50mm cinematic, shallow depth of field, centered composition. 9:16 vertical frame, same stylized woodworker character in the same workshop holding up a finished oak bowl, applying food safe oil with a cloth, grain glowing warm amber under soft window light, bowl centered and clear of edges, workshop interior consistent, shallow depth of field, consistent character design No text, letters, numbers, captions, signs, logos, or watermarks anywhere in the image."
+    }
+  ],
+  "provider": "meta",
+  "model": "meta-models/Muse-Glimmer-30B",
+  "usage": {
+    "estimated_max_usd": 0.0,
+    "cached": false,
+    "cost_usd": 0.0,
+    "local": true,
+    "input_tokens": 274,
+    "output_tokens": 845,
+    "total_tokens": 1119
+  },
+  "runtime": "llama.cpp",
+  "private": true,
+  "warnings": []
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import http.client
 import importlib.util
 import io
@@ -60,13 +61,29 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[int]:
             manager.close()
 
 
+def create_offline(payload: dict) -> tuple[int, dict, bytes]:
+    """A model-free job, made the way only tests can: through the manager, as provider local.
+
+    Studio's HTTP API refuses local (Briefcut is Meta-only), so these tests make
+    the job in-process and then drive every other route over HTTP. The answer has
+    the same shape as ``request`` so the rest of each test reads the same.
+    """
+    from vedit.campaign import CampaignError, get_manager
+
+    try:
+        job = get_manager().create({**payload, "provider": "local", "caption_provider": "local"})
+    except CampaignError as exc:
+        return exc.status, {}, json.dumps({"ok": False, "error": str(exc)}).encode()
+    return 202, {}, json.dumps({"ok": True, "job": job}, default=str).encode()
+
+
 def test_capabilities_and_empty_history(server: int) -> None:
     status, headers, raw = request(server, "GET", "/api/capabilities")
     assert status == 200
     assert headers["Cache-Control"] == "no-store"
     payload = json.loads(raw)
     assert payload["ok"] is True
-    assert "local" in payload and "meta" in payload
+    assert "local" not in payload and "render" in payload and "meta" in payload
     assert not payload["meta"].get("configured")
     status, _, raw = request(server, "GET", "/api/campaigns")
     assert status == 200
@@ -154,6 +171,8 @@ def test_uploaded_clip_plans_and_streams_after_reload(server: int, tmp_path: Pat
     }
     origin = {"Origin": f"http://127.0.0.1:{server}", "Sec-Fetch-Site": "same-origin"}
     status, _, raw = request(server, "POST", "/api/campaigns", payload, origin)
+    assert status == 400 and "Meta models only" in json.loads(raw)["error"], raw
+    status, _, raw = create_offline(payload)
     assert status == 202, raw
     job = json.loads(raw)["job"]
     job_id = job["id"]
@@ -182,7 +201,7 @@ def test_uploaded_clip_plans_and_streams_after_reload(server: int, tmp_path: Pat
     status, _, raw = request(server, "GET", url, headers={"Range": "bytes=999999999-"})
     assert status == 416 and raw == b""
 
-    status, _, raw = request(server, "POST", "/api/campaigns", payload, origin)
+    status, _, raw = create_offline(payload)
     assert status == 202
     assert json.loads(raw)["job"]["id"] == job_id
 
@@ -228,7 +247,7 @@ def test_render_effect_override_validates_before_mutation_and_distinguishes_omis
     status, _, raw = request(server, "POST", "/api/upload?name=effect.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
     assert status == 201
     recipe = {"preset": "push", "intensity": 0, "start": 0, "duration": 0.5}
-    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False, "effect": recipe})
+    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False, "effect": recipe})
     assert status == 202
     job = json.loads(raw)["job"]
     ident = job["id"]
@@ -296,7 +315,7 @@ def test_render_tracking_override_must_be_boolean(server: int, tmp_path: Path) -
     clip = make_clip(tmp_path / "tracking-source.mp4")
     status, _, raw = request(server, "POST", "/api/upload?name=tracking.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
     assert status == 201
-    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False})
+    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False})
     assert status == 202
     ident = json.loads(raw)["job"]["id"]
     deadline = time.monotonic() + 30
@@ -338,7 +357,7 @@ def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_du
     clip = module._make_clip(tmp_path / "revise-source.mp4", seconds=seconds, color="olive")
     status, _, raw = request(server, "POST", "/api/upload?name=revise.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
     assert status == 201
-    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": json.loads(raw)["paths"], "goal": "Show the product", "captions": False, "target_duration": target_duration})
+    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Show the product", "captions": False, "target_duration": target_duration})
     assert status == 202, raw
     ident = json.loads(raw)["job"]["id"]
     planned = _settle(server, ident)
@@ -352,9 +371,9 @@ def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_du
 
 
 def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(server: int, tmp_path: Path) -> None:
-    # A 1 s moment against a 15 s target fails the duration check, but there is
-    # no footage to add: the lint has nothing deterministic to apply.
-    complete = _verified_campaign(server, tmp_path, seconds=1.0, target_duration=15, plan_segments=[{"start": 0.0, "end": 1.0, "label": "All", "reason": "Everything."}])
+    # A 1 s moment of a 3 s clip is far under the length the clip can reach, but a
+    # short cut has no footage to add: the lint has nothing deterministic to apply.
+    complete = _verified_campaign(server, tmp_path, seconds=3.0, target_duration=15, plan_segments=[{"start": 0.0, "end": 1.0, "label": "All", "reason": "Everything."}])
     ident = complete["id"]
     result = complete["result"]
     names = [check["name"] for check in result["checks"]]
@@ -388,7 +407,7 @@ def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int,
     complete = _verified_campaign(server, tmp_path, seconds=3.0, target_duration=0.5, plan_segments=[{"start": 0.0, "end": 3.0, "label": "All", "reason": "Everything."}])
     ident = complete["id"]
     patches = complete["result"]["patches"]
-    assert patches == [{"op": "trim_end", "segment": 1, "seconds": 0.5, "reason": patches[0]["reason"], "source": "auto"}]
+    assert patches == [{"op": "trim_end", "segment": 1, "seconds": 0.5, "reason": patches[0]["reason"], "source": "auto", "summary": "Moment 1 ends at 0.5 s."}]
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "auto"})
     assert status == 202, raw
     queued = json.loads(raw)["job"]
@@ -413,3 +432,99 @@ def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int,
         assert status == 206 and len(raw) == 128
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "auto"})
     assert status == 409
+
+
+def test_the_timeline_route_answers_without_saving(server: int, tmp_path: Path) -> None:
+    complete = _verified_campaign(server, tmp_path, seconds=2.0, target_duration=2, plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}])
+    ident, plan = complete["id"], complete["plan"]
+    draft = dict(plan, segments=[{"start": 0.0, "end": 2.0, "speed": 2}], edit=dict(plan["edit"], removed=[[0.5, 1.0]]))
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": draft})
+    assert status == 200, raw
+    payload = json.loads(raw)
+    assert payload["ok"] is True and payload["timeline"]["duration"] == 0.75
+    assert [span["source_start"] for span in payload["timeline"]["spans"]] == [0.0, 1.0]
+    assert json.loads(request(server, "GET", f"/api/campaigns/{ident}")[2])["job"]["plan"]["duration"] == plan["duration"]
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": dict(draft, edit={"look": {"preset": "sparkle"}})})
+    assert status == 400 and "choices" in json.loads(raw)["error"]
+    assert request(server, "GET", f"/api/campaigns/{ident}/timeline")[0] == 405
+    assert request(server, "POST", f"/api/campaigns/{'0' * 32}/timeline", {})[0] == 404
+
+
+TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+
+
+def test_the_timeline_route_shows_the_captions_that_will_burn(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def analyze(source: Path, work_dir: Path, **_kwargs) -> dict:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        return {"duration": 2.0, "has_audio": True, "scenes": [], "silences": [], "transcribed": True, "warnings": [],
+                "transcript": [{"start": 0.2, "end": 1.6, "text": "So, um, made by hand."}],
+                "words": [{"start": 0.2, "end": 0.4, "text": "So,"}, {"start": 0.5, "end": 0.8, "text": "um,"}, {"start": 0.8, "end": 1.0, "text": "made"}, {"start": 1.0, "end": 1.2, "text": "by"}, {"start": 1.2, "end": 1.6, "text": "hand."}]}
+
+    monkeypatch.setattr("vedit.story.analyze_source", analyze)
+    complete = _verified_campaign(server, tmp_path, seconds=2.0, target_duration=2, plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}])
+    ident, plan = complete["id"], complete["plan"]
+    captions = plan["timeline"]["captions"]
+    assert [cue["text"] for cue in captions] == ["So, um, made by hand."] and captions[0]["key"] == "200"
+    assert [word["text"] for word in captions[0]["words"]][:2] == ["So,", "um,"]
+    draft = dict(plan, edit=dict(plan["edit"], remove_fillers=True))
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": draft})
+    assert status == 200, raw
+    assert [cue["text"] for cue in json.loads(raw)["timeline"]["captions"]] == ["So, made by hand."], "a removed filler leaves the preview at once"
+    edited = dict(plan, edit=dict(plan["edit"], captions=dict(plan["edit"]["captions"], edits={"200": "Made by hand."})))
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": edited})
+    assert status == 200, raw
+    cue = json.loads(raw)["timeline"]["captions"][0]
+    assert cue["text"] == "Made by hand." and cue["key"] == "200" and cue["estimated"] is True
+
+
+def test_the_assets_route_shows_the_preview_only_this_projects_files(server: int, tmp_path: Path) -> None:
+    clip = make_clip(tmp_path / "clip.mp4")
+    octets = {"Content-Type": "application/octet-stream"}
+    paths = json.loads(request(server, "POST", "/api/upload?name=clip.mp4", clip.read_bytes(), octets)[2])["paths"]
+    job = json.loads(create_offline({"goal": "Keep it short.", "paths": paths, "target_duration": 1})[2])["job"]
+    ident = job["id"]
+    _settle(server, ident)
+    uploaded = json.loads(request(server, "POST", "/api/upload?name=logo.png", TINY_PNG, octets)[2])["paths"][0]
+    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/assets", {"path": uploaded})
+    assert status == 201, raw
+    asset = json.loads(raw)["asset"]["id"]
+    status, headers, raw = request(server, "GET", f"/api/campaigns/{ident}/assets?id={asset}")
+    assert status == 200 and headers["Content-Type"] == "image/png" and raw == TINY_PNG
+    assert "attachment" not in headers.get("Content-Disposition", "")
+    assert request(server, "GET", f"/api/campaigns/{ident}/assets?id=ffffffff")[0] == 404
+    assert request(server, "GET", f"/api/campaigns/{ident}/assets")[0] == 400
+
+
+# ---- Meta is the only mode ----
+
+
+@pytest.mark.parametrize("field", ["provider", "caption_provider"])
+@pytest.mark.parametrize("route", ["/api/campaigns", "/api/script"])
+def test_studio_refuses_local_mode(server: int, route: str, field: str) -> None:
+    payload = {"goal": "Keep it short.", "paths": ["/nowhere.mp4"], "script": "One line.", field: "local"}
+    status, _, raw = request(server, "POST", route, payload)
+    body = json.loads(raw)
+    assert status == 400 and body["ok"] is False
+    assert "Meta models only" in body["error"] and field in body["error"]
+    assert json.loads(request(server, "GET", "/api/campaigns")[2])["jobs"] == []
+
+
+def test_studio_projects_default_to_meta(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit.campaign import get_manager
+
+    seen: list[dict] = []
+    manager = get_manager()
+    monkeypatch.setattr(manager, "create", lambda value: seen.append(value) or {"id": "f" * 32, "status": "queued"})
+    monkeypatch.setattr(manager, "create_script", lambda value: seen.append(value) or {"id": "e" * 32, "status": "queued"})
+    assert request(server, "POST", "/api/campaigns", {"goal": "Keep it short.", "paths": ["/x.mp4"]})[0] == 202
+    assert request(server, "POST", "/api/script", {"script": "One line."})[0] == 202
+    assert [(row["provider"], row["caption_provider"]) for row in seen] == [("meta", "meta"), ("meta", "meta")]
+
+
+def test_studio_without_a_key_says_how_to_connect_meta(server: int, tmp_path: Path) -> None:
+    clip = make_clip(tmp_path / "clip.mp4")
+    octets = {"Content-Type": "application/octet-stream"}
+    paths = json.loads(request(server, "POST", "/api/upload?name=clip.mp4", clip.read_bytes(), octets)[2])["paths"]
+    status, _, raw = request(server, "POST", "/api/campaigns", {"goal": "Keep it short.", "paths": paths})
+    error = json.loads(raw)["error"]
+    assert status == 409 and "Meta API key" in error and "Local" not in error

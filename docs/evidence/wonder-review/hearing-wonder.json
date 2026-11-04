@@ -1,0 +1,76 @@
+{
+  "director": "wonder",
+  "model": "muse-wonder-1.0",
+  "budget_given_usd": 0.297199,
+  "proxy": {
+    "bytes": 3933058,
+    "sha256": "79374cc5dcde30e49e0ccbeb34e8ae7de45309839f6dad12596ba76a247865f1",
+    "duration": 18.933333,
+    "width": 540,
+    "height": 960,
+    "has_audio": true,
+    "has_video": true,
+    "from": "01_select_ranges.mp4",
+    "from_sha256": "f2f68582fdf2bb6be497de2dd7e237142b0c7353483d525ee9c5ebb4bee694a5"
+  },
+  "response_seconds": 8.84,
+  "answer": {
+    "heard_audio": true,
+    "other_sounds": "none",
+    "voice": "Medium-pitched, steady and slow-paced, flat and synthetic-sounding",
+    "words": "This is the finished oak bowl, oiled and ready for the table. Here is the raw oak blank, still wet and heavy. The grain tells me where the bowl wants to be. On the lathe the shape appears in long steady cuts. Sanding goes from coarse to fine, with the lathe turning slowly. 24 hours later, the bowl is ready to use"
+  },
+  "usage": {
+    "estimated_max_usd": 0.08108,
+    "cached": false,
+    "input_tokens": 3738,
+    "output_tokens": 907,
+    "total_tokens": 4645,
+    "cost_usd": 0.033092
+  },
+  "request": {
+    "model": "muse-wonder-1.0",
+    "store": false,
+    "max_output_tokens": 4000,
+    "reasoning": {
+      "effort": "low"
+    },
+    "content_parts": [
+      "input_text",
+      "input_file"
+    ],
+    "video_part": {
+      "type": "input_file",
+      "file_id": "file-…"
+    },
+    "schema_name": "vedit_hearing",
+    "strict": true,
+    "prompt": "Listen to this video's soundtrack. Nothing is written on screen. heard_audio: whether you can hear any sound at all. words: every word spoken, in order, exactly as you hear it, or an empty string if you hear no speech. voice: the speaker's voice (pitch, pace, whether it sounds synthetic), or 'none'. other_sounds: any music, tool, room or background sounds, or 'none'. Never guess words you cannot hear; leave them out instead. Return only the requested schema."
+  },
+  "warnings": [],
+  "wall_seconds": 22.0,
+  "ledger": [
+    {
+      "id": "2426a00e021c472a8841b190a781d5c4",
+      "operation": "hearing-probe",
+      "model": "muse-wonder-1.0",
+      "reserved_usd": 0.08108,
+      "budget_usd": 0.297199,
+      "status": "completed",
+      "started_at": 1793817242.471002,
+      "usage": {
+        "estimated_max_usd": 0.08108,
+        "cached": false,
+        "input_tokens": 3738,
+        "output_tokens": 907,
+        "total_tokens": 4645,
+        "cost_usd": 0.033092
+      },
+      "request_id": "resp_6aeb7aa37abb0b8216814571"
+    }
+  ],
+  "charged_usd": 0.033092,
+  "spent_so_far_usd": 0.1358933,
+  "meta_mode": "contributor",
+  "at_utc": "2026-11-04T18:34:15Z"
+}

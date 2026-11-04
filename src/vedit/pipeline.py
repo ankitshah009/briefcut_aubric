@@ -220,7 +220,9 @@ def execute(
                 f"step '{step.name}' failed (exit {result.returncode}).\n"
                 f"command: {shell_join(step.argv)}\n"
                 f"{report.stderr_tail}"
-                + (f"\nmissing outputs: {missing}" if missing else "")
+                + (f"\nmissing outputs: {missing}" if missing else ""),
+                step=step.name,
+                detail=result.stderr,
             )
     return reports
 

@@ -2,7 +2,15 @@
 
 
 class VeditError(Exception):
-    """Any editor failure the user can act on."""
+    """Any editor failure the user can act on.
+
+    ``str(error)`` is for a terminal and may hold paths and commands. ``plain``,
+    when set, is the sentence safe to show the person who chose the file.
+    """
+
+    def __init__(self, *args: object, plain: str | None = None) -> None:
+        super().__init__(*args)
+        self.plain = plain
 
 
 class BinaryMissing(VeditError):
@@ -22,7 +30,12 @@ class CompileError(VeditError):
 
 
 class RenderError(VeditError):
-    """An FFmpeg (or other) step failed."""
+    """An FFmpeg (or other) step failed. ``step`` and ``detail`` carry its name and stderr."""
+
+    def __init__(self, *args: object, plain: str | None = None, step: str = "", detail: str = "") -> None:
+        super().__init__(*args, plain=plain)
+        self.step = step
+        self.detail = detail
 
 
 class RenderCancelled(RenderError):

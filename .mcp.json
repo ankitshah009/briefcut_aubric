@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "briefcut": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--no-dev",
+        "--extra",
+        "mcp",
+        "--extra",
+        "sam",
+        "vedit",
+        "mcp"
+      ]
+    }
+  }
+}

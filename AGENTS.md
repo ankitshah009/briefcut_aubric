@@ -1,5 +1,7 @@
 # AGENTS.md
 
+**Work in progress:** read [docs/HANDOFF.md](docs/HANDOFF.md) first. It holds the current state, the rules for this stretch, and the finish list.
+
 This package is the NLE. You do not write FFmpeg by hand.
 
 ## Do the job

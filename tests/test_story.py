@@ -174,6 +174,30 @@ def test_plan_local_story_on_demo_clip(tmp_path: Path) -> None:
     assert (tmp_path / "story-analysis.json").is_file()
 
 
+def test_measurement_takes_a_meta_transcript_and_runs_no_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from vedit.captions import Cue
+    from vedit.story import NO_TRANSCRIPT, analyze_signals, analyze_source
+
+    monkeypatch.setattr("vedit.story.probe", lambda _source: SimpleNamespace(has_video=True, duration=301.0, has_audio=True, audio_map=0))
+    monkeypatch.setattr("vedit.story.detect_scenes_fast", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("vedit.story.detect_silence", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("vedit.story.audible", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("vedit.captions.transcribe", lambda *_args, **_kwargs: pytest.fail("measurement never listens"))
+    monkeypatch.setattr("vedit.meta.transcribe_audio", lambda *_args, **_kwargs: pytest.fail("measurement never listens"))
+    nobody = analyze_source(Path("long.mp4"), tmp_path)
+    assert nobody["transcribed"] is False and nobody["transcript"] == []
+    measured = analyze_source(Path("long.mp4"), tmp_path, heard=[Cue(1.0, 2.0, "Long source speech.")])
+    assert measured["transcribed"] is True
+    assert measured["transcript"] == [{"start": 1.0, "end": 2.0, "text": "Long source speech."}]
+    signals = analyze_signals(Path("long.mp4"), work_dir=tmp_path, heard=[Cue(1.0, 2.0, "Long source speech.")], transcribed_by="meta-voice-transcribe")
+    assert signals["transcribed_by"] == "meta-voice-transcribe" and signals["sentences"][0]["text"] == "Long source speech."
+    assert "transcribed_by" not in analyze_signals(Path("long.mp4"), work_dir=tmp_path, transcribed_by="meta-voice-transcribe"), "nobody listened, so nobody is named"
+    asked = plan_local_story(Path("long.mp4"), goal="Show it", target_duration=8, work_dir=tmp_path, transcribe=True)
+    assert NO_TRANSCRIPT in asked["warnings"], "a local plan says it has no transcript instead of running a model"
+
+
 # ---------------------------------------------------------------------------
 # Sentences and sentence-aligned cuts
 # ---------------------------------------------------------------------------

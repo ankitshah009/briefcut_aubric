@@ -1,0 +1,105 @@
+{
+  "prices_as_of": "2026-10-29",
+  "calls": [
+    {
+      "id": "fe7a3eab38fb4d03a62daa996a6362b1",
+      "operation": "patch",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "reserved_usd": 0.0,
+      "budget_usd": 0.25,
+      "status": "completed",
+      "started_at": 1793817004.547613,
+      "runtime": "llama.cpp",
+      "local": true,
+      "usage": {
+        "estimated_max_usd": 0.0,
+        "cached": false,
+        "cost_usd": 0.0,
+        "local": true,
+        "input_tokens": 1535,
+        "output_tokens": 2036,
+        "total_tokens": 3571
+      }
+    },
+    {
+      "id": "bb0dc8906164470da36e26e1f4204d99",
+      "operation": "patch",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "reserved_usd": 0.0,
+      "budget_usd": 0.25,
+      "status": "completed",
+      "started_at": 1793817106.266845,
+      "runtime": "llama.cpp",
+      "local": true,
+      "usage": {
+        "estimated_max_usd": 0.0,
+        "cached": false,
+        "cost_usd": 0.0,
+        "local": true,
+        "input_tokens": 1585,
+        "output_tokens": 1304,
+        "total_tokens": 2889
+      }
+    },
+    {
+      "id": "7a90ec791fa74d2ba7e37e1a868c3754",
+      "operation": "translate",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "reserved_usd": 0.0,
+      "budget_usd": 0.25,
+      "status": "completed",
+      "started_at": 1793817164.603304,
+      "runtime": "llama.cpp",
+      "local": true,
+      "usage": {
+        "estimated_max_usd": 0.0,
+        "cached": false,
+        "cost_usd": 0.0,
+        "local": true,
+        "input_tokens": 326,
+        "output_tokens": 780,
+        "total_tokens": 1106
+      }
+    },
+    {
+      "id": "0ce61259bce74b6c86894c8395381892",
+      "operation": "translate",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "reserved_usd": 0.0,
+      "budget_usd": 0.25,
+      "status": "completed",
+      "started_at": 1793817195.986746,
+      "runtime": "llama.cpp",
+      "local": true,
+      "usage": {
+        "estimated_max_usd": 0.0,
+        "cached": false,
+        "cost_usd": 0.0,
+        "local": true,
+        "input_tokens": 326,
+        "output_tokens": 868,
+        "total_tokens": 1194
+      }
+    },
+    {
+      "id": "d96af9244c30421eac417dd95e59d275",
+      "operation": "script",
+      "model": "meta-models/Muse-Glimmer-30B",
+      "reserved_usd": 0.0,
+      "budget_usd": 0.25,
+      "status": "completed",
+      "started_at": 1793817233.704737,
+      "runtime": "llama.cpp",
+      "local": true,
+      "usage": {
+        "estimated_max_usd": 0.0,
+        "cached": false,
+        "cost_usd": 0.0,
+        "local": true,
+        "input_tokens": 274,
+        "output_tokens": 845,
+        "total_tokens": 1119
+      }
+    }
+  ]
+}

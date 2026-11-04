@@ -1,0 +1,229 @@
+{
+  "source_clip": "examples/demo/workshop.mp4",
+  "sentences_from": "whisper-cli with ggml-base.en on examples/demo/workshop.mp4 (local)",
+  "sentences": [
+    {
+      "start": 0.0,
+      "end": 5.0,
+      "text": "This is the finished oak bowl, oiled and ready for the table."
+    },
+    {
+      "start": 5.0,
+      "end": 8.0,
+      "text": "It started as a rough blank from a fallen tree."
+    },
+    {
+      "start": 8.0,
+      "end": 12.0,
+      "text": "Here is the raw oak blank, still wet and heavy."
+    },
+    {
+      "start": 12.0,
+      "end": 16.0,
+      "text": "The grain tells me where the bowl wants to be."
+    },
+    {
+      "start": 16.0,
+      "end": 20.0,
+      "text": "On the lathe the shape appears in long, steady cuts."
+    },
+    {
+      "start": 20.0,
+      "end": 24.0,
+      "text": "I keep the wall thickness even from rim to base."
+    },
+    {
+      "start": 24.0,
+      "end": 29.0,
+      "text": "Sanding goes from coarse to fine, with the lathe turning slowly."
+    },
+    {
+      "start": 29.0,
+      "end": 32.0,
+      "text": "This is where the grain starts to glow."
+    },
+    {
+      "start": 32.0,
+      "end": 36.0,
+      "text": "A coat of food safe oil brings out the color."
+    },
+    {
+      "start": 36.0,
+      "end": 40.0,
+      "text": "24 hours later, the bowl is ready to use."
+    }
+  ],
+  "notes": [
+    {
+      "evidence": "docs/evidence/20261031T083945Z.json",
+      "goal": "Make a 25-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.",
+      "note": "Hold the finished bowl a beat longer before the first cut, then tighten the sanding moment.",
+      "source_duration": 40.021354,
+      "plan": {
+        "title": "Oak Bowl: Finished First, Then How It's Made",
+        "duration": 21.563,
+        "segments": [
+          {
+            "start": 0.0,
+            "end": 4.585,
+            "label": "finished oak bowl on table",
+            "reason": "Top-down view of smooth finished bowl with concentric grain on dark planks is visible throughout; speech [0.0-5.0] states 'This is the finished oak bowl, oiled and ready for the table.'; end moved back to sentence boundary at 4.6 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 8.0,
+            "end": 12.0,
+            "label": "raw oak blank close-up",
+            "reason": "Blurry close-up of rough wood cross-section with wavy growth rings is visible; speech [8.0-12.0] states 'Here is the raw oak blank, still wet and heavy.'",
+            "kind": "speech"
+          },
+          {
+            "start": 16.0,
+            "end": 20.0,
+            "label": "bowl shape forming on lathe",
+            "reason": "Bowl with tool at rim and shavings visible as shape is cut; speech [16.0-20.0] states 'On the lathe the shape appears in long, steady cuts.'",
+            "kind": "speech"
+          },
+          {
+            "start": 24.0,
+            "end": 29.0,
+            "label": "sanding the turning bowl",
+            "reason": "Continued turning view with tool contact and surface refinement visible; speech [24.0-29.0] states 'Sanding goes from coarse to fine, with the lathe turning slowly.'",
+            "kind": "speech"
+          },
+          {
+            "start": 32.0,
+            "end": 35.978,
+            "label": "oiled surface detail",
+            "reason": "Tool removed, clean bowl with warm glowing grain visible top-down; speech [32.0-36.0] states 'A coat of food safe oil brings out the color.'",
+            "kind": "speech"
+          }
+        ]
+      },
+      "meta_api_applied_patches": [
+        {
+          "op": "trim_end",
+          "segment": 1,
+          "path": null,
+          "value": null,
+          "after": {
+            "start": 0.0,
+            "end": 5.58
+          },
+          "reason": "hold the finished bowl a beat longer before the first cut"
+        },
+        {
+          "op": "trim_end",
+          "segment": 4,
+          "path": null,
+          "value": null,
+          "after": {
+            "start": 24.0,
+            "end": 28.0
+          },
+          "reason": "tighten the sanding moment"
+        }
+      ]
+    },
+    {
+      "evidence": "docs/evidence/20261031T100101Z-note.json",
+      "goal": "Make a 25-second vertical story about the oak bowl: open with the finished bowl, then show how it is made.",
+      "note": "warmer, bigger captions, slow down the oil moment",
+      "source_duration": 40.021354,
+      "plan": {
+        "title": "From Blank to Bowl: The Oak Bowl Story",
+        "duration": 22.022,
+        "segments": [
+          {
+            "start": 0.383,
+            "end": 3.73,
+            "label": "Finished bowl reveal",
+            "reason": "Top-down view of finished oiled oak bowl with concentric grain on dark planks. Rests on spoken intro cited in [0.6-3.7] This is the finished oak bowl, oiled and ready for the table; start moved back to sentence start at 0.4 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 8.406,
+            "end": 11.45,
+            "label": "Raw oak blank",
+            "reason": "Close view of rough blank texture and grain rings. Rests on spoken line cited in [8.6-11.4] Here is the raw oak blank, still wet and heavy; start moved back to sentence start at 8.4 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 16.378,
+            "end": 19.205,
+            "label": "Lathe shaping",
+            "reason": "Bowl spinning with tool contact and shavings forming shape. Rests on spoken line cited in [16.7-19.2] On the lathe the shape appears in long, steady cuts; start moved back to sentence start at 16.4 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 20.19,
+            "end": 23.045,
+            "label": "Even wall thickness",
+            "reason": "Continued turning showing rim to base profile being refined. Rests on spoken line cited in [20.5-23.0] I keep the wall thickness even from rim to base; start moved back to sentence start at 20.2 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 24.383,
+            "end": 28.195,
+            "label": "Sanding smooth",
+            "reason": "Sanding stage with lathe turning slowly and surface smoothing. Rests on spoken line cited in [24.7-28.2] Sanding goes from coarse to fine, with the lathe turning slowly; start moved back to sentence start at 24.4 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 32.377,
+            "end": 35.252,
+            "label": "Oil finish",
+            "reason": "Oiled surface with deepened color and glowing grain. Rests on spoken line cited in [32.7-35.3] A coat of food safe oil brings out the color; start moved back to sentence start at 32.4 s.",
+            "kind": "speech"
+          },
+          {
+            "start": 35.978,
+            "end": 39.24,
+            "label": "Ready after 24 hours",
+            "reason": "Final finished bowl at rest after curing. Rests on spoken line cited in [36.5-39.2] 24 hours later, the bowl is ready to use; start moved back to sentence start at 36.0 s.",
+            "kind": "speech"
+          }
+        ]
+      },
+      "meta_api_applied_patches": [
+        {
+          "op": "set_edit",
+          "segment": null,
+          "path": "look.preset",
+          "value": "warm",
+          "after": "warm",
+          "reason": "director asked for warmer look"
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "path": "captions.scale",
+          "value": 1.2,
+          "after": 1.2,
+          "reason": "director asked for bigger captions"
+        },
+        {
+          "op": "set_speed",
+          "segment": 6,
+          "path": null,
+          "value": 0.8,
+          "after": {
+            "start": 32.377,
+            "end": 35.252,
+            "speed": 0.8
+          },
+          "reason": "director asked to slow down the oil moment"
+        }
+      ]
+    }
+  ],
+  "translate_to": [
+    "es",
+    "hi"
+  ],
+  "script_scenes": [
+    "A fallen oak becomes a rough, wet blank.",
+    "On the lathe the bowl takes shape in long, steady cuts.",
+    "Food safe oil makes the grain glow."
+  ]
+}

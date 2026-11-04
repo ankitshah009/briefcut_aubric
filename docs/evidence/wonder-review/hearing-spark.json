@@ -1,0 +1,76 @@
+{
+  "director": "spark",
+  "model": "muse-spark-1.3-contributor",
+  "budget_given_usd": 0.264107,
+  "proxy": {
+    "bytes": 3933058,
+    "sha256": "79374cc5dcde30e49e0ccbeb34e8ae7de45309839f6dad12596ba76a247865f1",
+    "duration": 18.933333,
+    "width": 540,
+    "height": 960,
+    "has_audio": true,
+    "has_video": true,
+    "from": "01_select_ranges.mp4",
+    "from_sha256": "f2f68582fdf2bb6be497de2dd7e237142b0c7353483d525ee9c5ebb4bee694a5"
+  },
+  "response_seconds": 8.22,
+  "answer": {
+    "heard_audio": true,
+    "other_sounds": "quiet wood lathe humming with light scraping and sanding sounds",
+    "voice": "male, medium-low pitch, slow steady pace, natural sounding",
+    "words": "This is the finished oak bowl. Oiled and ready for the table. Here is the raw oak blank. Still wet and heavy. The grain tells me where the bowl wants to be. On the lathe the shape appears in long steady cuts. Sanding goes from coarse to fine, with the lathe turning slowly. 24 hours later, the bowl is ready to use."
+  },
+  "usage": {
+    "estimated_max_usd": 0.0008335,
+    "cached": false,
+    "input_tokens": 5034,
+    "output_tokens": 908,
+    "total_tokens": 5942,
+    "cost_usd": 0.000685
+  },
+  "request": {
+    "model": "muse-spark-1.3-contributor",
+    "store": false,
+    "max_output_tokens": 4000,
+    "reasoning": {
+      "effort": "low"
+    },
+    "content_parts": [
+      "input_text",
+      "input_file"
+    ],
+    "video_part": {
+      "type": "input_file",
+      "file_id": "file-…"
+    },
+    "schema_name": "vedit_hearing",
+    "strict": true,
+    "prompt": "Listen to this video's soundtrack. Nothing is written on screen. heard_audio: whether you can hear any sound at all. words: every word spoken, in order, exactly as you hear it, or an empty string if you hear no speech. voice: the speaker's voice (pitch, pace, whether it sounds synthetic), or 'none'. other_sounds: any music, tool, room or background sounds, or 'none'. Never guess words you cannot hear; leave them out instead. Return only the requested schema."
+  },
+  "warnings": [],
+  "wall_seconds": 18.49,
+  "ledger": [
+    {
+      "id": "645a5161514f44609fa872b9ee9526a7",
+      "operation": "hearing-probe",
+      "model": "muse-spark-1.3-contributor",
+      "reserved_usd": 0.0008335,
+      "budget_usd": 0.264107,
+      "status": "completed",
+      "started_at": 1793817261.163456,
+      "usage": {
+        "estimated_max_usd": 0.0008335,
+        "cached": false,
+        "input_tokens": 5034,
+        "output_tokens": 908,
+        "total_tokens": 5942,
+        "cost_usd": 0.000685
+      },
+      "request_id": "resp_6aeb7ab54366f8913cb84628"
+    }
+  ],
+  "charged_usd": 0.000685,
+  "spent_so_far_usd": 0.1365783,
+  "meta_mode": "contributor",
+  "at_utc": "2026-11-04T18:34:33Z"
+}

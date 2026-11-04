@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "briefcut",
+  "description": "Briefcut by Aubric.ai: a local, agent-native video editor with an MCP server and a skill.",
+  "owner": {
+    "name": "Ankit Shah",
+    "url": "https://github.com/ankitshah009"
+  },
+  "plugins": [
+    {
+      "name": "briefcut",
+      "description": "Edit real footage from your agent. Briefcut plans a story from your clips, renders it locally with FFmpeg, and proves the delivered file with receipts.",
+      "version": "1.2.0",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/ankitshah009/briefcut_aubric",
+      "license": "MIT"
+    }
+  ]
+}

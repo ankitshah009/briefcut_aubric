@@ -1,0 +1,149 @@
+{
+  "job_id": "abd680cf76794d5caee671265d877778",
+  "clip": "tracking.mp4",
+  "provider": "meta",
+  "subject": "red square",
+  "generated_background": {
+    "id": "b16f08d8c55c8a60",
+    "name": "A softly lit warm peach studio backgroun\u2026.png",
+    "kind": "image",
+    "width": 2048,
+    "height": 1152
+  },
+  "timeline_ok": true,
+  "status": "complete",
+  "error": null,
+  "result": {
+    "video_url": "/api/campaigns/abd680cf76794d5caee671265d877778/artifact?name=video&v=1",
+    "cover_url": "/api/campaigns/abd680cf76794d5caee671265d877778/artifact?name=cover&v=1",
+    "bundle_url": "/api/campaigns/abd680cf76794d5caee671265d877778/artifact?name=bundle&v=1",
+    "brief_url": "/api/campaigns/abd680cf76794d5caee671265d877778/artifact?name=brief&v=1",
+    "report_url": "/api/campaigns/abd680cf76794d5caee671265d877778/artifact?name=report&v=1",
+    "proof": {
+      "duration": 12.0,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 1282173
+    },
+    "warnings": [
+      "Transcript unavailable (whisper-cli did not write an SRT.); moments use scene cuts and speech energy.",
+      "The source is 1280x720, so this 1920x1080 export is upscaled and gains no detail."
+    ],
+    "cover_kind": "frame",
+    "caption": "Simple demo, clean edit idea: keeping just the red square and swapping the flat blue-grey for a warm studio backdrop. Full movement kept for clean tracking.",
+    "hashtags": [
+      "#RedSquareDemo",
+      "#VideoEdit",
+      "#MotionGraphics"
+    ],
+    "provider": "meta",
+    "revision": 1,
+    "stale": false,
+    "effect": null,
+    "tracked_subject": "red square",
+    "caption_provider": null,
+    "review": null,
+    "checks": [
+      {
+        "name": "auto: cuts land on sentence boundaries",
+        "passed": true,
+        "at": null,
+        "note": "no transcript"
+      },
+      {
+        "name": "auto: duration matches the target",
+        "passed": true,
+        "at": null,
+        "note": "12.0 s cut vs 12.0 s target"
+      },
+      {
+        "name": "auto: moments inside the source and in order",
+        "passed": true,
+        "at": null,
+        "note": "1 moment inside the source, no overlaps"
+      },
+      {
+        "name": "auto: captions cover the speech",
+        "passed": true,
+        "at": null,
+        "note": "not requested"
+      },
+      {
+        "name": "auto: requested edits applied",
+        "passed": true,
+        "at": null,
+        "note": "The brief asked for no specific edits."
+      },
+      {
+        "name": "auto: subject stays in frame (SAM 3.1)",
+        "passed": true,
+        "at": null,
+        "note": "360 tracked boxes cover 100% of 12.0 s; longest gap 0.0 s; subject centre inside the 16:9 crop in 100% of boxes"
+      },
+      {
+        "name": "auto: subject cutout covers the subject",
+        "passed": true,
+        "at": null,
+        "note": "SAM masked 100.0% of 360 frames, with 1.5% area flicker"
+      }
+    ],
+    "passed": 7,
+    "total": 7,
+    "patches": []
+  },
+  "budget": {
+    "cap_usd": 0.5,
+    "reserved_usd": 0.0857233,
+    "remaining_usd": 0.4142767,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.0033233,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0724,
+        "calls": 1,
+        "model": "sam-3.1"
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "review": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "patch": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "translate": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "image": {
+        "reserved_usd": 0.01,
+        "calls": 1,
+        "model": "muse-image-1.0"
+      }
+    }
+  },
+  "workspace": "/var/folders/rw/gg0tsww153z6jlf3l7lhz3y40000gn/T/briefcut-cutout-live-pye129ff"
+}

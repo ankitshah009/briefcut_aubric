@@ -1,0 +1,982 @@
+{
+  "schema": "briefcut-evidence/1",
+  "recorded_at": "2026-10-31T14:17:19+00:00",
+  "machine": {
+    "hostname_redacted": true,
+    "os": "Darwin 27.0.1",
+    "machine": "arm64",
+    "cpu": "Apple M5 Max",
+    "memory_bytes": 137438953472,
+    "python": "Python 3.13.16",
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "vedit": "1.2.0"
+  },
+  "workspace": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/run1c",
+  "request": {
+    "paths": [
+      "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/run1c/vedit-sessions/source-20261031071724-94onbtdk/inbox/workshop.mp4"
+    ],
+    "goal": "Make a 20-second vertical story about the oak bowl in warm golden color with extra large captions: open with the finished bowl, then show how it is made.",
+    "provider": "meta",
+    "target_duration": 20.0,
+    "aspect": "9:16",
+    "captions": true,
+    "language": "en",
+    "subject": "",
+    "budget_usd": 0.3,
+    "generate_cover": false,
+    "effect": null,
+    "review": true,
+    "auto_refine": 2
+  },
+  "timings_seconds": {
+    "upload": 0.792,
+    "plan": 106.364,
+    "render": 191.32,
+    "total": 298.476
+  },
+  "stages": [
+    {
+      "at": 0.805,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 0.809,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Waiting to read your clip."
+    },
+    {
+      "at": 1.336,
+      "status": "analyzing",
+      "stage": "reading",
+      "message": "Checking the source video."
+    },
+    {
+      "at": 3.548,
+      "status": "analyzing",
+      "stage": "planning",
+      "message": "Finding a story in your footage."
+    },
+    {
+      "at": 4.103,
+      "status": "analyzing",
+      "stage": "measuring",
+      "message": "Measuring scene cuts and speech in your footage."
+    },
+    {
+      "at": 13.476,
+      "status": "analyzing",
+      "stage": "preparing",
+      "message": "Making a small analysis copy; your original stays unchanged."
+    },
+    {
+      "at": 30.073,
+      "status": "analyzing",
+      "stage": "planning",
+      "message": "Finding a story in your footage."
+    },
+    {
+      "at": 92.68,
+      "status": "analyzing",
+      "stage": "timeline",
+      "message": "Preparing the timeline."
+    },
+    {
+      "at": 107.156,
+      "status": "planned",
+      "stage": "review",
+      "message": "Review the story and approve the render."
+    },
+    {
+      "at": 107.191,
+      "status": "queued",
+      "stage": "queued",
+      "message": "Your approved story is queued for rendering."
+    },
+    {
+      "at": 107.77,
+      "status": "rendering",
+      "stage": "preparing",
+      "message": "Preparing your approved edit."
+    },
+    {
+      "at": 108.795,
+      "status": "rendering",
+      "stage": "transcribing",
+      "message": "Writing the captions for this edit."
+    },
+    {
+      "at": 109.835,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 1 of 4: assemble 7 selected moments"
+    },
+    {
+      "at": 136.853,
+      "status": "rendering",
+      "stage": "verifying",
+      "message": "Checking the actual exported video."
+    },
+    {
+      "at": 140.452,
+      "status": "rendering",
+      "stage": "reviewing",
+      "message": "Asking Meta to review the finished cut."
+    },
+    {
+      "at": 211.016,
+      "status": "rendering",
+      "stage": "packaging",
+      "message": "Packing your video, cover, copy, and verified edit."
+    },
+    {
+      "at": 212.041,
+      "status": "rendering",
+      "stage": "preparing",
+      "message": "Preparing your approved edit."
+    },
+    {
+      "at": 213.117,
+      "status": "rendering",
+      "stage": "transcribing",
+      "message": "Writing the captions for this edit."
+    },
+    {
+      "at": 215.202,
+      "status": "rendering",
+      "stage": "encoding",
+      "message": "Step 1 of 4: assemble 7 selected moments"
+    },
+    {
+      "at": 249.379,
+      "status": "rendering",
+      "stage": "verifying",
+      "message": "Checking the actual exported video."
+    },
+    {
+      "at": 253.02,
+      "status": "rendering",
+      "stage": "reviewing",
+      "message": "Asking Meta to review the finished cut."
+    },
+    {
+      "at": 297.905,
+      "status": "rendering",
+      "stage": "packaging",
+      "message": "Packing your video, cover, copy, and verified edit."
+    },
+    {
+      "at": 298.476,
+      "status": "complete",
+      "stage": "complete",
+      "message": "Version 2 is ready. All checks passed."
+    }
+  ],
+  "notes": [
+    "Timings are wall-clock measurements of this single run, including HTTP polling at 0.5 s intervals.",
+    "A local plan is deterministic signal analysis, not model understanding. Meta mode requires live credentials."
+  ],
+  "capabilities": {
+    "local_ready": true,
+    "local_captions": true,
+    "meta_available": true,
+    "effects_supported": true
+  },
+  "job_id": "ebae48de53e24eea926096e168420bb6",
+  "source": {
+    "name": "workshop.mp4",
+    "duration": 40.021354,
+    "width": 1280,
+    "height": 720,
+    "has_audio": true,
+    "has_video": true,
+    "clips": [
+      {
+        "name": "workshop.mp4",
+        "kind": "video",
+        "start": 0.0,
+        "end": 40.021
+      }
+    ],
+    "filmstrip": {
+      "columns": 10,
+      "rows": 3,
+      "tile_width": 160,
+      "tile_height": 90,
+      "count": 21,
+      "seconds_per_tile": 2.0,
+      "url": "/api/campaigns/ebae48de53e24eea926096e168420bb6/filmstrip"
+    },
+    "waveform": {
+      "url": "/api/campaigns/ebae48de53e24eea926096e168420bb6/waveform",
+      "count": 402,
+      "seconds_per_peak": 0.1
+    }
+  },
+  "plan": {
+    "provider": "meta",
+    "title": "From Blank to Golden Oak Bowl",
+    "summary": "Opens with the finished warm golden oak bowl, then traces how it is made: raw blank, lathe shaping, sanding, grain glowing, oiling, and final ready bowl. 7 clips totaling 19.2s in source order.",
+    "segments": [
+      {
+        "start": 0.383,
+        "end": 3.73,
+        "label": "Finished bowl opening",
+        "reason": "Opens with finished bowl: top-down view shows warm golden bowl with concentric grain centered on dark planks. Speech [0.6-3.7] identifies it as \"This is the finished oak bowl, oiled and ready for the table.\"; start moved back to sentence start at 0.4 s.",
+        "score": 0.953,
+        "kind": "speech"
+      },
+      {
+        "start": 8.406,
+        "end": 11.45,
+        "label": "Raw oak blank",
+        "reason": "Shows early stage: matte darker blank with bold rings against mottled greenish ground, visually distinct from polished bowl. Speech [8.6-11.4] describes \"Here is the raw oak blank, still wet and heavy.\"; start moved back to sentence start at 8.4 s.",
+        "score": 0.929,
+        "kind": "speech"
+      },
+      {
+        "start": 16.378,
+        "end": 19.205,
+        "label": "Lathe shaping",
+        "reason": "Shows making: light tool touches lower rim of spinning bowl with scattered shavings and circular grain. Speech [16.7-19.2] says \"On the lathe the shape appears in long, steady cuts.\"; start moved back to sentence start at 16.4 s.",
+        "score": 0.947,
+        "kind": "speech"
+      },
+      {
+        "start": 24.383,
+        "end": 28.195,
+        "label": "Sanding smooth",
+        "reason": "Continues making: tool stays at edge with fine particles as surface looks smoother. Speech [24.7-28.2] says \"Sanding goes from coarse to fine, with the lathe turning slowly.\"; start moved back to sentence start at 24.4 s.",
+        "score": 0.961,
+        "kind": "speech"
+      },
+      {
+        "start": 29.087,
+        "end": 31.385,
+        "label": "Grain glowing",
+        "reason": "Shows close top-down of warm golden grain with soft sheen. Speech [29.4-31.4] says \"This is where the grain starts to glow.\"; start moved back to sentence start at 29.1 s.",
+        "score": 0.935,
+        "kind": "speech"
+      },
+      {
+        "start": 32.377,
+        "end": 35.252,
+        "label": "Oil brings color",
+        "reason": "Shows deeper warm golden color and even sheen across bowl. Speech [32.7-35.3] says \"A coat of food safe oil brings out the color.\"; start moved back to sentence start at 32.4 s.",
+        "score": 0.896,
+        "kind": "speech"
+      },
+      {
+        "start": 35.978,
+        "end": 39.24,
+        "label": "Ready to use",
+        "reason": "Closes on finished bowl centered on dark planks matching opening. Speech [36.5-39.2] says \"24 hours later, the bowl is ready to use.\"; start moved back to sentence start at 36.0 s.",
+        "score": 0.937,
+        "kind": "speech"
+      }
+    ],
+    "duration": 21.465,
+    "analysis_method": "meta",
+    "analysis_notes": [
+      "Meta director selected the moments; scene cuts, speech bands and transcript come from local analysis."
+    ],
+    "warnings": [],
+    "usage": {
+      "estimated_max_usd": 0.003384,
+      "cached": false,
+      "input_tokens": 11690,
+      "output_tokens": 9508,
+      "total_tokens": 21198,
+      "cost_usd": 0.0030706
+    }
+  },
+  "auto_refine": {
+    "limit": 2,
+    "rounds": 1,
+    "active": false,
+    "stopped": "All checks passed.",
+    "failed": 0
+  },
+  "result": {
+    "proof": {
+      "duration": 19.766667,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_audio": true,
+      "has_video": true,
+      "color_space": "bt709",
+      "color_range": "tv",
+      "color_primaries": "bt709",
+      "color_transfer": "bt709",
+      "size_bytes": 4563882
+    },
+    "warnings": [
+      "The source is 1280x720, so this 1080x1920 export is upscaled and gains no detail."
+    ],
+    "cover_kind": "frame",
+    "provider": "meta",
+    "caption_provider": "local",
+    "effect": null,
+    "tracked_subject": null,
+    "revision": 2,
+    "review": {
+      "verdict": "Warm and clear 19.8s story: opens on finished glowing bowl at 0s, then walks raw blank at 3.3s, lathe cuts at 5.9s, sanding at 8.7s, glowing grain at 11.9s and oiling at 14.2s to ready bowl at 17.1s, with big readable captions and steady rhythm throughout",
+      "caption_suggestion": "Wet oak to golden glow — the little bowl's 20-second journey 🥣✨",
+      "strengths": [
+        "0.0-3.3s opening close-up of finished bowl grain glowing while voice says oiled and ready for the table grabs attention fast",
+        "3.3-11.9s progression from raw wet blank to lathe shaping to sanding makes the making steps easy to follow",
+        "12-17s glowing grain and oil bringing out color show warm golden transformation clearly on screen",
+        "Large bold bottom captions throughout like at 2s, 10s and 18s stay legible over the wood"
+      ],
+      "fixes": [],
+      "hook_score": 4,
+      "checks": [
+        {
+          "name": "Duration within 20-second ceiling",
+          "passed": true,
+          "at": 19.767,
+          "note": "Cut ends at 19.8s with final line about bowl ready to use complete"
+        },
+        {
+          "name": "Vertical story framing",
+          "passed": true,
+          "at": 0.0,
+          "note": "Bowl fills center of tall frame from 0s opening onward"
+        },
+        {
+          "name": "Story about the oak bowl",
+          "passed": true,
+          "at": 1.5,
+          "note": "Voice says oak bowl and every shot shows the bowl grain"
+        },
+        {
+          "name": "Warm golden color",
+          "passed": true,
+          "at": 2.0,
+          "note": "Bowl glows warm golden brown at 2s finished view"
+        },
+        {
+          "name": "Extra large captions",
+          "passed": true,
+          "at": 2.0,
+          "note": "Bold large white captions at bottom read oak bowl, oiled and"
+        },
+        {
+          "name": "Opens with finished bowl",
+          "passed": true,
+          "at": 0.0,
+          "note": "0.0-3.3s shows finished oiled bowl while voice says finished bowl"
+        },
+        {
+          "name": "Then shows how it is made",
+          "passed": true,
+          "at": 3.5,
+          "note": "From 3.3s raw blank, lathe cuts, sanding, oiling follow"
+        },
+        {
+          "name": "Hook inside first 3 seconds",
+          "passed": true,
+          "at": 1.0,
+          "note": "0-3s close glowing bowl with line oiled and ready for table"
+        },
+        {
+          "name": "Pacing holds interest",
+          "passed": true,
+          "at": 9.0,
+          "note": "Seven steps move every 2-3s with no dead air to 19.8s"
+        },
+        {
+          "name": "Picture matches words",
+          "passed": true,
+          "at": 6.5,
+          "note": "Voice says lathe shape appears while spinning bowl and cutter show"
+        },
+        {
+          "name": "Captions and on-screen text read easily",
+          "passed": true,
+          "at": 10.5,
+          "note": "Bold bottom words coarse to fine stay large over bowl at 10.5s"
+        }
+      ],
+      "patches": [],
+      "provider": "meta",
+      "model": "muse-spark-1.3-contributor",
+      "usage": {
+        "estimated_max_usd": 0.0034993,
+        "cached": false,
+        "input_tokens": 6902,
+        "output_tokens": 2709,
+        "total_tokens": 9611,
+        "cost_usd": 0.001232
+      },
+      "warnings": []
+    },
+    "checks": [
+      {
+        "name": "auto: cuts land on sentence boundaries",
+        "passed": true,
+        "at": null,
+        "note": "every cut sits on a sentence boundary"
+      },
+      {
+        "name": "auto: duration matches the target",
+        "passed": true,
+        "at": null,
+        "note": "19.8 s cut vs 20.0 s target"
+      },
+      {
+        "name": "auto: moments inside the source and in order",
+        "passed": true,
+        "at": null,
+        "note": "7 moments inside the source, no overlaps"
+      },
+      {
+        "name": "auto: captions cover the speech",
+        "passed": true,
+        "at": null,
+        "note": "95% of 18.5 s of speech has a caption"
+      },
+      {
+        "name": "auto: requested edits applied",
+        "passed": true,
+        "at": null,
+        "note": "The brief asked for no specific edits."
+      },
+      {
+        "name": "director: Duration within 20-second ceiling",
+        "passed": true,
+        "at": 19.767,
+        "note": "Cut ends at 19.8s with final line about bowl ready to use complete"
+      },
+      {
+        "name": "director: Vertical story framing",
+        "passed": true,
+        "at": 0.0,
+        "note": "Bowl fills center of tall frame from 0s opening onward"
+      },
+      {
+        "name": "director: Story about the oak bowl",
+        "passed": true,
+        "at": 1.5,
+        "note": "Voice says oak bowl and every shot shows the bowl grain"
+      },
+      {
+        "name": "director: Warm golden color",
+        "passed": true,
+        "at": 2.0,
+        "note": "Bowl glows warm golden brown at 2s finished view"
+      },
+      {
+        "name": "director: Extra large captions",
+        "passed": true,
+        "at": 2.0,
+        "note": "Bold large white captions at bottom read oak bowl, oiled and"
+      },
+      {
+        "name": "director: Opens with finished bowl",
+        "passed": true,
+        "at": 0.0,
+        "note": "0.0-3.3s shows finished oiled bowl while voice says finished bowl"
+      },
+      {
+        "name": "director: Then shows how it is made",
+        "passed": true,
+        "at": 3.5,
+        "note": "From 3.3s raw blank, lathe cuts, sanding, oiling follow"
+      },
+      {
+        "name": "director: Hook inside first 3 seconds",
+        "passed": true,
+        "at": 1.0,
+        "note": "0-3s close glowing bowl with line oiled and ready for table"
+      },
+      {
+        "name": "director: Pacing holds interest",
+        "passed": true,
+        "at": 9.0,
+        "note": "Seven steps move every 2-3s with no dead air to 19.8s"
+      },
+      {
+        "name": "director: Picture matches words",
+        "passed": true,
+        "at": 6.5,
+        "note": "Voice says lathe shape appears while spinning bowl and cutter show"
+      },
+      {
+        "name": "director: Captions and on-screen text read easily",
+        "passed": true,
+        "at": 10.5,
+        "note": "Bold bottom words coarse to fine stay large over bowl at 10.5s"
+      }
+    ],
+    "passed": 16,
+    "total": 16,
+    "patches": []
+  },
+  "budget": {
+    "cap_usd": 0.3,
+    "reserved_usd": 0.0103805,
+    "remaining_usd": 0.2896195,
+    "operations": {
+      "story": {
+        "reserved_usd": 0.003384,
+        "calls": 1,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "tracking": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "cover": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "transcribe": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "review": {
+        "reserved_usd": 0.0069965,
+        "calls": 2,
+        "model": "muse-spark-1.3-contributor"
+      },
+      "patch": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      },
+      "translate": {
+        "reserved_usd": 0.0,
+        "calls": 0,
+        "model": ""
+      }
+    }
+  },
+  "timings_server": {
+    "plan_seconds": 105.892,
+    "render_seconds": 86.147,
+    "render_revision": 2
+  },
+  "versions": [
+    {
+      "revision": 1,
+      "status": "verified",
+      "created_at": "2026-10-31T14:20:56.527+00:00",
+      "source": "approved",
+      "proof": {
+        "duration": 21.466667,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv",
+        "color_primaries": "bt709",
+        "color_transfer": "bt709",
+        "size_bytes": 4218990
+      },
+      "checks": [
+        {
+          "name": "auto: cuts land on sentence boundaries",
+          "passed": true,
+          "at": null,
+          "note": "every cut sits on a sentence boundary"
+        },
+        {
+          "name": "auto: duration matches the target",
+          "passed": true,
+          "at": null,
+          "note": "21.5 s cut vs 20.0 s target"
+        },
+        {
+          "name": "auto: moments inside the source and in order",
+          "passed": true,
+          "at": null,
+          "note": "7 moments inside the source, no overlaps"
+        },
+        {
+          "name": "auto: captions cover the speech",
+          "passed": true,
+          "at": null,
+          "note": "95% of 20.1 s of speech has a caption"
+        },
+        {
+          "name": "auto: requested edits applied",
+          "passed": true,
+          "at": null,
+          "note": "The brief asked for no specific edits."
+        },
+        {
+          "name": "director: vertical framing",
+          "passed": true,
+          "at": 0.0,
+          "note": "Bowl fills upright frame from 0.0s onward with no side bars"
+        },
+        {
+          "name": "director: 20-second ceiling",
+          "passed": false,
+          "at": 21.467,
+          "note": "Finished image runs to 21.5s, past the 20s ceiling"
+        },
+        {
+          "name": "director: oak bowl story",
+          "passed": true,
+          "at": 0.0,
+          "note": "Finished bowl, raw blank, shaping, sanding and oiling all show the oak bowl"
+        },
+        {
+          "name": "director: warm golden color",
+          "passed": false,
+          "at": 0.0,
+          "note": "Bowl at 0.0s-3.3s looks flat neutral brown with no warm golden glow"
+        },
+        {
+          "name": "director: extra-large captions",
+          "passed": false,
+          "at": 1.0,
+          "note": "Bottom boxed words at 1.0s look small, not extra-large"
+        },
+        {
+          "name": "director: opens with finished bowl",
+          "passed": true,
+          "at": 0.0,
+          "note": "0.0s-3.3s shows finished oiled bowl ready for the table"
+        },
+        {
+          "name": "director: shows how it is made",
+          "passed": true,
+          "at": 3.3,
+          "note": "From 3.3s raw blank, lathe shaping, sanding and oiling follow in order"
+        },
+        {
+          "name": "director: hook inside first 3 seconds",
+          "passed": true,
+          "at": 0.0,
+          "note": "Close grain swirl of finished bowl at 0.0s with table-ready line hooks"
+        },
+        {
+          "name": "director: pacing",
+          "passed": true,
+          "at": 9.2,
+          "note": "Beats at 3.3s, 6.4s, 9.2s, 13.0s and 15.3s move steadily with no stall"
+        },
+        {
+          "name": "director: picture matches words",
+          "passed": true,
+          "at": 6.4,
+          "note": "Heard long steady cuts at 6.4s while cutter and flying shavings show on bowl"
+        },
+        {
+          "name": "director: captions read easily",
+          "passed": false,
+          "at": 12.0,
+          "note": "Small bottom boxed lines at 12.0s during sanding are hard to catch quickly"
+        }
+      ],
+      "passed": 12,
+      "total": 16,
+      "hook_score": 3,
+      "verdict": "The cut opens at 0.0s with the finished oak bowl and moves in order through raw blank at 3.3s, shaping at 6.4s, sanding at 9.2s, glowing grain at 13.0s, oiling at 15.3s to ready bowl at 18.2s, so the story is clear. The image stays flat neutral brown instead of warm golden, the bottom words stay sm…",
+      "applied_patches": [],
+      "note": null,
+      "timings": {
+        "render_seconds": 104.376
+      }
+    },
+    {
+      "revision": 2,
+      "status": "verified",
+      "created_at": "2026-10-31T14:22:22.926+00:00",
+      "source": "auto_refine",
+      "proof": {
+        "duration": 19.766667,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30.0,
+        "has_audio": true,
+        "has_video": true,
+        "color_space": "bt709",
+        "color_range": "tv",
+        "color_primaries": "bt709",
+        "color_transfer": "bt709",
+        "size_bytes": 4563882
+      },
+      "checks": [
+        {
+          "name": "auto: cuts land on sentence boundaries",
+          "passed": true,
+          "at": null,
+          "note": "every cut sits on a sentence boundary"
+        },
+        {
+          "name": "auto: duration matches the target",
+          "passed": true,
+          "at": null,
+          "note": "19.8 s cut vs 20.0 s target"
+        },
+        {
+          "name": "auto: moments inside the source and in order",
+          "passed": true,
+          "at": null,
+          "note": "7 moments inside the source, no overlaps"
+        },
+        {
+          "name": "auto: captions cover the speech",
+          "passed": true,
+          "at": null,
+          "note": "95% of 18.5 s of speech has a caption"
+        },
+        {
+          "name": "auto: requested edits applied",
+          "passed": true,
+          "at": null,
+          "note": "The brief asked for no specific edits."
+        },
+        {
+          "name": "director: Duration within 20-second ceiling",
+          "passed": true,
+          "at": 19.767,
+          "note": "Cut ends at 19.8s with final line about bowl ready to use complete"
+        },
+        {
+          "name": "director: Vertical story framing",
+          "passed": true,
+          "at": 0.0,
+          "note": "Bowl fills center of tall frame from 0s opening onward"
+        },
+        {
+          "name": "director: Story about the oak bowl",
+          "passed": true,
+          "at": 1.5,
+          "note": "Voice says oak bowl and every shot shows the bowl grain"
+        },
+        {
+          "name": "director: Warm golden color",
+          "passed": true,
+          "at": 2.0,
+          "note": "Bowl glows warm golden brown at 2s finished view"
+        },
+        {
+          "name": "director: Extra large captions",
+          "passed": true,
+          "at": 2.0,
+          "note": "Bold large white captions at bottom read oak bowl, oiled and"
+        },
+        {
+          "name": "director: Opens with finished bowl",
+          "passed": true,
+          "at": 0.0,
+          "note": "0.0-3.3s shows finished oiled bowl while voice says finished bowl"
+        },
+        {
+          "name": "director: Then shows how it is made",
+          "passed": true,
+          "at": 3.5,
+          "note": "From 3.3s raw blank, lathe cuts, sanding, oiling follow"
+        },
+        {
+          "name": "director: Hook inside first 3 seconds",
+          "passed": true,
+          "at": 1.0,
+          "note": "0-3s close glowing bowl with line oiled and ready for table"
+        },
+        {
+          "name": "director: Pacing holds interest",
+          "passed": true,
+          "at": 9.0,
+          "note": "Seven steps move every 2-3s with no dead air to 19.8s"
+        },
+        {
+          "name": "director: Picture matches words",
+          "passed": true,
+          "at": 6.5,
+          "note": "Voice says lathe shape appears while spinning bowl and cutter show"
+        },
+        {
+          "name": "director: Captions and on-screen text read easily",
+          "passed": true,
+          "at": 10.5,
+          "note": "Bold bottom words coarse to fine stay large over bowl at 10.5s"
+        }
+      ],
+      "passed": 16,
+      "total": 16,
+      "hook_score": 4,
+      "verdict": "Warm and clear 19.8s story: opens on finished glowing bowl at 0s, then walks raw blank at 3.3s, lathe cuts at 5.9s, sanding at 8.7s, glowing grain at 11.9s and oiling at 14.2s to ready bowl at 17.1s, with big readable captions and steady rhythm throughout",
+      "applied_patches": [
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": "none",
+          "after": "warm",
+          "reason": "give the bowl at 0.0s a warm golden finish",
+          "source": "director",
+          "skipped": null,
+          "path": "look.preset",
+          "value": "warm",
+          "summary": "Look: Warm (was Original)."
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": 0.0,
+          "after": 0.35,
+          "reason": "push the brown at 0.0s toward golden",
+          "source": "director",
+          "skipped": null,
+          "path": "look.temperature",
+          "value": 0.35,
+          "summary": "Color temperature: 0.35 (was 0)."
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": 1.0,
+          "after": 2.0,
+          "reason": "make the words at 1.0s extra-large",
+          "source": "director",
+          "skipped": null,
+          "path": "captions.scale",
+          "value": 2.0,
+          "summary": "Caption size: 2× (was 1×)."
+        },
+        {
+          "op": "set_edit",
+          "segment": null,
+          "before": "boxed",
+          "after": "bold",
+          "reason": "make small lines at 12.0s read easily",
+          "source": "director",
+          "skipped": null,
+          "path": "captions.style",
+          "value": "bold",
+          "summary": "Caption style: Bold (was Boxed)."
+        },
+        {
+          "op": "set_speed",
+          "segment": 2,
+          "before": {
+            "start": 8.406,
+            "end": 11.45,
+            "speed": 1.0
+          },
+          "after": {
+            "start": 8.406,
+            "end": 11.45,
+            "speed": 1.2
+          },
+          "reason": "save time to meet 20s ceiling",
+          "source": "director",
+          "skipped": null,
+          "value": 1.2,
+          "summary": "Moment 2 plays faster (1.2×)."
+        },
+        {
+          "op": "set_speed",
+          "segment": 4,
+          "before": {
+            "start": 24.383,
+            "end": 28.195,
+            "speed": 1.0
+          },
+          "after": {
+            "start": 24.383,
+            "end": 28.195,
+            "speed": 1.2
+          },
+          "reason": "save time to meet 20s ceiling",
+          "source": "director",
+          "skipped": null,
+          "value": 1.2,
+          "summary": "Moment 4 plays faster (1.2×)."
+        },
+        {
+          "op": "set_speed",
+          "segment": 7,
+          "before": {
+            "start": 35.978,
+            "end": 39.24,
+            "speed": 1.0
+          },
+          "after": {
+            "start": 35.978,
+            "end": 39.24,
+            "speed": 1.2
+          },
+          "reason": "save time to meet 20s ceiling",
+          "source": "director",
+          "skipped": null,
+          "value": 1.2,
+          "summary": "Moment 7 plays faster (1.2×)."
+        }
+      ],
+      "note": null,
+      "timings": {
+        "render_seconds": 86.147
+      },
+      "stopped": "All checks passed."
+    }
+  ],
+  "downloaded": {
+    "video": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/run1c/evidence-downloads/video.mp4",
+    "video_bytes": 4563882,
+    "report": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/run1c/evidence-downloads/report.json",
+    "bundle_bytes": 4639776,
+    "probe": {
+      "path": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/run1c/evidence-downloads/video.mp4",
+      "duration": 19.766667,
+      "format": "mov,mp4,m4a,3gp,3g2,mj2",
+      "size_bytes": 4563882,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "has_video": true,
+      "has_audio": true,
+      "streams": [
+        {
+          "index": 0,
+          "type": "video",
+          "codec": "h264",
+          "width": 1080,
+          "height": 1920,
+          "fps": 30.0,
+          "sample_rate": null,
+          "channels": null
+        },
+        {
+          "index": 1,
+          "type": "audio",
+          "codec": "aac",
+          "width": null,
+          "height": null,
+          "fps": null,
+          "sample_rate": 48000,
+          "channels": 2
+        }
+      ]
+    }
+  },
+  "report_proof": {
+    "duration": 19.766667,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30.0,
+    "has_audio": true,
+    "has_video": true,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 4563882
+  },
+  "report_steps": 4,
+  "json_path": "/private/tmp/claude-501/-Users-ankit-aubric-GitHub-briefcut-aubric/4dc65d04-8b07-4c69-8801-d49cc8d2c9d3/scratchpad/director/evidence/20261031T141719Z.json"
+}
