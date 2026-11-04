@@ -85,7 +85,7 @@ Last updated 2026-11-04 for the Meta-only build. Every model Briefcut calls is a
 | Evidence labels on every check | Ahead | Each check says how it is known: Probed, Measured (computed by code), or Model opinion (a reviewer's judgment). Every check in the 2026-11-04 live receipts carries its `basis` (scenario matrix records). Studio's display of the tags has no browser record. |
 | Every model call visible | Ahead | Studio's Meta calls panel lists each call live: purpose, status, model, cost, duration, size, and Meta's response id. Seen in a browser on a real project with two private-mode calls made live (`evidence/open-weights/studio-meta-calls-*.png`). No Meta API call has been watched live in it yet. |
 | Private mode | Ahead | The director's note, caption translation, and script scenes can run on Muse Glimmer 30B on this computer, so that text never leaves it (`evidence/open-weights/README.md`). It fails closed. Everything else still uses the Meta Model API. |
-| Documented agent interface | Ahead | HTTP API and an MCP server with 21 tools that any MCP agent can use, including Meta's Muse Code (`evidence/muse-code/README.md`) and the exact `.mcp.json` command (scenario matrix A). CapCut describes a Codex workflow, but no public API documentation was found. |
+| Documented agent interface | Ahead | HTTP API and an MCP server with 22 tools that any MCP agent can use, including Meta's Muse Code (`evidence/muse-code/README.md`) and the exact `.mcp.json` command (scenario matrix A). CapCut describes a Codex workflow, but no public API documentation was found. |
 
 ## Bottom line
 

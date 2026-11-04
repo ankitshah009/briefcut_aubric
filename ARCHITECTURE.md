@@ -524,12 +524,12 @@ flowchart TB
   end
   skill["The briefcut skill<br/>skills/briefcut/SKILL.md"]
   server["vedit mcp<br/>mcp_server.build_server, stdio"]
-  subgraph tools["21 tools, by job"]
+  subgraph tools["22 tools, by job"]
     create["Create<br/>create_story<br/>script_to_video"]
     setup["Set up and branch<br/>status, import_clip<br/>make_shorts"]
     watch["Watch and find<br/>get, list, wait<br/>find_moments"]
     edit["Edit<br/>timeline, edit, add_asset<br/>generate_background<br/>hero_word, motion_card"]
-    render["Render and prove<br/>render, revise, cancel, retry<br/>receipts, artifact_path"]
+    render["Render and prove<br/>render, revise, cancel, retry<br/>receipts, verify, artifact_path"]
   end
   gate{{"product_request<br/>Meta only"}}
   manager["The same CampaignManager as Studio<br/>one workspace lease"]
@@ -549,7 +549,7 @@ flowchart TB
   class gate,manager core
 ```
 
-**Why it is built this way.** An agent gets the same editor a person gets, not a separate API. `vedit mcp` runs the process-wide `CampaignManager` from `get_manager()`, so projects an agent makes open in Studio, and the other way round. Tool names above drop the `briefcut_` prefix for space. The two tools that create a project (`briefcut_create_story`, `briefcut_script_to_video`) pass `product_request` first, so a local request is refused before the manager opens. Edits follow Studio's rule: `briefcut_edit` builds a draft from the saved plan, and only the manager validates it, as a dry run unless `render` is true. `briefcut_hero_word` and `briefcut_motion_card` return a checked suggestion and change nothing. `briefcut_receipts` returns the checks, the probe, the patches, and the version history, which is the proof an agent should report. The skill tells an agent when and how to use the tools; the Claude Code plugin ships both the skill and the server, and Muse Code finds the same skill through the `.agents/skills/briefcut` link ([docs/MUSE_CODE.md](docs/MUSE_CODE.md)). The recorded Muse Code run ([evidence](docs/evidence/muse-code/README.md)) exercised `briefcut_import_clip`; a full agent-driven edit is not yet recorded there.
+**Why it is built this way.** An agent gets the same editor a person gets, not a separate API. `vedit mcp` runs the process-wide `CampaignManager` from `get_manager()`, so projects an agent makes open in Studio, and the other way round. Tool names above drop the `briefcut_` prefix for space. The two tools that create a project (`briefcut_create_story`, `briefcut_script_to_video`) pass `product_request` first, so a local request is refused before the manager opens. Edits follow Studio's rule: `briefcut_edit` builds a draft from the saved plan, and only the manager validates it, as a dry run unless `render` is true. `briefcut_hero_word` and `briefcut_motion_card` return a checked suggestion and change nothing. `briefcut_receipts` returns the checks, the probe, the patches, and the version history, which is the proof an agent should report. The skill tells an agent when and how to use the tools; the Claude Code plugin ships both the skill and the server, and Muse Code finds the same skill through the `.agents/skills/briefcut` link ([docs/MUSE_CODE.md](docs/MUSE_CODE.md)). The recorded Muse Code runs ([evidence](docs/evidence/muse-code/README.md)) include a full edit: Muse Code chose `briefcut_status`, `briefcut_import_clip`, `briefcut_create_story`, `briefcut_wait`, `briefcut_timeline`, `briefcut_render`, `briefcut_receipts` and `briefcut_verify` in order, and reported 5 of 5 checks and a verified delivery.
 
 ## 10. The brief compiler underneath
 

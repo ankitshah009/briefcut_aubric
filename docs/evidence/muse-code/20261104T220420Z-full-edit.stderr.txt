@@ -1,0 +1,5 @@
+muse: workspace root: $REPO (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: plugins: foreign:claude: foreign claude plugin artifact observed as diagnostics only; observe-only by default ($REPO/.claude-plugin/plugin.json)
+muse: Agent delegation: auto unavailable: child tool 'mcp__briefcutstd__*' is unavailable.
+exit=0

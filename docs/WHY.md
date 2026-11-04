@@ -15,25 +15,35 @@ Briefcut splits the job into four parts and gives each part to what does it best
 
 ## Who it is for
 
-- Creators and small teams who cut long footage into shorts and want to see, and fix, every cut.
-- Developers and agents that need a video editor they can call, check, and re-run.
-- Anyone who must know what left their machine. Every Meta call is listed with its purpose and cost, and a project cannot spend past its cap. ([privacy](PRIVACY.md), [Meta calls and money](../ARCHITECTURE.md#7-meta-calls-and-money))
+- **Creators with phone footage and no time**, who want to see, and fix, every cut.
+- **Small businesses and teams** making product or process videos, at cents a project, with receipts a second person can check before posting.
+- **Educators and podcasters** cutting long recordings into clips and shorts. A project holds up to 2 hours, and long-form planning, landing today, picks the story across all of it.
+- **Developers and agents** that need a video editor they can call, check, and re-run.
+- **Anyone with private footage.** Originals stay on the machine, every Meta call is listed with its cost, and private mode keeps three text steps on Muse Glimmer ([privacy](PRIVACY.md), [Meta calls and money](../ARCHITECTURE.md#7-meta-calls-and-money)).
+
+They pick Briefcut when they need to check, script, or audit an edit; the others still lead on libraries, mobile apps, and publishing ([the comparison](../README.md#why-briefcut-instead-of-capcut-descript-opus-clip-or-premiere)).
+
+## Why it grows Meta's model adoption
+
+Every project runs on Meta's models, at $0.0005 to $0.08 per project in the [scenario matrix](evidence/scenario-matrix/README.md), so usage grows with each video. One MCP server makes any agent, Muse Code first, a video editor on Meta's models. Receipts give teams the audit trail they need before a model edits what they publish. The MIT code is a reference for Meta's models checking each other, and private mode shows Muse Glimmer doing real work on a laptop. Voice Transcribe hears 25 languages. The [README](../README.md#why-this-grows-metas-model-adoption) gives each point with its evidence.
 
 ## What is new
 
-**Models check each other.** A schema makes Spark's answer parse. It does not make it right. In verified find, SAM 3.1 looks for the thing Spark found. When the proof offered Spark's two bowl moments under the search "a dog", SAM found no dog in any of 90 frames and flagged both. When SAM missed a gouge that Spark had found correctly, the default, flag rather than drop, kept the right answer in view ([verified find](evidence/verified-find/README.md)). For the hero word, Spark picked a word and a place for it. SAM's mask showed the bowl would hide 82% of the word there, so code moved it to where 20% is hidden ([hero word](evidence/hero-word/README.md)).
+**Models check each other.** A schema makes Spark's answer parse. It does not make it right. In verified find, SAM 3.1 looks for the thing Spark found. Offered Spark's two bowl moments under the search "a dog", SAM found no dog in 90 frames and flagged both ([verified find](evidence/verified-find/README.md)). For the hero word, SAM's mask showed the bowl would hide 82% of the word where Spark put it, so code moved it to where 20% is hidden ([hero word](evidence/hero-word/README.md)).
 
-**Honest labels.** "SAM masked 100% of 60 frames" is code measuring SAM's data, so Studio tags it Measured. "The hook works" is a director's judgment, so it is tagged Model opinion, with the model's name. The three words behind the tags, observed, derived, and inferred, are borrowed from the REA project's evidence model ([receipts](../ARCHITECTURE.md#5-receipts-and-evidence-labels)). The receipts are tamper-evident for the same reason: REA's evidence model (MIT) gives each record an id that is the sha256 of its content, and Briefcut does the same, so `vedit verify` names any check, note or byte of video that changed ([receipts you can verify](../ARCHITECTURE.md#receipts-you-can-verify)).
+**Honest labels.** "SAM masked 100% of 60 frames" is code measuring SAM's data, so Studio tags it Measured. "The hook works" is a director's judgment, so it is tagged Model opinion. The labels and the content-hashed record ids come from the REA project's evidence model (MIT), so `vedit verify` names any check, note or byte of video that changed ([receipts](../ARCHITECTURE.md#5-receipts-and-evidence-labels), [verify](../ARCHITECTURE.md#receipts-you-can-verify)).
 
-**Wonder hears the cut.** Muse Wonder reviews the finished video with its sound. On the same cut, Wonder failed two checks that the frames confirm, and Spark passed both. In a test with no captions on screen, both models got the words right. Only Wonder described the soundtrack truthfully; Spark invented a lathe sound that is not there. Wonder cost $0.1010 against Spark's $0.0018, so Spark stays the default and Wonder is a choice ([Wonder review](evidence/wonder-review/README.md)).
+**Wonder hears the cut.** Reviewing one cut with its sound, Muse Wonder failed two checks that the frames confirm, and Spark passed both. Only Wonder described the soundtrack truthfully; Spark invented a lathe sound. Wonder cost $0.1010 against Spark's $0.0018, so Spark stays the default ([Wonder review](evidence/wonder-review/README.md)).
 
-**Open weights on a laptop.** In private mode, the director's note, caption translation, and the script writer run on Muse Glimmer 30B through llama.cpp on 127.0.0.1. In the recorded run, the Meta API path was replaced by a function that fails the run, and five calls finished at $0 ([private mode](evidence/open-weights/README.md)).
+**A long view of long recordings.** By Meta's docs, Muse Spark and Muse Wonder each have a 1,048,576-token context window, and a two-hour talk's transcript is roughly 24,000 tokens (our estimate). Long-form planning watches the video in windows of 10 minutes or less, then one editor call reads the whole transcript and every window's candidates and picks the story across the whole recording. Code still checks every pick ([long videos](../README.md#long-videos-why-a-long-view-matters)).
 
-**Meta's agent drives Meta's editor.** Muse Code connects to Briefcut's MCP server and calls its tools ([Muse Code](MUSE_CODE.md)). The recorded run imported a clip and reported its size ([record](evidence/muse-code/README.md)). A full edit driven by Muse Code is not recorded yet.
+**Open weights on a laptop.** In private mode, the director's note, caption translation, and the script writer run on Muse Glimmer 30B on this machine. In the recorded run, the Meta API path was replaced by one that fails the run, and five calls finished at $0 ([private mode](evidence/open-weights/README.md)).
+
+**Meta's agent drives Meta's editor.** Muse Code connects to Briefcut's MCP server and calls its tools ([Muse Code](MUSE_CODE.md)). The recorded run imported a clip ([record](evidence/muse-code/README.md)); a full edit by Muse Code is not recorded yet.
 
 ## What this does not claim
 
-- Every live run used Briefcut's procedural demo clip, so none of them measures quality on real footage.
-- The recorded full-loop runs, including the auto-refine run above, predate the Meta-only build. Their planning transcript came from a local Whisper model that has since been removed.
+- Most live runs used Briefcut's procedural demo clip, and the public clips had no real speech, so no run measures quality on a real person's talk.
+- The recorded full-loop runs, including the auto-refine run above, predate the Meta-only build, when a local Whisper model, since removed, wrote the planning transcript.
 - Meta Voice Transcribe reports turns, not words, so caption word times are estimated.
 - The prices are local estimates from the rates in `meta.py`, not Meta's bill.

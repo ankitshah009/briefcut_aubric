@@ -1,6 +1,6 @@
 # Briefcut by Aubric, Inc.: hackathon submission
 
-**One line.** Briefcut turns clips and photos into an editable story and a verified, downloadable campaign. Meta's models propose, track, transcribe, and critique; FFmpeg on the creator's own computer is the only thing that cuts; every version ships with its receipts.
+**One line.** Briefcut is an open-source (MIT) video editor that turns clips and photos into an editable story and a verified, downloadable campaign, for creators, small teams, and AI agents. Meta's models propose, track, transcribe, and critique; FFmpeg on the creator's own computer is the only thing that cuts; every version ships with receipts anyone can verify. It costs cents per project on the user's own Meta key, with no subscription.
 
 Event: Meta Global AI Developer Hackathon. Submission deadline **November 4, 2026, 9:00 PM ET**. Official event page: <https://dev.meta.ai/events/global-hackathon>. This document is the write-up. Every claim here is meant to stay narrower than the evidence file linked beside it.
 
@@ -12,10 +12,18 @@ Event: Meta Global AI Developer Hackathon. Submission deadline **November 4, 202
 - **No key?** The [recorded runs](../README.md#no-key-see-recorded-runs) in `docs/evidence/` hold each run's request, what came back, the probe of the delivered file, the receipts, and the spend, with Meta's response ids.
 - **Real footage.** The [scenario matrix](evidence/scenario-matrix/README.md) has 14 renders on footage Briefcut was not built around, and the 11 bugs it found. Their status is [below](#what-the-scenario-matrix-found).
 - **What is sent to Meta.** [PRIVACY.md](PRIVACY.md).
+- **Who it is for, and why it grows Meta's models.** [Impact](#impact).
 
 ## The problem
 
 Creators and small makers have footage and no time. A phone clip of a product being made sits unused because turning it into a short vertical story means scrubbing, choosing moments, cutting on sentences, reframing, captioning, exporting, and checking the file. "AI editors" that do this today are black boxes: you cannot see why a cut was chosen, you cannot re-run the result, you cannot tell the model it was wrong without starting over, and you cannot prove the exported file is what you approved.
+
+## Impact
+
+- **Who benefits.** Creators with phone footage and no time; small businesses and teams making product or process videos; educators and podcasters cutting recordings into clips (a project holds up to 2 hours, and long-form planning across all of it is landing today); developers and agents that need video as an API; and anyone with private footage. See [Who it is for](../README.md#who-it-is-for).
+- **Why they would pick it over CapCut, Descript, Opus Clip or Premiere.** Every claim can be checked (`vedit verify`), any agent can drive it over MCP, originals stay on the computer, it is MIT, and it is pay per use at $0.0005 to $0.08 per project in the [scenario matrix](evidence/scenario-matrix/README.md). The others still lead on templates, stock media, mobile apps, collaboration, generated video, and publishing. The table and the honest list are in the [README](../README.md#why-briefcut-instead-of-capcut-descript-opus-clip-or-premiere).
+- **Why it grows Meta's model adoption.** Each project is real usage of Meta's hosted models, five of them in all, at cents a project. One MCP server makes any agent, Muse Code first, a video editor on Meta's models. Receipts give teams an audit trail for model-made edits. The MIT code is a reference for Meta's models working together (Spark proposes, SAM 3.1 checks, Wonder listens), private mode puts Meta's open weights to work on a laptop, and Voice Transcribe hears 25 languages. Each point, with its evidence, is in the [README](../README.md#why-this-grows-metas-model-adoption).
+- **Why long videos work.** By Meta's docs, Muse Spark and Muse Wonder have a 1,048,576-token context window, and a two-hour talk's transcript is about 2% of it (an estimate), so long-form planning, landing today, watches in windows of 10 minutes or less and then picks the story in one call over the whole recording, with code checking every pick ([README](../README.md#long-videos-why-a-long-view-matters)).
 
 ## What Briefcut does
 
@@ -45,7 +53,7 @@ CapCut is the consumer standard for short-form editing. Briefcut's bet is the pa
 | Proof the file is right | Not described | A probe of the delivered file plus pass or fail receipts with jump-to-time, per version |
 | Re-running an edit | Not described | `render.sh` re-runs the edit with FFmpeg alone; `brief.yaml` recompiles it |
 | Where footage goes | The pages checked link to a privacy policy and do not say | The original stays on the machine. Meta receives a reduced copy, audio, or text after the creator confirms, and Studio lists each Meta call. Private mode keeps three text steps on the machine |
-| Agent access | A "CapCut × Codex" page describes natural-language instructions producing an editable rough cut; no public API documentation was found | HTTP API and an MCP server with 21 tools that any MCP agent can use, including Meta's Muse Code |
+| Agent access | A "CapCut × Codex" page describes natural-language instructions producing an editable rough cut; no public API documentation was found | HTTP API and an MCP server with 22 tools that any MCP agent can use, including Meta's Muse Code |
 
 ## How Meta's models are used
 
@@ -107,7 +115,7 @@ The boundary that matters: the model proposes moments, geometry, cues, and patch
 
 ### Agents can drive it
 
-`vedit mcp` exposes the same project flow over MCP (`src/vedit/mcp_server.py`) with 21 tools, so any MCP agent can use it: import clips, create a story, wait, render, edit, revise with a mode or a note, find moments with SAM verification, make shorts, turn a script into a video, propose a hero word or a motion card, add assets, generate a background, read the receipts, and resolve artifact paths. The repository ships a project `.mcp.json`, a Claude Code plugin, and the skill at `.agents/skills/briefcut/` for Muse Code. All routes go through the one `CampaignManager`, so an agent gets the same verification and version history a person sees. See "MCP for coding agents" in `docs/CAMPAIGN.md` and [MUSE_CODE.md](MUSE_CODE.md).
+`vedit mcp` exposes the same project flow over MCP (`src/vedit/mcp_server.py`) with 22 tools, so any MCP agent can use it: import clips, create a story, wait, render, edit, revise with a mode or a note, find moments with SAM verification, make shorts, turn a script into a video, propose a hero word or a motion card, add assets, generate a background, read the receipts, verify a delivery, and resolve artifact paths. The repository ships a project `.mcp.json`, a Claude Code plugin, and the skill at `.agents/skills/briefcut/` for Muse Code. All routes go through the one `CampaignManager`, so an agent gets the same verification and version history a person sees. See "MCP for coding agents" in `docs/CAMPAIGN.md` and [MUSE_CODE.md](MUSE_CODE.md).
 
 ## Live evidence (2026-11-04, Meta-only)
 
@@ -122,7 +130,7 @@ These runs used the current code paths. All Muse Spark calls used contributor mo
 | Hero word | [`hero-word/README.md`](evidence/hero-word/README.md): Spark picked "oak"; SAM masked 60 of 60 frames; the mask overruled Spark's "center" (82% covered) for "top" (20%). Two renders, 16:9 and 9:16, probed. | $0.0124 |
 | Punch words | [`caption-emphasis/README.md`](evidence/caption-emphasis/README.md): Spark picked "finished" and "raw" from six lines; both burned in two caption styles. | $0.0004 |
 | 3D motion card | [`blender-cards/README.md`](evidence/blender-cards/README.md): Spark designed the card, Muse Image painted the backdrop, Blender 5.2.3 rendered 90 frames in 24 s, and the compiler laid it over the first 3 s with no timing change. | $0.0104 |
-| Muse Code | [`muse-code/README.md`](evidence/muse-code/README.md): Meta's coding agent called `briefcut_import_clip` through Briefcut's MCP server and reported the clip's duration and size. | under $0.01 |
+| Muse Code | [`muse-code/README.md`](evidence/muse-code/README.md): Meta's coding agent ran a full edit over Briefcut's MCP server: status, import, story, wait, timeline, render, receipts, verify. It reported a 14.1 s 1080x1920 short, 5 of 5 checks, and a verified delivery. | $0.0345 of Briefcut's Meta calls; Muse Code's own 9 calls at most $0.38 |
 
 Some of these proofs used a local whisper.cpp transcript as their input (hero word, the private-mode inputs, robust-features), because they were built while the Meta-only change was landing. Each README says so. [`robust-features/README.md`](evidence/robust-features/README.md) runs the hero word and verified find on public clips of people: the word moved and changed color for contrast on a light background, a silent track was refused before any call, a re-trimmed cut was caught, and searches in Spanish and Chinese verified (21 calls, $0.1094).
 

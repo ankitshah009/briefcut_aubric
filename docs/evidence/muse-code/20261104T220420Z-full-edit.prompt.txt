@@ -1,0 +1,8 @@
+Use only the briefcut MCP tools. Work step by step and check each result before the next step.
+1. Call briefcut_status. If Meta is not connected, or its mode is not "standard", stop and say why.
+2. Import the clip $REPO/examples/demo/workshop.mp4 with briefcut_import_clip.
+3. Create a story from that clip with briefcut_create_story. Goal: "A 15-second short on how the oak bowl is made. Open on the strongest moment." Target 15 seconds, captions on, a Meta budget of 0.40 USD, and consent to send the clip to Meta.
+4. Wait for the plan with briefcut_wait, then read it with briefcut_get or briefcut_timeline and note the moments and why Muse Spark chose them.
+5. Render it with briefcut_render and wait until it finishes.
+6. Read briefcut_receipts and run briefcut_verify.
+7. Reply in plain text: project id, final duration, width x height, has audio, how many checks passed of how many, the verify result, and the Meta spend. If any step fails, say which one and the exact error, and stop.
