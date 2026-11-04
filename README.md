@@ -149,6 +149,247 @@ flowchart TB
   class api away
 ```
 
+### One project, end to end
+
+From the upload to an editable plan. Meta Voice Transcribe hears the project once, Muse Spark plans it, and code checks and snaps the plan before you see it ([details](ARCHITECTURE.md#2-one-project-end-to-end)).
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as Creator
+  participant S as Studio API
+  participant M as CampaignManager
+  participant F as FFmpeg
+  participant A as meta.py
+  participant C as Meta Model API
+  Note over U: ticks "Send this footage<br/>to Meta using my API key"
+  U->>S: POST /api/upload
+  S-->>U: inbox path, file stays local
+  U->>S: POST /api/campaigns
+  S->>M: product_request, create
+  Note over M: _request checks Meta is on<br/>_add_job saves status queued
+  S-->>U: 202 with the job
+  Note over M: worker thread<br/>process, then _plan
+  M->>F: probe, combine clips
+  Note over M: check length, budget<br/>and free disk, before upload
+  M->>A: transcribe a 16 kHz WAV
+  A->>C: Voice Transcribe, once
+  C-->>A: timed turns
+  M->>F: scene cuts, speech bands
+  M->>F: analysis proxy, 960x540
+  M->>A: plan_story
+  A->>C: Muse Spark, JSON schema
+  C-->>A: segments
+  A-->>M: _validate_story, or refuse
+  Note over M: snap_to_sentences<br/>validate_plan, brief_edit
+  M->>F: filmstrip, waveform
+  M-->>U: planned, ready to edit
+```
+
+From your approval to the next version. The compiler renders, Briefcut probes the file, the director reviews it, and its fixes come back as data that make version N+1. Version N is kept.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as Creator
+  participant S as Studio API
+  participant M as CampaignManager
+  participant A as meta.py
+  participant C as Meta Model API
+  participant F as Compiler, FFmpeg
+  U->>S: POST /timeline, each edit
+  S->>M: validate_plan, dry run
+  M-->>U: spans and captions
+  U->>S: POST /render
+  S->>M: validate_plan
+  Note over M: _enqueue_render, revision N<br/>then _render
+  M->>A: track_subject
+  A->>C: SAM 3.1, subject in words
+  C-->>A: a box per frame
+  Note over M: captions cut from the<br/>planning transcript, free
+  M->>F: build_ops, compile_brief
+  F-->>M: brief.yaml, render.sh
+  M->>F: execute, then ffprobe
+  F-->>M: proof, or export_problem
+  M->>A: review_cut, 540p copy
+  A->>C: Muse Spark or Muse Wonder
+  C-->>A: checks and patches
+  Note over M: _grade merges lint,<br/>SAM, and director checks
+  M-->>U: complete, version N, receipts
+  U->>S: POST /revise
+  S->>M: director, auto, or note
+  Note over M: _patched: apply_patches,<br/>strict re-lint, validate_plan
+  Note over M: _enqueue_render, revision N+1<br/>version N kept, marked stale
+  M-->>U: N+1 verified, N still there
+```
+
+### The model proposes, the compiler executes
+
+A model's answer is checked JSON, never code. Every value is validated, clamped, or refused before the compiler turns known op names into FFmpeg arguments ([details](ARCHITECTURE.md#3-the-model-proposes-the-compiler-executes)).
+
+```mermaid
+flowchart TB
+  answer["A Meta model's answer<br/>strict JSON schema at the API"]
+  never["Never becomes code<br/>no eval, exec, shell text,<br/>file path, or bpy"]
+  parse["Parse the JSON"]
+  validate["Per-call validator in meta.py<br/>_validate_story, _validate_patches,<br/>_validate_review, _validate_found"]
+  feature["Feature checks<br/>hero_word, emphasis, blender_cards:<br/>validate_suggestion, validate_emphasis"]
+  snap["Deterministic fixes<br/>snap_to_sentences, apply_patches,<br/>strict re-lint in _patched"]
+  plan["validate_plan and validate_edit<br/>bounded values, asset ids, no paths"]
+  stored[("plan segments and plan.edit<br/>saved on the job")]
+  clock["timeline.plan_timeline<br/>keep and spans computed here"]
+  stages["render_plan.build_ops<br/>21 stages in a fixed order"]
+  ops["compile.OPS<br/>known op names only"]
+  argv["FFmpeg argv<br/>render.sh, project.json"]
+  card["Blender spec JSON<br/>read by a fixed template"]
+  refused(["Refused. Nothing changes"])
+  clamped(["Dropped or clamped, with a note"])
+  skipped(["Patch skipped, reason shown"])
+  error(["CampaignError or CompileError"])
+  answer -.-> never
+  answer --> parse
+  parse -->|"not JSON"| refused
+  parse --> validate
+  validate -->|"wrong shape, out of bounds,<br/>overlap, too long"| refused
+  validate -->|"bad op, index, or time"| clamped
+  validate --> feature
+  feature -->|"word not said, not one shot"| clamped
+  feature --> snap
+  snap -->|"would break the plan"| skipped
+  snap --> plan
+  plan -->|invalid| error
+  plan --> stored --> clock --> stages --> ops
+  ops -->|unknown| error
+  ops --> argv
+  ops -->|motion_card| card
+  classDef gate fill:#fff8e1,stroke:#f9a825,color:#2b2100
+  classDef stop fill:#fdecea,stroke:#c62828,color:#3b0a0a
+  classDef ok fill:#e8f5e9,stroke:#2e7d32,color:#0b2410
+  class parse,validate,feature,snap,plan,ops gate
+  class refused,clamped,skipped,error,never stop
+  class stored,argv,card ok
+```
+
+### Models check each other: the hero word
+
+Muse Spark proposes the word, code checks that it was said inside one shot, and SAM 3.1's mask decides which side the word goes so the subject does not hide it ([all feature pipelines](ARCHITECTURE.md#8-feature-pipelines)).
+
+```mermaid
+flowchart TB
+  words["The cut's caption words<br/>text only, no media"]
+  spark["Muse Spark proposes<br/>word, start, end, side"]
+  check{"hero_word.validate_suggestion<br/>said by the speaker, 0.5 to 3 s,<br/>inside one shot?"}
+  refused(["Refused or clamped, with a note"])
+  edit["edit.hero_word<br/>edit_spec.validate_hero_word"]
+  proxy["hero_word.window_proxy<br/>select_ranges, the window only"]
+  sam["SAM 3.1 masks the subject"]
+  side["hero_word.choose_side<br/>how much of the word the mask hides"]
+  op["compile hero_word op<br/>background, then word, then subject"]
+  receipt["lint.hero_word_check<br/>derived, inputs muse-spark and sam-3.1"]
+  words --> spark --> check
+  check -->|no| refused
+  check -->|yes| edit --> proxy --> sam --> side --> op --> receipt
+```
+
+### Receipts and evidence labels
+
+Every check says how it is known: observed from the file, derived by code, or inferred by a model. A file that does not match the request makes no version ([details](ARCHITECTURE.md#5-receipts-and-evidence-labels)).
+
+```mermaid
+flowchart TB
+  file["The delivered video file"]
+  subgraph observed["observed: read from the file"]
+    probe["ffprobe proof<br/>duration, size, streams, color"]
+    match{"export_problem<br/>matches the request?"}
+  end
+  subgraph derived["derived: code measured stored inputs"]
+    plancheck["Plan checks, by lint<br/>sentence edges, length,<br/>bounds, caption coverage,<br/>requested edits"]
+    samcheck["Checks on SAM data, by lint<br/>subject in frame,<br/>cutout coverage, hero word"]
+  end
+  subgraph inferred["inferred: a model's judgment"]
+    review["Director checks<br/>by muse-spark or muse-wonder"]
+  end
+  failed(["The job fails. No version is made"])
+  report[("report.json<br/>proof, checks, patches")]
+  studio["Studio receipts<br/>Probed, Measured, Model opinion"]
+  file --> probe --> match
+  match -->|no| failed
+  match -->|yes| report
+  plancheck --> report
+  samcheck --> report
+  review --> report
+  report --> studio
+  classDef obs fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a
+  classDef der fill:#e8f5e9,stroke:#2e7d32,color:#0b2410
+  classDef inf fill:#fff3e0,stroke:#ef6c00,color:#2b1600
+  classDef stop fill:#fdecea,stroke:#c62828,color:#3b0a0a
+  class probe,match obs
+  class plancheck,samcheck der
+  class review inf
+  class failed stop
+```
+
+### Long videos (landing today)
+
+Muse Spark reads a long recording in parts, and one editor call with the whole transcript in view picks the story across all of it. Code still checks every pick ([why a long view matters](#long-videos-why-a-long-view-matters)).
+
+```mermaid
+flowchart LR
+  src["Long recording<br/>10 minutes to 2 hours"] --> heard["Meta Voice Transcribe<br/>heard once, in pieces<br/>cut at pauses"]
+  heard --> parts["story.long_windows<br/>parts of 10 minutes or less,<br/>cut between sentences"]
+  parts --> p1["Muse Spark<br/>part 1: candidate moments"]
+  parts --> p2["Muse Spark<br/>part 2: candidate moments"]
+  parts --> pn["Muse Spark<br/>part N: candidate moments"]
+  p1 & p2 & pn --> editor["One editor call<br/>Muse Spark, or Muse Wonder<br/>reads the whole transcript<br/>and every candidate"]
+  editor --> check{{"Code checks every pick<br/>each id must be a candidate,<br/>times come from the candidate"}}
+  check --> snap["Snap to sentences and clips,<br/>lint, budget"]
+  snap --> plan["Editable plan:<br/>one story or several shorts"]
+  classDef meta fill:#fdecea,stroke:#c62828,color:#3b0a0a
+  classDef code fill:#e8f5e9,stroke:#2e7d32,color:#0b2410
+  classDef io fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a
+  class heard,p1,p2,pn,editor meta
+  class parts,check,snap code
+  class src,plan io
+```
+
+### Any agent can drive it
+
+One MCP server with 22 tools, over the same `CampaignManager` Studio uses, so a person and an agent work on the same projects ([details](ARCHITECTURE.md#9-the-agent-surface), [Muse Code run](docs/evidence/muse-code/README.md)).
+
+```mermaid
+flowchart TB
+  subgraph hosts["Agent hosts"]
+    musecode["Muse Code<br/>~/.config/muse/settings.json"]
+    claude["Claude Code plugin<br/>.claude-plugin/plugin.json"]
+    other["Any MCP client<br/>.mcp.json"]
+  end
+  skill["The briefcut skill<br/>skills/briefcut/SKILL.md"]
+  server["vedit mcp<br/>mcp_server.build_server, stdio"]
+  subgraph tools["22 tools, by job"]
+    create["Create<br/>create_story<br/>script_to_video"]
+    setup["Set up and branch<br/>status, import_clip<br/>make_shorts"]
+    watch["Watch and find<br/>get, list, wait<br/>find_moments"]
+    edit["Edit<br/>timeline, edit, add_asset<br/>generate_background<br/>hero_word, motion_card"]
+    render["Render and prove<br/>render, revise, cancel, retry<br/>receipts, verify, artifact_path"]
+  end
+  gate{{"product_request<br/>Meta only"}}
+  manager["The same CampaignManager as Studio<br/>one workspace lease"]
+  skill -.-> musecode
+  skill -.-> claude
+  musecode --> server
+  claude --> server
+  other --> server
+  server --> tools
+  create --> gate --> manager
+  setup & watch & edit & render --> manager
+  classDef actor fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a
+  classDef door fill:#ede7f6,stroke:#5e35b1,color:#1a1033
+  classDef core fill:#fff8e1,stroke:#f9a825,color:#2b2100
+  class musecode,claude,other,skill actor
+  class server,create,setup,watch,edit,render door
+  class gate,manager core
+```
+
 [ARCHITECTURE.md](ARCHITECTURE.md) has the full set of diagrams, each with the reason it is built that way: one project end to end, how a model's answer becomes FFmpeg steps without ever running as code, the one clock, receipts and their evidence labels, the job lifecycle, Meta spend, each feature pipeline, and the agent surface.
 
 ## Which Meta models Briefcut uses, and where each runs
