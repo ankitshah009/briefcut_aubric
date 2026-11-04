@@ -1,16 +1,30 @@
-MIT License
+Briefcut Source-Available License
 
-Copyright (c) 2026 Ankit Shah
+Copyright (c) 2026 Aubric, Inc. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+The source code of Briefcut is published so that it can be read, run, and
+evaluated, including by the judges of the Meta Global AI Developer Hackathon.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Permission is granted, free of charge, to any person who obtains a copy of this
+software to:
+
+1. view, download, and run the software on their own computers;
+2. modify it for their own evaluation, testing, and personal, non-commercial
+   use;
+3. submit changes back to the official repository.
+
+The following require prior written permission from Aubric, Inc.:
+
+a. redistributing the software or substantial portions of it, modified or not,
+   in source or binary form;
+b. using the software, or a derivative of it, to provide a product or service
+   to others, or in a commercial production workflow;
+c. removing or altering this notice.
+
+Third-party components keep their own licenses: see pyproject.toml, uv.lock,
+and the notices in docs/. Meta's models, the Meta Model API, and the SAM mask
+parser are governed by Meta's own terms. Example and evidence media carry the
+attributions noted beside them.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
