@@ -6,6 +6,8 @@ Editors cost hours, or hide their choices. Briefcut is a video editor built on M
 
 ## See it
 
+**Watch the 3-minute demo:** <https://youtu.be/NVuSLZREnxw> (built during the hackathon; the first commit was October 29).
+
 <img src="docs/media/studio-hero.png" alt="Briefcut Studio on the Edit step: the transcript, the timeline, the hero word inspector with Muse Spark's reason, and the Meta calls panel" width="100%">
 
 The Edit step on a finished project. Muse Spark picked the hero word and says why. The Meta calls panel lists every call and what it cost.
@@ -42,7 +44,7 @@ Video editors today are either manual timelines that cost hours, or AI black box
 1. **Every project runs on Meta's models.** A project calls Muse Spark, Voice Transcribe when there is speech, and often SAM 3.1, Muse Image, or Muse Wonder, all through one adapter, [`meta.py`](src/vedit/meta.py). Usage grows with each video made, and the next video costs cents: $0.0005 to $0.08 per project in the [scenario matrix](docs/evidence/scenario-matrix/README.md), and $0.29 to $0.31 reserved for a two-version loop with SAM tracking ([What it costs](#what-it-costs)).
 2. **Agents become a new channel for Meta's models.** One MCP server, [`mcp_server.py`](src/vedit/mcp_server.py), turns any agent into a video editor that runs on Meta's models, whatever model the agent itself uses. Muse Code is first, with its own skill and [a recorded full edit](docs/evidence/muse-code/README.md): import to verified file in about two minutes, $0.03 of Briefcut's Meta calls, and the same server is set up for Claude Code, Codex, Cursor, and Gemini CLI ([setup](#use-briefcut-from-any-mcp-agent)).
 3. **Receipts let teams adopt model-made edits.** Each check says whether it was probed from the file, measured by code, or is a model's opinion, and `vedit verify` re-hashes the video and every record with no network call ([receipts](ARCHITECTURE.md#receipts-you-can-verify)). Teams that sign off on what they publish need that audit trail before they let a model edit for them.
-4. **A reference design others can copy.** Muse Spark proposes, SAM 3.1 checks what Spark found ([`verify_find.py`](src/vedit/verify_find.py)), Muse Wonder reviews the cut by watching and listening ([Wonder review](docs/evidence/wonder-review/README.md)), and Muse Glimmer runs text steps locally. The code is open source under AGPL-3.0, so any developer can read this pattern of models checking each other and build on it, and must share what they change.
+4. **A reference design others can copy.** Muse Spark proposes, SAM 3.1 checks what Spark found ([`verify_find.py`](src/vedit/verify_find.py)), Muse Wonder reviews the cut by watching and listening ([Wonder review](docs/evidence/wonder-review/README.md)), and Muse Glimmer runs text steps locally. The code is open source under AGPL-3.0-or-later, so any developer can read this pattern of models checking each other and build on it, and must share what they change.
 5. **Open weights bring in privacy-bound users.** Private mode runs the director's note, caption translation, and the script writer on Muse Glimmer 30B on the user's computer, at $0, and fails closed ([`open_weights.py`](src/vedit/open_weights.py), [evidence](docs/evidence/open-weights/README.md)). It shows Meta's open model doing production work. Video planning and SAM still need the API, so this is a first step, not an offline editor.
 6. **Global from the first project.** Voice Transcribe hears 25 languages and detects which one was spoken ([`meta.py`](src/vedit/meta.py)), and Muse Spark translates captions. Live records show Spanish and French captions and verified searches in Spanish and Chinese ([live integration](docs/evidence/live-integration/README.md), [robust features](docs/evidence/robust-features/README.md)).
 7. **Spend you can see removes the fear of a runaway bill.** Each project has a cap ($0.25 by default, $5 at most), the adapter reserves an upper bound before each call, and Studio's Meta calls panel lists every call with its model, cost, and Meta's response id ([Meta calls and money](ARCHITECTURE.md#7-meta-calls-and-money), [screenshot](docs/evidence/open-weights/studio-meta-calls-light.png)). A developer can try Meta's models knowing the most a project can spend.
@@ -55,7 +57,7 @@ Pick Briefcut when you need to check, script, or audit an edit, or keep your ori
 | --- | --- | --- | --- |
 | You can check every claim | Yes. Each version carries a probe of the file and labeled checks, and `vedit verify` re-hashes them offline ([receipts](ARCHITECTURE.md#receipts-you-can-verify)) | No. You check by watching | No audit trail that we found. You get a draft, sometimes a score |
 | Agents can drive it | Yes. One MCP server for any client, and Muse Code first ([recorded run](docs/evidence/muse-code/README.md)) | Varies. Scripting or plugins; CapCut describes a Codex workflow | Varies. Some offer an API |
-| Open source | Yes, [AGPL-3.0](LICENSE) | No | No |
+| Open source | Yes, [AGPL-3.0-or-later](LICENSE) | No | No |
 | Renders on your own computer | Yes. Originals never leave. Meta gets proxies, audio, a still, or text, after you confirm ([Privacy](docs/PRIVACY.md)) | Yes, in the desktop apps | Usually no. You upload the video |
 | Pay per use, no subscription | Yes, on your own Meta key. $0.0005 to $0.08 per project in the [scenario matrix](docs/evidence/scenario-matrix/README.md); SAM tracking and a Wonder review cost more | A subscription, or a free tier with paid extras | Monthly plans or credits, often with a free tier |
 | Models check each other | Yes. SAM 3.1 checks what Muse Spark finds ([verified find](docs/evidence/verified-find/README.md)) | Not that we found | Not that we found |
@@ -737,4 +739,4 @@ Briefcut does not render HTML or React compositions. [docs/OPEN_SOURCE_IDEAS.md]
 
 ## License
 
-Copyright 2026 Aubric, Inc. Briefcut is free software under the [GNU Affero General Public License v3.0](LICENSE): use it, study it, change it, and share your changes under the same terms; a changed version offered as a service must publish its source.
+Copyright 2026 Aubric, Inc. Briefcut is free software under the [GNU Affero General Public License](LICENSE), version 3 or (at your option) any later version (SPDX: `AGPL-3.0-or-later`): use it, study it, change it, and share your changes under the same terms; a changed version offered as a service must publish its source.
