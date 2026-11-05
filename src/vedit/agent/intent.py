@@ -22,8 +22,12 @@ _PATH_RE = re.compile(
 _PLATFORM_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "shorts",
+        # The plural, the YouTube product name, or the singular used as a noun ("a short under 30s").
+        # The adjective ("a short product video") says nothing about the frame.
         re.compile(
-            r"\bshorts?\b|\breels\b|\btiktok\b|\bvertical\b|(?<!\d)9:16(?!\d)|(?<!\d)9x16(?!\d)",
+            r"\bshorts\b|\byoutube\s+shorts?\b|\breels\b|\btiktok\b|\bvertical\b"
+            r"|(?<!\d)9:16(?!\d)|(?<!\d)9x16(?!\d)"
+            r"|\bshort\b(?=\s*(?:(?:under|of|from|for|about|with|at|in|less|max)\b|\d|$|[,.;:!?]))",
             re.IGNORECASE,
         ),
     ),
@@ -47,7 +51,13 @@ _KEEP_SILENCE = re.compile(
     r"keep\s+silence\b|keep\s+the\s+pauses\b|don['’]t\s+cut\b|\bdont\s+cut\b|\bdo\s+not\s+cut\b|\bslideshow\b",
     re.IGNORECASE,
 )
-_NO_CAPTIONS = re.compile(r"\bno\s+captions?\b|\bwithout\s+captions?\b", re.IGNORECASE)
+_CAPTION_WORD = r"(?:captions?|subtitles?|subs|transcripts?|transcription)"
+_NO_CAPTIONS = re.compile(
+    rf"\b(?:no|without|skip|drop|remove)\s+(?:the\s+|any\s+)?{_CAPTION_WORD}\b"
+    rf"|\b(?:don['’]?t|do\s+not|dont|never)\s+(?:add|want|burn|need|include|put|show|use)\b[^.,;\n]{{0,40}}?\b{_CAPTION_WORD}\b"
+    rf"|\b{_CAPTION_WORD}\s+(?:off|disabled)\b",
+    re.IGNORECASE,
+)
 _YES_CAPTIONS = re.compile(r"caption|subtitle|transcri", re.IGNORECASE)
 _NO_LOUDNORM = re.compile(
     r"\bno\s+loudnorm\b|don['’]t\s+normalize\b|\bdont\s+normalize\b|\bdo\s+not\s+normalize\b",
@@ -62,7 +72,8 @@ _CTA = re.compile(r"(?:\bcta\s*:|\bcall\s+to\s+action\b\s*:?)\s*([^,\n]*)", re.I
 _MARK = re.compile(r"\b(?:watermark|logo)\b", re.IGNORECASE)
 
 
-def parse_intent(goal: str, *, sources: dict[str, str] | None = None) -> Intent:
+def parse_intent(goal: str, *, sources: dict[str, str] | None = None, primary: str | None = None) -> Intent:
+    """``primary`` names the source being edited, so it is never also picked as the music bed."""
     text = goal.strip()
     src = sources or {}
     platform = _platform(text)
@@ -74,7 +85,7 @@ def parse_intent(goal: str, *, sources: dict[str, str] | None = None) -> Intent:
         cut_silence=_cut_silence(text, platform),
         captions=_captions(text, platform),
         loudnorm=_loudnorm(text, platform),
-        music=_music(text, src),
+        music=_music(text, src, primary),
         title=_quoted(_TITLE, text),
         hook=_phrase(_HOOK, text),
         cta=_phrase(_CTA, text),
@@ -179,14 +190,33 @@ def _paths(text: str) -> list[str]:
     return found
 
 
-def _music(text: str, sources: dict[str, str]) -> str | None:
-    if "music" in sources and str(sources["music"]).strip():
+def _same_file(candidate: str, primary_path: str | None) -> bool:
+    """Whether a token names the primary source: the same path, or the same file name from the goal."""
+    if not primary_path:
+        return False
+    if candidate == primary_path:
+        return True
+    try:
+        if Path(candidate).expanduser().resolve() == Path(primary_path).expanduser().resolve():
+            return True
+    except OSError:
+        pass
+    return Path(candidate).name == Path(primary_path).name
+
+
+def _music(text: str, sources: dict[str, str], primary: str | None = None) -> str | None:
+    if primary is None and "main" in sources:
+        primary = "main"  # the inventory's name for the source being edited
+    primary_path = (str(sources.get(primary, "")).strip() or None) if primary else None
+    if "music" in sources and str(sources["music"]).strip() and primary != "music":
         return str(sources["music"])
     for token in _paths(text):
-        if _ext(token) in _AUDIO_EXT:
+        if _ext(token) in _AUDIO_EXT and not _same_file(token, primary_path):
             return token
-    for value in sources.values():
+    for name, value in sources.items():
         raw = str(value).strip()
+        if name == primary or _same_file(raw, primary_path):
+            continue  # an audio-only primary is the program, not a bed to mix under itself
         if raw and _ext(raw) in _AUDIO_EXT:
             return raw
     return None

@@ -17,8 +17,11 @@ Edits follow the Studio rule: a tool builds a draft from the saved plan, and
 only the manager validates it (``timeline`` for a dry run, ``render`` to keep
 it). Nothing here writes a plan or reaches the compiler on its own.
 
-The workspace is ``VEDIT_WORKSPACE`` when set, otherwise the current
-directory, mirroring the Briefcut launcher. Every tool returns plain JSON;
+The workspace is ``VEDIT_WORKSPACE`` when set, else the project folder saved
+in Studio Settings, else the desktop default (``settings.default_workspace``),
+exactly as the Briefcut launcher chooses it. It is never the agent's current
+directory: projects made here show up in Studio's library, and the agent's
+repository never collects session folders. Every tool returns plain JSON;
 every actionable failure is a tool error carrying the manager's message and
 never a traceback.
 """
@@ -49,7 +52,7 @@ except ImportError:  # mcp 1.x
     from mcp.server.fastmcp import FastMCP as MCPServer  # type: ignore[no-redef]
     from mcp.server.fastmcp.exceptions import ToolError  # type: ignore[no-redef]
 
-from vedit import __version__
+from vedit import __version__, settings
 from vedit.campaign import NO_NARRATION, CampaignError, CampaignManager, capabilities, get_manager, product_request
 from vedit.edit_spec import default_edit, merge_edit
 from vedit.errors import VeditError
@@ -86,9 +89,14 @@ _STATE_LOCK = threading.Lock()
 
 
 def workspace() -> Path:
-    """The folder whose ``vedit-sessions/`` holds inbox clips and campaign jobs."""
-    raw = os.environ.get("VEDIT_WORKSPACE", "").strip()
-    return Path(raw).expanduser().resolve() if raw else Path.cwd().resolve()
+    """The folder whose ``vedit-sessions/`` holds inbox clips and campaign jobs.
+
+    ``VEDIT_WORKSPACE``, then the folder saved in Studio Settings, then the
+    desktop default: the same order the launcher uses, so the agent and Studio
+    share one library. Never the current directory, which is the agent's repo.
+    """
+    chosen, _source = settings.configured_workspace()
+    return (chosen or settings.default_workspace()).expanduser().resolve()
 
 
 def _manager() -> CampaignManager:
@@ -201,9 +209,13 @@ def _tools(server: MCPServer):
 
 
 def _safe_filename(raw: str) -> str:
-    name = Path(raw.replace("\\", "/")).name
-    name = _SAFE_NAME.sub("_", name).strip("._")
-    return (name or "clip.mp4")[:120]
+    """A plain ASCII name that keeps its extension, so 写真.png stays a .png the manager can type-check."""
+    name = Path(Path(raw.replace("\\", "/")).name)
+    suffix = _SAFE_NAME.sub("", name.suffix)[:16]
+    stem = _SAFE_NAME.sub("_", name.stem).strip("._")
+    if not stem and not suffix:
+        return "clip.mp4"
+    return (stem or "media")[:100] + suffix
 
 
 def _receipts(job: dict[str, Any]) -> dict[str, Any]:
@@ -565,6 +577,9 @@ def build_server() -> MCPServer:
         code, or ``auto``. Leave ``language`` and ``budget_usd`` out to use the
         defaults saved in Studio Settings.
         """
+        if voice is not None:
+            # Kept only so an agent that asks for a voice hears why, instead of a schema error.
+            raise ToolError(NO_NARRATION + " Leave voice out.")
         payload: dict[str, Any] = {
             "script": script, "aspect": aspect, "provider": provider,
             "images": list(images or []), "review": review,
@@ -574,15 +589,24 @@ def build_server() -> MCPServer:
             payload["budget_usd"] = budget_usd
         if language is not None:
             payload["language"] = language
-        if voice is not None:
-            # Kept only so an agent that asks for a voice hears why, instead of a schema error.
-            raise ToolError(NO_NARRATION + " Leave voice out.")
         if edit is not None:
             payload["edit"] = edit
         if director is not None:
             payload["director"] = director
-        checked = _call(product_request, payload)
-        return {"job": _call(_manager().create_script, checked)}
+        checked = _call(product_request, payload)  # refuses local mode before anything is copied
+        manager = _manager()
+        # The manager reads pictures only from a session inbox, like clips, so each
+        # local image is staged first. The job keeps the staged paths; nothing is deleted here.
+        staged: list[str] = []
+        try:
+            for image in checked["images"]:
+                staged.append(str(_stage(manager, _local_file(image, "image")[0], "image")))
+        except ToolError:
+            for done in staged:
+                shutil.rmtree(Path(done).parent.parent, ignore_errors=True)
+            raise
+        checked["images"] = staged
+        return {"job": _call(manager.create_script, checked)}
 
     @tool()
     def briefcut_get(job_id: str) -> dict[str, Any]:

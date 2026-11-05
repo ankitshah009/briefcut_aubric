@@ -505,7 +505,7 @@ def subject_in_frame_check(points: Any, *, duration: float, aspect: str, source_
 
     ``points`` are boxes on the finished clock in source-normalised units. The
     check passes when boxes cover most of the cut without a long gap and the
-    subject's centre sits inside the reframed crop that follows it. A missing
+    subject fits inside the reframed crop that follows it. A missing
     track is reported as not requested, never as a pass about the subject.
     """
     name = "auto: subject stays in frame (SAM 3.1)"
@@ -529,11 +529,15 @@ def subject_in_frame_check(points: Any, *, duration: float, aspect: str, source_
     tail = duration - previous
     if tail > longest_gap:
         longest_gap, gap_at = tail, previous
-    step = max(1 / 30, duration / max(1, len(boxes)))
-    covered = min(duration, len(boxes) * step)
+    # Time actually tracked: each box holds until the next one, for at most
+    # ``max_gap``, so a track that is dense in one stretch and absent elsewhere
+    # covers only that stretch.
+    times = [box[0] for box in boxes]
+    covered = min(duration, sum(max(0.0, min(max_gap, nxt - cur)) for cur, nxt in zip(times, [*times[1:], duration])))
     coverage = covered / duration
     # The reframe crops the source to the target shape around the box centre,
-    # clamped to the picture; the centre must stay inside that window.
+    # clamped to the picture; the whole box must fit inside that window, so a
+    # subject wider than the crop is reported as out of frame.
     target = _ASPECT_RATIOS.get(aspect, 9 / 16)
     source_ratio = source_width / source_height
     crop_w = min(1.0, target / source_ratio)
@@ -543,12 +547,14 @@ def subject_in_frame_check(points: Any, *, duration: float, aspect: str, source_
         cx, cy = x + width / 2, y + height / 2
         centre_x = min(max(cx, crop_w / 2), 1 - crop_w / 2)
         centre_y = min(max(cy, crop_h / 2), 1 - crop_h / 2)
-        if abs(cx - centre_x) <= crop_w / 2 + 1e-6 and abs(cy - centre_y) <= crop_h / 2 + 1e-6:
+        fits_x = x >= centre_x - crop_w / 2 - 1e-6 and x + width <= centre_x + crop_w / 2 + 1e-6
+        fits_y = y >= centre_y - crop_h / 2 - 1e-6 and y + height <= centre_y + crop_h / 2 + 1e-6
+        if fits_x and fits_y:
             inside += 1
     inside_share = inside / len(boxes)
     passed = coverage >= min_coverage and longest_gap <= max_gap and inside_share >= min_inside
     note = (f"{len(boxes)} tracked boxes cover {coverage:.0%} of {duration:.1f} s; longest gap {longest_gap:.1f} s; "
-            f"subject centre inside the {aspect} crop in {inside_share:.0%} of boxes")
+            f"subject inside the {aspect} crop in {inside_share:.0%} of boxes")
     at = None if passed else (round(gap_at, 3) if longest_gap > max_gap and gap_at is not None else round(boxes[0][0], 3))
     return _check(name, passed, at, note, inputs=[tracked_by])
 
@@ -866,7 +872,8 @@ def apply_patches(plan: dict[str, Any], patches: list[dict[str, Any]], *, durati
             record(patch, None, None, "unknown moment")
             continue
         seconds = _finite(patch.get("seconds"))
-        chosen = part_of(segment - 1, seconds, last=op == "trim_end") if work[segment - 1] is not None else None
+        # move_before's ``seconds`` names another moment, not a source time, so it never picks a half.
+        chosen = part_of(segment - 1, None if op == "move_before" else seconds, last=op == "trim_end") if work[segment - 1] is not None else None
         if chosen is None:
             record(patch, None, None, "moment already removed")
             continue
@@ -907,20 +914,25 @@ def apply_patches(plan: dict[str, Any], patches: list[dict[str, Any]], *, durati
             if not MIN_SPEED <= value <= MAX_SPEED:
                 record(patch, before, before, f"speed must be between {MIN_SPEED:g}× and {MAX_SPEED:g}×")
                 continue
+            # Without a source time the whole moment changes speed, every half of a split one.
+            targets = [index] if seconds is not None else members(segment - 1)
             old = segment_speed(item)
-            if abs(old - value) < 1e-6:
+            if all(abs(segment_speed(work[part]) - value) < 1e-6 for part in targets):
                 record(patch, dict(before, speed=old), dict(before, speed=old), "already at that speed")
                 continue
-            kept = item.get("speed")
-            item["speed"] = round(value, 4)
+            kept = {part: work[part].get("speed") for part in targets}
+            for part in targets:
+                work[part]["speed"] = round(value, 4)
             if story() > MAX_STORY_SECONDS:
-                if kept is None:
-                    item.pop("speed", None)
-                else:
-                    item["speed"] = kept
+                for part, speed in kept.items():
+                    if speed is None:
+                        work[part].pop("speed", None)
+                    else:
+                        work[part]["speed"] = speed
                 record(patch, dict(before, speed=old), dict(before, speed=old), f"would run past {MAX_STORY_SECONDS:g} s")
                 continue
-            _note(item, f"plays at {value:g}× speed")
+            for part in targets:
+                _note(work[part], f"plays at {value:g}× speed")
             record(patch, dict(before, speed=old), dict(before, speed=round(value, 4)), None)
             continue
         if seconds is None:

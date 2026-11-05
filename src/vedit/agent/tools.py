@@ -7,6 +7,19 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+MAX_REVISIONS = 3
+
+
+def session_failure(session: dict[str, Any]) -> str:
+    """Why a session failed, in the critique's own words, for an error field."""
+    critique = session.get("critique")
+    findings = critique.get("findings") if isinstance(critique, dict) else None
+    lines = []
+    for item in findings if isinstance(findings, list) else []:
+        if isinstance(item, dict) and item.get("severity", "fail") == "fail" and item.get("message"):
+            lines.append(str(item["message"]) + (f" ({item['fix']})" if item.get("fix") else ""))
+    return "; ".join(lines) or "The session failed and left no critique."
+
 
 def _schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {"type": "object", "properties": properties}
@@ -311,7 +324,8 @@ def _tool_render(args: dict[str, Any]) -> dict[str, Any]:
         root=_optional_path(args, "root"),
         render=True,
         analyze=_flag(args, "analyze", True),
-        max_revisions=_int(args, "revise", 1),
+        # Each revision is a full render; 0 to 3 keeps a typo from queueing hundreds.
+        max_revisions=max(0, min(_int(args, "revise", 1), MAX_REVISIONS)),
     )
     return session.to_dict()
 
@@ -374,9 +388,13 @@ def dispatch(name: str, arguments: dict[str, Any] | None = None) -> dict[str, An
     if handler is None:
         return {"ok": False, "error": f"unknown tool: {name.strip()}"}
     try:
-        return {"ok": True, "result": handler(arguments)}
+        result = handler(arguments)
     except Exception as exc:
         return {"ok": False, "error": _error_text(exc)}
+    if isinstance(result, dict) and result.get("status") == "failed":
+        # A plan or render that failed is not a success with a sad payload.
+        return {"ok": False, "result": result, "error": session_failure(result)}
+    return {"ok": True, "result": result}
 
 
 def _emit(stdout: TextIO, payload: dict[str, Any]) -> None:

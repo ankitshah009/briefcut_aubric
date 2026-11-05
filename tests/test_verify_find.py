@@ -233,6 +233,9 @@ def test_a_check_that_does_not_fit_the_budget_sends_nothing(enabled: None, foota
     result = verify_moments(found((0.0, 3.0), (6.0, 9.0)), "the wooden bowl", footage, work, 0.015)
     assert http.calls == [] and result["status"] == "refused" and "needs up to $0.0200" in result["reason"]
     assert [moment["verified"] for moment in result["moments"]] == [None, None] and result["dropped"] == []
+    # A check that never ran is not a pass, and its receipt claims nothing about the phrase.
+    assert result["receipt"]["passed"] is False and result["receipt"]["name"] == "sam: found moments checked on screen"
+    assert result["receipt"]["note"].startswith("Not checked: ")
     # Spend already on the project's ledger counts too: the search's own Muse Spark call leaves too little.
     meta._reserve(work, "find", "muse-spark-1.3", 0.045, 0.05)
     result = verify_moments(found((0.0, 3.0)), "the wooden bowl", footage, work, 0.05)
@@ -245,6 +248,38 @@ def test_without_meta_nothing_is_sent(footage: Path, tmp_path: Path, monkeypatch
     monkeypatch.setattr(meta, "_request", http)
     result = verify_moments(found((0.0, 3.0)), "the wooden bowl", footage, tmp_path / "meta", 0.05)
     assert http.calls == [] and result["status"] == "unavailable" and result["moments"][0]["verified"] is None
+    assert result["receipt"]["passed"] is False and result["receipt"]["name"] == "sam: found moments checked on screen"
+
+
+def test_a_re_check_sam_already_answered_is_free_even_when_the_budget_is_spent(enabled: None, footage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = Http(bowl_text(range(45)))
+    monkeypatch.setattr(meta, "_request", http)
+    work = tmp_path / "meta"
+    first = verify_moments(found((0.0, 3.0)), "the wooden bowl", footage, work, 0.05)
+    assert first["status"] == "verified" and http.paid() == 1 and first["spent_usd"] == 0.01
+    # The rest of the budget goes to the search itself. SAM's stored answer costs nothing to read again.
+    meta._reserve(work, "find", "muse-spark-1.3", 0.04, 0.05)
+    again = verify_moments(found((0.0, 3.0)), "the wooden bowl", footage, work, 0.05)
+    assert again["status"] == "verified" and http.paid() == 1 and again["spent_usd"] == 0.0 and again["settings"]["planned_usd"] == 0.0
+    assert again["moments"][0]["verified"] is True and again["spend"][0]["cached"] is True
+    # A new window still has to be paid for, and is refused when it does not fit.
+    third = verify_moments(found((0.0, 3.0), (6.0, 9.0)), "the wooden bowl", footage, work, 0.05)
+    assert third["status"] == "refused" and http.paid() == 1 and "needs up to $0.0100" in third["reason"]
+
+
+def test_a_billed_answer_sam_could_not_read_is_still_counted_as_spend(enabled: None, footage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    http = Http(lambda start, subject: "<0f>garbage that is not a box record" if start == 0 else bowl_text(range(45)))
+    monkeypatch.setattr(meta, "_request", http)
+    work = tmp_path / "meta"
+    result = verify_moments(found((0.0, 3.0), (6.0, 9.0)), "the wooden bowl", footage, work, 0.05)
+    assert http.paid() == 2 and [moment["verified"] for moment in result["moments"]] == [True, None]
+    assert "SAM did not finish" in result["moments"][1]["verification"]
+    assert [item["cost_usd"] for item in result["spend"]] == [0.01, 0.01] and result["spent_usd"] == 0.02
+    assert result["spend"][0]["error"] and "malformed" in result["spend"][0]["error"]
+    assert any(warning.startswith("SAM was billed $0.0100") and "could not be read" in warning for warning in result["warnings"])
+    # The result's bill agrees with the project's ledger.
+    assert result["spent_usd"] == pytest.approx(sum(call["usage"]["cost_usd"] for call in ledger(work)))
+    assert result["receipt"]["passed"] is False
 
 
 def test_only_the_public_decoder_is_used() -> None:

@@ -683,3 +683,47 @@ def test_render_can_change_captions_and_frame_without_a_new_story(manager: Campa
     assert queued["request"]["captions"] is True
     assert queued["request"]["aspect"] == "1:1"
     assert queued["plan"]["segments"] == planned["plan"]["segments"]
+
+
+def test_the_worker_outlives_a_job_that_raises(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import threading
+    import time
+
+    from vedit import campaign
+
+    instance = CampaignManager(tmp_path, start_worker=True)
+    seen: list[str] = []
+    done = threading.Event()
+
+    def process(ident: str) -> None:
+        seen.append(ident)
+        if len(seen) == 1:
+            raise RuntimeError("database is locked")
+        done.set()
+
+    try:
+        instance.process = process  # type: ignore[method-assign]
+        first, second = "a" * 32, "b" * 32
+        instance._queue.put_nowait(first)
+        instance._queue.put_nowait(second)
+        assert done.wait(timeout=10), "the job after the crash never ran"
+        instance._queue.join()
+        assert seen == [first, second]
+        assert instance._worker is not None and instance._worker.is_alive(), "one bad job must not stop the worker"
+        assert not instance._lease.closed, "the workspace lease stays with the live worker"
+    finally:
+        instance.close()
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err and first in err
+
+
+def test_every_frame_shape_has_a_review_proxy_of_the_same_shape() -> None:
+    from vedit.campaign import _ASPECTS, _REVIEW_PRESETS
+    from vedit.presets import get_preset
+
+    assert set(_REVIEW_PRESETS) == set(_ASPECTS)
+    for aspect, name in _REVIEW_PRESETS.items():
+        delivery, review = get_preset(_ASPECTS[aspect]).canvas, get_preset(name).canvas
+        assert abs(delivery.width / delivery.height - review.width / review.height) < 0.01, aspect
+        assert review.width <= 960 and review.height <= 960 and get_preset(name).crf >= 28, "a review proxy is small"
+        assert review.width % 2 == 0 and review.height % 2 == 0

@@ -86,6 +86,25 @@ def test_trim_title_export(tmp_path: Path):
     assert info.height == 1080
 
 
+def test_to_exports_the_named_file_each_time_and_leaves_the_tape_alone(tmp_path: Path):
+    src = _make_clip(tmp_path / "in.mp4", seconds=1.0)
+    edit = Edit(src, name="twice").trim(0, 0.5)
+    ops = [dict(op) for op in edit._ops]
+    first = edit.to(tmp_path / "one" / "first.mp4", dry_run=True)
+    second = edit.to(tmp_path / "two" / "second.mp4", preset="web_preview", dry_run=True)
+    assert (first, second) == (tmp_path / "one" / "first.mp4", tmp_path / "two" / "second.mp4")
+    assert edit._ops == ops and edit.brief().work_dir is None  # each export was its own call's
+    assert (tmp_path / "one" / ".vedit-twice" / "brief.yaml").is_file() and (tmp_path / "two" / ".vedit-twice" / "brief.yaml").is_file()
+    # After export(), to() still answers with the file it was asked for, not the first preset's.
+    third = Edit(src, name="both").work_dir(tmp_path / "both").export("web_preview").to(tmp_path / "both" / "third.mp4", dry_run=True)
+    assert third == tmp_path / "both" / "third.mp4"
+
+
+def test_captions_default_to_the_saved_language():
+    assert Edit("talk.mp4").captions().brief().ops[-1] == {"op": "captions", "burn": True, "style": "lower-third"}
+    assert Edit("talk.mp4").captions(language="es").brief().ops[-1]["language"] == "es"
+
+
 def test_concat_two_clips(tmp_path: Path):
     a = _make_clip(tmp_path / "a.mp4", freq=330, seconds=1.0, color="red")
     b = _make_clip(tmp_path / "b.mp4", freq=550, seconds=1.0, color="green")

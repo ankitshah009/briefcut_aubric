@@ -106,8 +106,24 @@ def clear_scene():
             collection.remove(block)
 
 
+def eevee_engine(scene):
+    """The EEVEE engine id this Blender offers: ``BLENDER_EEVEE`` from 5.0, ``BLENDER_EEVEE_NEXT`` in 4.2 to 4.5."""
+    try:
+        offered = {item.identifier for item in scene.render.bl_rna.properties["engine"].enum_items}
+    except (AttributeError, KeyError, TypeError):
+        offered = set()
+    return "BLENDER_EEVEE" if "BLENDER_EEVEE" in offered or "BLENDER_EEVEE_NEXT" not in offered else "BLENDER_EEVEE_NEXT"
+
+
+def node_tree(block):
+    """The node tree of a material or world, switched on first where Blender 4.x leaves it off."""
+    if block.node_tree is None:  # node trees are always on from Blender 5
+        block.use_nodes = True
+    return block.node_tree
+
+
 def setup_render(scene, spec, out_dir):
-    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.engine = eevee_engine(scene)
     scene.render.resolution_x = spec["width"]
     scene.render.resolution_y = spec["height"]
     scene.render.resolution_percentage = 100
@@ -145,9 +161,8 @@ def world(scene, spec):
     """A dark studio sky with a bright horizon band, so metal and glass have something to reflect."""
     sky = bpy.data.worlds.new("studio")
     scene.world = sky
-    if sky.node_tree is None:  # node trees are always on from Blender 5
-        sky.use_nodes = True
-    nodes, links = sky.node_tree.nodes, sky.node_tree.links
+    tree = node_tree(sky)
+    nodes, links = tree.nodes, tree.links
     nodes.clear()
     coords = nodes.new("ShaderNodeTexCoord")
     split = nodes.new("ShaderNodeSeparateXYZ")
@@ -174,7 +189,7 @@ def world(scene, spec):
 
 def _principled(name):
     material = bpy.data.materials.new(name)
-    nodes = material.node_tree.nodes
+    nodes = node_tree(material).nodes
     bsdf = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
     if hasattr(material, "surface_render_method"):
         material.surface_render_method = "DITHERED"
@@ -280,7 +295,8 @@ def shadow_material():
     material = bpy.data.materials.new("drop-shadow")
     if hasattr(material, "surface_render_method"):
         material.surface_render_method = "BLENDED"
-    nodes, links = material.node_tree.nodes, material.node_tree.links
+    tree = node_tree(material)
+    nodes, links = tree.nodes, tree.links
     nodes.clear()
     black = nodes.new("ShaderNodeEmission")
     black.inputs["Color"].default_value = (0, 0, 0, 1)
@@ -479,7 +495,8 @@ def scrim_material(spec):
     material = bpy.data.materials.new("scrim")
     if hasattr(material, "surface_render_method"):
         material.surface_render_method = "BLENDED"
-    nodes, links = material.node_tree.nodes, material.node_tree.links
+    tree = node_tree(material)
+    nodes, links = tree.nodes, tree.links
     nodes.clear()
     coords = nodes.new("ShaderNodeTexCoord")
     curve = nodes.new("ShaderNodeMapRange")
@@ -526,7 +543,8 @@ def backdrop_material(path):
     material = bpy.data.materials.new("backdrop")
     if hasattr(material, "surface_render_method"):
         material.surface_render_method = "BLENDED"
-    nodes, links = material.node_tree.nodes, material.node_tree.links
+    tree = node_tree(material)
+    nodes, links = tree.nodes, tree.links
     nodes.clear()
     coords = nodes.new("ShaderNodeTexCoord")
     image = nodes.new("ShaderNodeTexImage")

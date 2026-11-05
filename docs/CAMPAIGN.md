@@ -235,7 +235,7 @@ Sources and session artifacts stay on disk until removed in Projects, which show
 
 ## MCP for coding agents
 
-`uv run vedit mcp` serves the same campaign manager as Studio over the Model Context Protocol on stdio, so Claude Code, Cursor, or any MCP client can import a clip, plan, render, and read the receipts without the HTTP server. It needs the `mcp` package (`uv sync` installs it; pip users take `vedit[mcp]`). The workspace is `VEDIT_WORKSPACE` when set, otherwise the current directory, and one process at a time holds a workspace's lease: point the agent at a different `VEDIT_WORKSPACE` than a running Studio, or stop Studio first.
+`uv run vedit mcp` serves the same campaign manager as Studio over the Model Context Protocol on stdio, so Claude Code, Cursor, or any MCP client can import a clip, plan, render, and read the receipts without the HTTP server. It needs the `mcp` package (`uv sync` installs it; pip users take `vedit[mcp]`). The workspace is `VEDIT_WORKSPACE` when set, otherwise the workspace saved in Studio Settings, otherwise the desktop default (`~/Library/Application Support/Vedit` on macOS, `~/.local/share/briefcut` elsewhere), the same folder Studio opens, and one process at a time holds a workspace's lease: point the agent at a different `VEDIT_WORKSPACE` than a running Studio, or stop Studio first.
 
 Register it once per project:
 

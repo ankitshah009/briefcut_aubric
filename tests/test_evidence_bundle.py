@@ -147,7 +147,46 @@ def test_an_untouched_bundle_verifies(tmp_path: Path, where: str) -> None:
     names = [item["item"] for item in report["items"]]
     assert {"video.mp4", "report.json", "post.txt", "root id", "expected root", "probe record", "meta calls record"} <= set(names)
     assert sum(name.startswith("check ") for name in names) == 3
-    assert verify(target, expect=evidence.short_id(receipts["evidence_id"]))["ok"]
+    assert verify(target, expect=evidence.short_id(receipts["evidence_id"]))["ok"], "the label short_id shows is long enough for --expect"
+
+
+def test_a_short_expected_prefix_is_too_short_to_trust(tmp_path: Path) -> None:
+    """ev_ plus 6 or 12 hex digits is forgeable by brute force; 16 is the floor."""
+    work, receipts = _render_dir(tmp_path)
+    full = receipts["evidence_id"]
+    for digits in (6, 12, 15):
+        report = verify(work, expect=full[: 3 + digits])
+        assert _changed(report) == ["expected root"], digits
+        assert "too short to trust" in report["changed"][0]["detail"] and "16 hex" in report["changed"][0]["detail"]
+    assert verify(work, expect=full[: 3 + 16])["ok"]
+    assert verify(work, expect=full)["ok"]
+    wrong = full[:3] + ("0" if full[3] != "0" else "1") + full[4:19]
+    report = verify(work, expect=wrong)
+    assert _changed(report) == ["expected root"] and "too short" not in report["changed"][0]["detail"]
+
+
+@pytest.mark.parametrize("kind", ["video", "truncated_zip", "garbage_zip_member"])
+def test_a_file_that_is_not_receipts_is_a_plain_answer_not_a_traceback(tmp_path: Path, kind: str, capsys: pytest.CaptureFixture[str]) -> None:
+    work, _ = _render_dir(tmp_path)
+    if kind == "video":
+        target = tmp_path / "some.mp4"
+        target.write_bytes(bytes(range(256)) * 64)
+    elif kind == "truncated_zip":
+        target = tmp_path / "cut.zip"
+        whole = (work / "campaign.zip").read_bytes()
+        target.write_bytes(whole[: len(whole) // 2])
+    else:
+        target = tmp_path / "damaged.zip"
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(RECEIPTS, "{}")
+        data = bytearray(target.read_bytes())
+        start = data.index(b"PK\x03\x04") + 30 + len(RECEIPTS)
+        data[start:start + 2] = b"\xff\xff"  # corrupt the deflate stream of receipts.json
+        target.write_bytes(bytes(data))
+    with pytest.raises(evidence.ReceiptsMissing, match="not a readable receipts file or bundle"):
+        verify(target)
+    assert main(["verify", str(target)]) == 2
+    assert "not a readable receipts file or bundle" in capsys.readouterr().err
 
 
 def test_one_byte_of_the_video_breaks_it_and_names_the_video(tmp_path: Path) -> None:

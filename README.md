@@ -623,7 +623,7 @@ After `bash scripts/install.sh`, which installs the MCP server with Briefcut, `c
 
 If the `briefcut` tools do not appear in `/mcp`, restart Claude Code. The first start installs Briefcut's Python packages into the plugin's folder, so it needs network access once. Use the plugin or `.mcp.json`, not both.
 
-**Where projects go.** In `VEDIT_WORKSPACE` when it is set, otherwise under `vedit-sessions/` in the folder the server starts in. In a git repository, add `vedit-sessions/` to `.gitignore`. One process at a time can work on a workspace. While Studio or the Mac app has it open, the agent's calls fail with "Another Studio is already processing this workspace". Close the other one, or give the agent a different `VEDIT_WORKSPACE`.
+**Where projects go.** In `VEDIT_WORKSPACE` when it is set, otherwise the workspace saved in Studio Settings, otherwise the desktop default (`~/Library/Application Support/Vedit` on macOS, `~/.local/share/briefcut` elsewhere), the same folder Studio opens, so projects made by an agent show up in Studio's library and nothing lands in the agent's repository. One process at a time can work on a workspace. While Studio or the Mac app has it open, the agent's calls fail with "Another Studio is already processing this workspace". Close the other one, or give the agent a different `VEDIT_WORKSPACE`.
 
 Creating a story over MCP sends the footage to Meta, as in Studio. `provider` and `caption_provider` are always `meta`, and the server refuses `local`. `briefcut_edit` says in its `meta` field when a change would send more at render (a new caption language, or a cutout), and `briefcut_generate_background` needs `consent: true`. The skill tells the agent to send footage only when you chose to. See [Privacy](docs/PRIVACY.md).
 

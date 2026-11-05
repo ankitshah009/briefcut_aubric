@@ -85,3 +85,17 @@ def test_asset_ids_lists_every_reference() -> None:
     edit["music"] = {"asset": "a1b2c3d4"}
     edit["overlays"] = [{"asset": "e5f6a7b8"}]
     assert asset_ids(edit) == ["a1b2c3d4", "e5f6a7b8"]
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR", "es-419", "zh-Hant-TW", "yue"])
+def test_caption_languages_accept_the_same_tags_as_emphasis(language: str) -> None:
+    from vedit.emphasis import _LANGUAGE
+
+    assert validate_edit({"captions": {"language": language}}, duration=10)["captions"]["language"] == language
+    assert _LANGUAGE.fullmatch(language)
+
+
+@pytest.mark.parametrize("language", ["English", "e", "en_US", "zh-Hant-TW-x", "en-", "EN"])
+def test_caption_languages_that_are_not_tags_are_refused(language: str) -> None:
+    with pytest.raises(EditError, match="language code"):
+        validate_edit({"captions": {"language": language}}, duration=10)

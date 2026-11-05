@@ -51,3 +51,24 @@ def test_unknown_words_do_not_raise():
     intent = parse_intent("make it feel expensive and calm for the board")
     assert isinstance(intent, Intent)
     assert intent.platform == "youtube"
+
+
+def test_the_adjective_short_does_not_pick_the_shorts_frame():
+    assert parse_intent("make a short product video").platform == "youtube"
+    assert parse_intent("short intro for the team").platform == "youtube"
+    assert parse_intent("a youtube short").platform == "shorts"
+    assert parse_intent("cut shorts from talk.mp4").platform == "shorts"
+    assert parse_intent("short under 20s of talk.mp4").platform == "shorts"
+
+
+def test_captions_are_refused_in_every_plain_wording():
+    for goal in ("no subtitles please", "don't add captions to clip.mp4", "do not burn in subtitles", "without captions", "no captions"):
+        assert parse_intent(goal).captions is False, goal
+    assert parse_intent("caption clip.mp4").captions is True
+
+
+def test_an_audio_only_primary_is_never_its_own_music_bed():
+    assert parse_intent("podcast from voice.wav", sources={"main": "/x/voice.wav"}, primary="main").music is None
+    assert parse_intent("podcast", sources={"main": "/x/voice.wav"}).music is None, "main is the inventory's name for the primary"
+    assert parse_intent("podcast", sources={"main": "/x/voice.wav", "bed": "/x/bed.mp3"}, primary="main").music == "/x/bed.mp3"
+    assert parse_intent("podcast", sources={"talk": "/x/talk.mp4", "music": "/x/bed.mp3"}, primary="talk").music == "/x/bed.mp3"

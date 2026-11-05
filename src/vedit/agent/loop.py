@@ -64,7 +64,7 @@ def run_session(
     trace("inventory-enter")
     inventory = inventory_paths(media, analyze=analyze)
     trace("inventory-exit")
-    intent = parse_intent(goal, sources={shot.name: shot.path for shot in inventory.shots})
+    intent = parse_intent(goal, sources={shot.name: shot.path for shot in inventory.shots}, primary=inventory.primary)
     trace("intent-exit")
     decision = decide(intent, inventory)
     trace("decide-exit")
@@ -102,11 +102,16 @@ def run_session(
             save_session(session)
             return session
         critique, primary, proof = _render_and_judge(
-            compiler, intent, enforce_captions=not captions_skipped
+            compiler, intent, enforce_captions=_enforce_captions(decision.brief, captions_skipped)
         )
+        primary_shot = inventory.primary_shot
+        has_audio = None if primary_shot is None else bool(primary_shot.has_audio)
         while not critique.ok and revision < max_revisions:
+            new_brief, notes = revise_brief(decision.brief, critique, intent, has_audio=has_audio)
+            if brief_dumps(new_brief) == brief_dumps(decision.brief):
+                # Nothing to try again with: a second render of the same program would fail the same way.
+                break
             revision += 1
-            new_brief, notes = revise_brief(decision.brief, critique, intent)
             if captions_skipped:
                 new_brief, _dropped = drop_captions(new_brief)
             if hw is not None:
@@ -124,7 +129,7 @@ def run_session(
             compiler = _stage(decision.brief, root / f"rev{revision}")
             work = compiler.work_dir
             critique, primary, proof = _render_and_judge(
-                compiler, intent, enforce_captions=not captions_skipped
+                compiler, intent, enforce_captions=_enforce_captions(decision.brief, captions_skipped)
             )
         status = "verified" if critique.ok else "failed"
     except VeditError as exc:
@@ -213,14 +218,24 @@ def _clean_token(raw: str) -> str:
 
 
 def _paths_from_goal(goal: str) -> list[str]:
+    """Media paths written into the goal. A slash alone ("16/9", "and/or") names a file only when that file exists."""
     found: list[str] = []
     for raw in goal.split():
         token = _clean_token(raw)
         if not token:
             continue
-        if "/" in token or token.lower().endswith(_MEDIA_SUFFIXES):
+        if token.lower().endswith(_MEDIA_SUFFIXES):
+            found.append(token)
+        elif "/" in token and Path(token).expanduser().is_file():
             found.append(token)
     return found
+
+
+def _enforce_captions(brief: Brief, captions_skipped: bool) -> bool:
+    """Grade for captions only when the program burns them. A silent source or a slideshow has none to grade."""
+    if captions_skipped:
+        return False
+    return any(isinstance(op, dict) and op.get("op") == "captions" for op in brief.ops)
 
 
 def _missing_media(root: Path, goal: str) -> Session:

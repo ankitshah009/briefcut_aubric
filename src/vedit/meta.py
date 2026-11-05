@@ -36,6 +36,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+try:
+    import fcntl
+except ImportError:  # Windows: the ledger is then guarded within one process only
+    fcntl = None  # type: ignore[assignment]
+
 from vedit import settings
 from vedit.director import EDIT_FIELDS, IMAGE_PRICE_USD, IMAGE_RULE, MAX_SCENES, coerce_edit_value, current_edit_json, edit_vocabulary
 from vedit.edit_spec import TEXT_POSITIONS, TEXT_STYLES
@@ -132,6 +137,8 @@ _HEARD_LANGUAGES = frozenset({
     "tl", "ta", "te", "th", "tr", "vi",
 })
 _LEDGER_LOCK = threading.RLock()
+_LEDGER_LOCK_NAME = "meta-usage.lock"
+_LEDGER_HOLDS: dict[Path, list[Any]] = {}  # work_dir -> [depth, lock file descriptor]; touched only under _LEDGER_LOCK
 _FILE_ID = re.compile(r"file[-_][A-Za-z0-9_-]{1,200}\Z")
 _FRAME = re.compile(r"^<(\d+)f>", re.MULTILINE)
 _BOX = re.compile(
@@ -147,16 +154,67 @@ class MetaError(VeditError):
     code when that is a plain identifier. ``billed`` is False only when Meta
     certainly did not run the request (it refused it, or never received it);
     None means it may have. ``retry_after`` is the wait Meta asked for, in seconds.
+    ``usage`` is the charge of a call Meta answered and billed before the error
+    (an answer that could not be read), so a caller can still count the spend.
     The message is also ``plain``: it is written for the person, with no path.
     """
 
     def __init__(self, *args: object, plain: str | None = None, status: int | None = None, code: str | None = None,
-                 billed: bool | None = None, retry_after: float | None = None) -> None:
+                 billed: bool | None = None, retry_after: float | None = None, usage: dict[str, Any] | None = None) -> None:
         super().__init__(*args, plain=plain if plain is not None else (str(args[0]) if args else None))
         self.status = status
         self.code = code
         self.billed = billed
         self.retry_after = retry_after
+        self.usage = usage
+
+
+def _lock_ledger_file(work_dir: Path) -> int | None:
+    """An exclusive ``flock`` on the project's ledger lock file, or None where the platform has none."""
+    if fcntl is None:
+        return None
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        handle = os.open(work_dir / _LEDGER_LOCK_NAME, os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+    except OSError:
+        os.close(handle)
+        return None
+    return handle
+
+
+@contextmanager
+def _ledger_locked(work_dir: Path) -> Iterator[None]:
+    """One writer at a time in a project's ledger, across threads and across processes.
+
+    The thread lock orders this process. The exclusive ``flock`` on
+    ``meta-usage.lock`` orders the CLI, Studio and the MCP server when they share
+    a project, so two reservations that each read the ledger cannot lose each
+    other's entry or together exceed the cap. The ledger is read only once the
+    lock is held. It is re-entrant per work_dir, like the thread lock, because
+    ``_reserve`` writes through ``_ledger`` while holding it. Without ``fcntl``
+    (Windows) only the thread lock applies.
+    """
+    key = Path(work_dir).resolve()
+    with _LEDGER_LOCK:
+        hold = _LEDGER_HOLDS.get(key)
+        if hold is None:
+            hold = _LEDGER_HOLDS[key] = [0, _lock_ledger_file(key)]
+        hold[0] += 1
+        try:
+            yield
+        finally:
+            hold[0] -= 1
+            if hold[0] == 0:
+                del _LEDGER_HOLDS[key]
+                if hold[1] is not None:
+                    try:
+                        fcntl.flock(hold[1], fcntl.LOCK_UN)
+                    finally:
+                        os.close(hold[1])
 
 
 def capabilities() -> dict[str, Any]:
@@ -773,12 +831,29 @@ def _uploaded(source: Path, work_dir: Path, notices: list[str] | None = None):
             if exc.status != 404:
                 # No silent retention: persist an actionable, project-local cleanup notice.
                 warning = "The uploaded media could not be deleted from Meta. Remove this file in the Meta dashboard."
-                _write_json(work_dir / "meta-cleanup.json", {
-                    "warning": warning,
-                    "file_id": ident,
-                })
+                _note_cleanup(work_dir, ident, warning)
                 if notices is not None:
                     notices.append(warning)
+
+
+def _note_cleanup(work_dir: Path, ident: str, warning: str) -> None:
+    """Record an upload Meta kept, merged with the ones already noted, so no file id is lost when several deletes fail.
+
+    ``file_id`` stays the latest one; ``file_ids`` holds them all. Writing the
+    notice must never mask the error of the call that used the upload.
+    """
+    path = work_dir / "meta-cleanup.json"
+    with _LEDGER_LOCK:
+        try:
+            ids = {ident}
+            if path.is_file():
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(saved, dict):
+                    earlier = saved.get("file_ids") if isinstance(saved.get("file_ids"), list) else []
+                    ids.update(item for item in [*earlier, saved.get("file_id")] if isinstance(item, str) and _FILE_ID.fullmatch(item))
+            _write_json(path, {"warning": warning, "file_id": ident, "file_ids": sorted(ids)})
+        except (OSError, ValueError, TypeError):
+            pass
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -848,10 +923,11 @@ def _reserve(work_dir: Path, operation: str, model: str, maximum: float, budget:
         raise MetaError("A call runs on the Meta Model API or on this machine.")
     where = {"runs_on": runs_on} if runs_on == "meta-api" else {
         "runs_on": runs_on, "runtime": " ".join(runtime.split())[:80], "weights": Path(weights).name[:120]}
-    with _LEDGER_LOCK:
+    with _ledger_locked(work_dir):
         data = _read_ledger(work_dir)
         spent = sum(held_usd(item) for item in data["calls"])
-        if spent + maximum > budget + 1e-9:
+        # A $0 call runs on this machine (private mode): the cap is about Meta's bill, so it never refuses one.
+        if maximum > 0 and spent + maximum > budget + 1e-9:
             # Say how far over it is and what number fixes it, not just that it is over.
             floor = math.ceil((spent + maximum) * 100 - 1e-6) / 100
             what = _PURPOSES.get(operation, "Ask Meta")
@@ -939,7 +1015,7 @@ def _reason(text: str) -> str:
 def _ledger(work_dir: Path, entry: dict[str, Any]) -> None:
     if entry.get("status") == "failed_or_incomplete":
         entry = {**_failure(), **entry}
-    with _LEDGER_LOCK:
+    with _ledger_locked(work_dir):
         path = work_dir / "meta-usage.json"
         data = _read_ledger(work_dir)
         calls = data["calls"]
@@ -2881,10 +2957,11 @@ def _sam_records(text: str, *, fps: float, duration: float) -> Iterator[dict[str
                     raise MetaError("SAM returned malformed tracking records. No tracking was applied.")
                 cursor += 1
             ident, x1, y1, x2, y2, width, height = (int(v) for v in box.groups()[:7])
-            if not (width > 0 and height > 0 and 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
+            # x2 and y2 are inclusive, so a one-pixel detection has x1 == x2 and the last column is width - 1.
+            if not (width > 0 and height > 0 and 0 <= x1 <= x2 < width and 0 <= y1 <= y2 < height):
                 raise MetaError("SAM returned invalid subject coordinates. No tracking was applied.")
             point = {"time": round(min(when, duration), 6), "x": x1 / width, "y": y1 / height,
-                     "width": (x2 - x1) / width, "height": (y2 - y1) / height}
+                     "width": (x2 - x1 + 1) / width, "height": (y2 - y1 + 1) / height}
             if box.group(8) is not None:
                 try:
                     point["confidence"] = _number(float(box.group(8)), "SAM confidence", maximum=1)
@@ -3018,6 +3095,20 @@ def _sam_text(call: dict[str, Any]) -> tuple[str, dict[str, Any], list[str]]:
         raise
 
 
+def sam_answer_stored(source: Path, *, subject: str, work_dir: Path) -> bool:
+    """Whether SAM's answer for this clip and subject is already on disk, so asking again costs nothing.
+
+    No network, no reservation: ``verify_find`` prices only the windows that
+    would be billed before deciding whether a check fits the budget.
+    """
+    try:
+        info = probe(source)
+        call = _sam_call(source, subject=subject, duration=float(info.duration), work_dir=work_dir, budget_usd=1.0)
+    except (MetaError, VeditError, OSError, ValueError, TypeError):
+        return False
+    return call["cache"].with_suffix(".sam").is_file()
+
+
 def track_subject(source: Path, *, subject: str, duration: float, work_dir: Path,
                   budget_usd: float = .25) -> dict[str, Any]:
     """Return normalized SAM boxes for the longest-visible matching identity."""
@@ -3026,7 +3117,11 @@ def track_subject(source: Path, *, subject: str, duration: float, work_dir: Path
         _validate_cached_track(cached, call["duration"])
         return cached
     text, usage, notices = _sam_text(call)
-    points, object_id = _tracking_points(text, fps=call["fps"], duration=call["duration"])
+    try:
+        points, object_id = _tracking_points(text, fps=call["fps"], duration=call["duration"])
+    except MetaError as exc:
+        exc.usage = usage  # Meta answered and billed this; only the answer could not be read.
+        raise
     result = {"points": points, "object_id": object_id, "provider": "meta", "usage": usage, "warnings": notices}
     if not points:
         result["warning"] = "SAM found no matching subject. Change the subject phrase or use a manual crop."
@@ -3048,7 +3143,11 @@ def subject_masks(source: Path, *, subject: str, duration: float, work_dir: Path
     call = _sam_call(source, subject=subject, duration=duration, work_dir=work_dir, budget_usd=budget_usd)
     call["purpose"] = " ".join(str(purpose).split())[:200] if purpose and str(purpose).strip() else f"Cut out {_quoted(call['subject'])}"
     text, usage, notices = _sam_text(call)
-    tracks = _sam_tracks(text, fps=call["fps"], duration=call["duration"])
+    try:
+        tracks = _sam_tracks(text, fps=call["fps"], duration=call["duration"])
+    except MetaError as exc:
+        exc.usage = usage  # Meta answered and billed this; only the answer could not be read.
+        raise
     result: dict[str, Any] = {"provider": "meta", "raw": str(call["cache"].with_suffix(".sam")), "fps": call["fps"],
                               "duration": call["duration"], "frames": [], "object_id": None, "usage": usage, "warnings": notices}
     if not tracks:

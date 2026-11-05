@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import socket
 import threading
@@ -403,3 +404,29 @@ def test_a_failed_second_try_keeps_the_first_answer(private: FakeLlamaServer, tm
     result = meta.patch_plan(goal="g", note=NOTE, plan=PLAN, sentences=SENTENCES, work_dir=tmp_path / "work")
     assert [patch["seconds"] for patch in result["patches"]] == [20.5]
     assert [record["status"] for record in _log(tmp_path / "work")] == ["completed", "failed"]
+
+
+@pytest.mark.parametrize("crash", [http.client.IncompleteRead(b"{\"choices\": ["), http.client.BadStatusLine(""), http.client.LineTooLong("header line")])
+def test_a_server_that_dies_mid_answer_is_a_plain_private_mode_error(private: FakeLlamaServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, crash: Exception) -> None:
+    real = open_weights._http
+
+    def truncating(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+        if method == "POST":
+            raise crash
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(open_weights, "_http", truncating)
+    work = tmp_path / "work"
+    with pytest.raises(open_weights.OpenWeightsError, match="closed the connection before it finished") as caught:
+        meta.patch_plan(goal="g", note="Tighten the opener.", plan=PLAN, sentences=None, work_dir=work)
+    assert "nothing was sent to Meta" in str(caught.value) and isinstance(caught.value, meta.MetaError)
+    assert [call["status"] for call in json.loads((work / "meta-usage.json").read_text())["calls"]] == ["failed_or_incomplete"]
+    assert [record["status"] for record in _log(work)] == ["failed"]
+
+
+def test_a_server_that_crashes_on_props_reads_as_down(private: FakeLlamaServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(open_weights, "_http", lambda *args, **kwargs: (_ for _ in ()).throw(http.client.IncompleteRead(b"")))
+    with pytest.raises(open_weights.OpenWeightsError, match="no local Muse Glimmer server answers"):
+        open_weights.identity(private.url)
+    report = open_weights.status()
+    assert report["ready"] is False and "no local Muse Glimmer server answers" in report["reason"]

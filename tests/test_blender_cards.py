@@ -6,6 +6,7 @@ import ast
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -160,6 +161,49 @@ def test_the_template_never_evaluates_spec_text() -> None:
     assert "json.load(handle)" in source
     open_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open"]
     assert len(open_calls) == 2  # read the spec, write the manifest
+
+
+def _template_functions(*names: str) -> dict[str, Any]:
+    """The named top-level functions of the template, compiled without bpy so a test can call them with fakes."""
+    tree = ast.parse(TEMPLATE.read_text(encoding="utf-8"))
+    wanted = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
+    assert {node.name for node in wanted} == set(names)
+    namespace: dict[str, Any] = {}
+    exec(compile(ast.Module(body=wanted, type_ignores=[]), str(TEMPLATE), "exec"), namespace)  # noqa: S102 - the package's own template
+    return namespace
+
+
+def test_the_template_picks_the_engine_and_node_trees_this_blender_has() -> None:
+    functions = _template_functions("eevee_engine", "node_tree")
+
+    def scene(*engines: str) -> SimpleNamespace:
+        items = [SimpleNamespace(identifier=engine) for engine in engines]
+        return SimpleNamespace(render=SimpleNamespace(bl_rna=SimpleNamespace(properties={"engine": SimpleNamespace(enum_items=items)})))
+
+    assert functions["eevee_engine"](scene("BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES")) == "BLENDER_EEVEE_NEXT"  # 4.2 to 4.5
+    assert functions["eevee_engine"](scene("BLENDER_EEVEE", "BLENDER_WORKBENCH", "CYCLES")) == "BLENDER_EEVEE"  # 5.0 on
+    assert functions["eevee_engine"](SimpleNamespace(render=SimpleNamespace())) == "BLENDER_EEVEE"  # an enum it cannot read
+
+    class Material:
+        """Blender 4.x: a new material has no node tree until use_nodes is switched on."""
+
+        def __init__(self, tree: Any = None) -> None:
+            self.node_tree = tree
+            self.use_nodes = tree is not None
+
+        def __setattr__(self, name: str, value: Any) -> None:
+            object.__setattr__(self, name, value)
+            if name == "use_nodes" and value and self.node_tree is None:
+                object.__setattr__(self, "node_tree", "default tree")
+
+    fresh = Material()
+    assert functions["node_tree"](fresh) == "default tree" and fresh.use_nodes
+    assert functions["node_tree"](Material("kept")) == "kept"
+    source = TEMPLATE.read_text(encoding="utf-8")
+    assert "scene.render.engine = eevee_engine(scene)" in source and 'engine = "BLENDER_EEVEE"' not in source
+    # Every new material and the world reach their nodes through the guard.
+    assert source.count("bpy.data.materials.new(") == source.count("node_tree(material)") == 4
+    assert "node_tree(sky)" in source
 
 
 def test_the_template_ships_with_the_package() -> None:

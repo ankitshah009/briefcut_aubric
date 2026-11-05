@@ -477,7 +477,99 @@ def test_cleanup_keeps_the_latest_verified_version(manager: CampaignManager, wor
 def test_cleanup_twice_is_a_no_op(manager: CampaignManager, workspace: Path) -> None:
     verified_job(manager, upload(workspace))
     projects.cleanup(manager)
-    assert projects.cleanup(manager) == {"freed_bytes": 0, "removed": [], "dry_run": False}
+    assert projects.cleanup(manager) == {"freed_bytes": 0, "removed": [], "orphans": [], "dry_run": False}
+
+
+def test_cleanup_moves_each_render_aside_under_the_lock_and_removes_it_after(manager: CampaignManager, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A multi-gigabyte rmtree must not hold the lock every poll and worker update takes."""
+    ident = verified_job(manager, upload(workspace))
+    seen: list[tuple[str, bool]] = []
+    real = projects.shutil.rmtree
+
+    def observed(path, *args, **kwargs):
+        free = manager._lock.acquire(blocking=False)
+        if free:
+            manager._lock.release()
+        seen.append((Path(path).name, free))
+        real(path, *args, **kwargs)
+
+    monkeypatch.setattr(projects.shutil, "rmtree", observed)
+    result = projects.cleanup(manager)
+    assert result["freed_bytes"] == 10000
+    assert sorted(seen) == [(f".deleting-{ident}-1", True), (f".deleting-{ident}-2", True)], "rmtree runs on the moved folder, with the lock free"
+    assert not list(manager.root.glob(".deleting-*"))
+    assert (manager.root / ident / "render-3" / "video.mp4").is_file()
+
+
+def test_sweep_finishes_a_render_cleanup_a_crash_interrupted(manager: CampaignManager, workspace: Path) -> None:
+    ident = verified_job(manager, upload(workspace))
+    leftover = manager.root / f".deleting-{ident}-1"
+    leftover.mkdir()
+    (leftover / "video.mp4").write_bytes(b"x" * 100)
+    unrelated = manager.root / ".deleting-not-an-id"
+    unrelated.mkdir()
+    projects.library(manager)
+    assert not leftover.exists()
+    assert unrelated.is_dir(), "only folders a delete or cleanup named are swept"
+
+
+# ---- Orphan uploads ----
+
+
+def _age(path: Path, hours: float) -> None:
+    then = time.time() - hours * 3600
+    for item in [path, path / "inbox", *(path / "inbox").iterdir()]:
+        os.utime(item, (then, then), follow_symlinks=False)
+
+
+def test_an_upload_no_project_names_is_reclaimed_after_a_day(manager: CampaignManager, workspace: Path) -> None:
+    used = upload(workspace, folder="source-used")
+    add_job(manager, used)
+    orphan = upload(workspace, "big.mov", folder="source-orphan", data=b"o" * 5000)
+    fresh = upload(workspace, folder="source-fresh")
+    _age(orphan.parent.parent, 25)
+    _age(used.parent.parent, 25)
+    _age(fresh.parent.parent, 23)
+    assert projects.library(manager)["storage"]["reclaimable_bytes"] == 5000
+    preview = projects.cleanup(manager, dry_run=True)
+    assert preview["orphans"] == [{"folder": "source-orphan", "bytes": 5000}] and preview["freed_bytes"] == 5000
+    assert orphan.is_file(), "a preview removes nothing"
+    result = projects.cleanup(manager)
+    assert result["orphans"] == [{"folder": "source-orphan", "bytes": 5000}] and result["freed_bytes"] == 5000
+    assert not orphan.parent.parent.exists()
+    assert used.is_file() and fresh.is_file()
+    assert projects.cleanup(manager)["orphans"] == []
+
+
+def test_a_script_projects_pictures_are_not_orphans(manager: CampaignManager, workspace: Path) -> None:
+    picture = upload(workspace, "scene.png", folder="source-picture", data=b"\x89PNG" * 10)
+    ident = add_job(manager, upload(workspace, folder="source-clip"))
+    tampered(manager, ident, request={"paths": [], "goal": "A script", "budget_usd": 0.5, "provider": "meta", "script": {"text": "One.", "scenes": [], "voice": None, "images": [str(picture)]}})
+    _age(picture.parent.parent, 48)
+    assert projects.cleanup(manager)["orphans"] == []
+    assert picture.is_file()
+
+
+@pytest.mark.parametrize("shape", ["session_files", "subfolder", "linked_folder", "hidden"])
+def test_only_a_bare_inbox_folder_counts_as_an_orphan(manager: CampaignManager, workspace: Path, outside: Path, shape: str) -> None:
+    if shape == "linked_folder":
+        (sessions(workspace) / "source-linked").symlink_to(outside, target_is_directory=True)
+        (outside / "inbox").mkdir()
+        (outside / "inbox" / "clip.mp4").write_bytes(b"x")
+        folder = sessions(workspace) / "source-linked"
+    else:
+        name = ".source-hidden" if shape == "hidden" else "edit-20261001"
+        clip = upload(workspace, folder=name)
+        folder = clip.parent.parent
+        if shape == "session_files":
+            (folder / "session.json").write_text("{}", encoding="utf-8")
+        elif shape == "subfolder":
+            (folder / "inbox" / "more").mkdir()
+        _age(folder, 48)
+    result = projects.cleanup(manager)
+    assert result["orphans"] == []
+    assert (outside / "keep.txt").is_file()
+    assert folder.exists() or folder.is_symlink()
 
 
 def test_a_failed_attempt_newer_than_the_latest_verified_is_kept(manager: CampaignManager, workspace: Path) -> None:

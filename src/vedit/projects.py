@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import threading
+import time
 import uuid
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
@@ -27,6 +28,10 @@ from vedit.media import run_ffmpeg
 _ID = re.compile(r"[a-f0-9]{32}")
 _RENDER = re.compile(r"render-([1-9][0-9]*)")
 _TRASH = ".deleting-"
+# A job folder being deleted, or one render folder cleanup moved out of a job before removing it.
+_TRASHED = re.compile(r"\.deleting-[a-f0-9]{32}(-[1-9][0-9]*)?")
+# An upload nothing names is kept this long, so a project being created right now is never swept.
+_ORPHAN_AGE_SECONDS = 24 * 60 * 60
 # A copy starts its own history: no renders, no ledger, and no generated cover
 # bound to the original's folder. Analysis copies regenerate when needed.
 _NOT_COPIED = re.compile(r"render-\d+|analysis|meta|cover-\d+\.json|shorts-.*\.json|library-thumb\.jpg|\.deleting-.*")
@@ -79,9 +84,17 @@ def _inbox_path(manager: CampaignManager, raw: Any) -> Path | None:
 
 
 def _stored_paths(job: dict[str, Any]) -> list[Any]:
+    """Every upload a job's request names: its clips, and a script's own pictures."""
     request = job.get("request")
-    paths = request.get("paths") if isinstance(request, dict) else None
-    return paths if isinstance(paths, list) else []
+    if not isinstance(request, dict):
+        return []
+    paths = request.get("paths")
+    found = list(paths) if isinstance(paths, list) else []
+    script = request.get("script")
+    images = script.get("images") if isinstance(script, dict) else None
+    if isinstance(images, list):
+        found.extend(images)
+    return found
 
 
 def _old_renders(manager: CampaignManager, job: dict[str, Any]) -> list[tuple[int, Path]]:
@@ -144,12 +157,15 @@ def library(manager: CampaignManager) -> dict[str, Any]:
     _sweep(manager)
     with manager._lock, manager._connect() as connection:
         rows = connection.execute("SELECT data FROM jobs ORDER BY updated_at DESC LIMIT ?", (_LIMIT,)).fetchall()
+        every = [json.loads(row[0]) for row in connection.execute("SELECT data FROM jobs").fetchall()]
     projects = [_row(manager, json.loads(row[0])) for row in rows]
+    orphan_bytes = sum(size for _folder, size in _orphan_inboxes(manager, every))
     return {
         "projects": projects,
         "storage": {
             "total_bytes": _folder_size(manager.sessions),
-            "reclaimable_bytes": sum(project["reclaimable_bytes"] for project in projects),
+            "reclaimable_bytes": sum(project["reclaimable_bytes"] for project in projects) + orphan_bytes,
+            "orphan_bytes": orphan_bytes,
             "workspace": str(manager.workspace),
         },
         "interrupted": sum(1 for project in projects if project["status"] == "interrupted"),
@@ -167,7 +183,9 @@ def thumbnail(manager: CampaignManager, ident: str) -> Path:
     with manager._lock, manager._connect() as connection:
         job = manager._load(connection, ident)
     duration = (job.get("source") or {}).get("duration")
-    if not _stored_paths(job) or not isinstance(duration, (int, float)):
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    # A script project names pictures, not a clip, so only a clip or a combined project file has a frame.
+    if not (request.get("paths") or job.get("_project_file")) or not isinstance(duration, (int, float)):
         raise CampaignError("This project has no picture yet.", 404)
     source = manager._project_source(job)
     pending = folder / ".library-thumb.part.jpg"
@@ -286,11 +304,71 @@ def _remove_inbox(paths: list[Path]) -> int:
     return freed
 
 
+def _orphan_inboxes(manager: CampaignManager, jobs: list[dict[str, Any]]) -> list[tuple[Path, int]]:
+    """Upload folders no job names, a day or more old: ``<sessions>/<folder>/inbox/<files>`` and nothing else.
+
+    Every upload makes such a folder; a project that is never created, or an
+    asset the project copied, leaves it behind. Any mention of the folder in any
+    job record keeps it, as does anything beside the inbox, which marks an
+    older workflow's session.
+    """
+    sessions = manager.sessions.resolve()
+    named = set()
+    for job in jobs:
+        for raw in _stored_paths(job):
+            path = _inbox_path(manager, raw)
+            if path is not None:
+                named.add(path.parent.parent.name)
+    records = [_json(job) for job in jobs]
+    cutoff = time.time() - _ORPHAN_AGE_SECONDS
+    found = []
+    with suppress(OSError):
+        for entry in os.scandir(sessions):
+            if entry.name == "campaigns" or entry.name.startswith(".") or entry.name in named or not entry.is_dir(follow_symlinks=False):
+                continue
+            if any(entry.name in data for data in records):
+                continue
+            folder = sessions / entry.name
+            try:
+                children = list(os.scandir(folder))
+                inbox = folder / "inbox"
+                if [child.name for child in children] != ["inbox"] or not inbox.is_dir() or inbox.is_symlink():
+                    continue
+                files = list(os.scandir(inbox))
+                if any(child.is_dir(follow_symlinks=False) for child in files):
+                    continue
+                newest = max([entry.stat(follow_symlinks=False).st_mtime, inbox.lstat().st_mtime] + [child.stat(follow_symlinks=False).st_mtime for child in files])
+            except OSError:
+                continue
+            if newest > cutoff:
+                continue
+            size = sum(child.stat(follow_symlinks=False).st_size for child in files if child.is_file(follow_symlinks=False))
+            found.append((folder, size))
+    return sorted(found)
+
+
+def _remove_orphan(folder: Path) -> int:
+    """Remove an orphan upload folder the way ``_remove_inbox`` does: unlink each file, then rmdir, never rmtree."""
+    freed = 0
+    inbox = folder / "inbox"
+    with suppress(OSError):
+        for child in list(os.scandir(inbox)):
+            path = inbox / child.name
+            with suppress(OSError):
+                info = path.lstat()
+                path.unlink()
+                freed += info.st_size if stat.S_ISREG(info.st_mode) else 0
+    with suppress(OSError):
+        inbox.rmdir()
+        folder.rmdir()
+    return freed
+
+
 def _sweep(manager: CampaignManager) -> None:
-    """Finish a delete a crash interrupted. Only `.deleting-<id>` folders are touched."""
+    """Finish a delete or cleanup a crash interrupted. Only `.deleting-<id>` and `.deleting-<id>-<n>` folders are touched."""
     with suppress(OSError):
         for entry in manager.root.iterdir():
-            if entry.name.startswith(_TRASH) and _ID.fullmatch(entry.name[len(_TRASH):]) and not entry.is_symlink():
+            if _TRASHED.fullmatch(entry.name) and not entry.is_symlink():
                 shutil.rmtree(entry, ignore_errors=True)
 
 
@@ -334,21 +412,27 @@ def cleanup(manager: CampaignManager, *, dry_run: bool = False) -> dict[str, Any
 
     The latest verified version is never touched; neither is any project still
     working, or a failed attempt newer than it. The older versions leave the
-    history, because their files no longer exist.
+    history, because their files no longer exist. Upload folders no project
+    names and a day old go too; the result lists them as ``orphans``.
     """
+    _sweep(manager)
     with manager._lock, manager._connect() as connection:
-        rows = connection.execute("SELECT data FROM jobs").fetchall()
+        jobs = [json.loads(row[0]) for row in connection.execute("SELECT data FROM jobs").fetchall()]
     freed, removed, changed = 0, [], []
-    for row in rows:
-        job = json.loads(row[0])
+    for job in jobs:
         for revision, path in _old_renders(manager, job):
             size = _folder_size(path)
             freed += size
             removed.append({"id": job["id"], "revision": revision, "bytes": size})
             changed.append(job["id"])
+    orphans = [{"folder": folder.name, "bytes": size} for folder, size in _orphan_inboxes(manager, jobs)]
+    freed += sum(item["bytes"] for item in orphans)
     if dry_run:
-        return {"freed_bytes": freed, "removed": removed, "dry_run": True}
+        return {"freed_bytes": freed, "removed": removed, "orphans": orphans, "dry_run": True}
+    trash: list[Path] = []
     for ident in sorted(set(changed)):
+        # Under the lock only the record changes and each folder moves aside in one
+        # step. The slow rmtree runs after, so polls and the worker never wait on it.
         with manager._lock, manager._connect() as connection:
             job = manager._load(connection, ident)
             old = _old_renders(manager, job)
@@ -361,6 +445,13 @@ def cleanup(manager: CampaignManager, *, dry_run: bool = False) -> dict[str, Any
                 artifacts.pop(str(revision), None)
             job["_verified_artifacts"] = artifacts
             manager._save(connection, job)
-            for _revision, path in old:
-                shutil.rmtree(path, ignore_errors=True)
-    return {"freed_bytes": freed, "removed": removed, "dry_run": False}
+            for revision, path in old:
+                aside = manager.root.resolve() / f"{_TRASH}{ident}-{revision}"
+                with suppress(OSError):
+                    path.rename(aside)
+                    trash.append(aside)
+    for aside in trash:
+        shutil.rmtree(aside, ignore_errors=True)
+    for item in orphans:
+        _remove_orphan(manager.sessions.resolve() / item["folder"])
+    return {"freed_bytes": freed, "removed": removed, "orphans": orphans, "dry_run": False}

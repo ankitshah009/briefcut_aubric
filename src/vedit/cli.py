@@ -66,7 +66,7 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
 
     p = sub.add_parser("verify", help="re-hash a render's receipts and say exactly what changed (no network)")
     p.add_argument("target", help="campaign.zip, a project or render folder, or receipts.json")
-    p.add_argument("--expect", metavar="EV_ID", help="root evidence id from a trusted place, such as Studio; a different root fails")
+    p.add_argument("--expect", metavar="EV_ID", help="root evidence id from a trusted place, such as Studio: the full id, or at least ev_ and its first 16 hex digits; a different root fails")
     p.add_argument("--json", action="store_true", help="print the full result as JSON")
     p.set_defaults(func=cmd_verify)
 
@@ -272,6 +272,10 @@ def _run_brief(
     if not execute_it:
         return 0
     reports = execute(compiler.pipeline, dry_run=dry_run)
+    if dry_run:
+        # No report: it would say every step passed in 0 ms and could bury a real render's.
+        print("dry run  : nothing executed")
+        return 0
     report = write_report(compiler.pipeline, reports, finals=compiler.finals)
     print(f"report   : {report}")
     for path in compiler.finals:
@@ -296,10 +300,15 @@ def cmd_render(args: argparse.Namespace) -> int:
         print("vedit render: pass a brief, a work dir, or --resume --work-dir DIR", file=sys.stderr)
         return 2
     target = Path(args.brief)
+    # Only --resume skips finished steps; a work dir given on its own runs every step.
     if target.is_dir() and (target / "project.json").is_file():
-        return _execute_dir(target, dry_run=args.dry_run, resume=True)
+        return _execute_dir(target, dry_run=args.dry_run, resume=args.resume)
     if target.is_file() and target.name == "project.json":
-        return _execute_dir(target.parent, dry_run=args.dry_run, resume=True)
+        return _execute_dir(target.parent, dry_run=args.dry_run, resume=args.resume)
+    if args.resume:
+        # A brief compiles into a fresh work dir, so there is nothing to resume without one.
+        print("vedit render: --resume needs --work-dir DIR", file=sys.stderr)
+        return 2
     return _run_brief(
         args.brief,
         work_dir=args.work_dir,
@@ -320,6 +329,10 @@ def _execute_dir(root: Path, *, dry_run: bool, resume: bool) -> int:
     for step in pipe.steps:
         print(f"  - {step.name}: {step.description}")
     reports = execute(pipe, dry_run=dry_run, resume=resume)
+    if dry_run:
+        # No report: it would overwrite a real render's with every step passed in 0 ms.
+        print("dry run  : nothing executed")
+        return 0
     finals = [Path(p) for p in (pipe.meta.get("finals") or [])]
     report = write_report(pipe, reports, finals=finals)
     print(f"report   : {report}")

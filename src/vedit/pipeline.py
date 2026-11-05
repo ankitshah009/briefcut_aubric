@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import sys
@@ -129,6 +130,92 @@ def write_codegen(pipeline: Pipeline) -> dict[str, Path]:
     return {"project": project_json, "render": render_sh, "steps_dir": steps_dir, "otio": otio}
 
 
+DONE_DIR = ".done"
+
+
+def reset_resume_state(work_dir: str | Path) -> None:
+    """A new plan in an old work dir: nothing that was finished for the old plan counts.
+
+    Drops the per-step fingerprints ``execute`` uses for ``--resume`` and the old
+    ``report.json``, so a re-plan can never be reported as a finished render.
+    """
+    root = Path(work_dir)
+    done = root / DONE_DIR
+    if done.is_dir():
+        for entry in done.iterdir():
+            try:
+                entry.unlink()
+            except OSError:
+                pass
+    try:
+        (root / "report.json").unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def _done_path(pipeline: Pipeline, index: int, step: Step) -> Path:
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in step.name)
+    return pipeline.work_dir / DONE_DIR / f"{index:02d}_{safe}.json"
+
+
+def step_inputs(step: Step) -> list[tuple[str, int, int]]:
+    """Every file the step's argv names, except its own outputs: (path, mtime_ns, size)."""
+    outputs = {str(Path(o)) for o in step.outputs}
+    found: list[tuple[str, int, int]] = []
+    seen: set[str] = set()
+    for token in step.argv:
+        if not token or token in outputs or token in seen:
+            continue
+        try:
+            path = Path(token)
+            if not path.is_file():
+                continue
+            stat = path.stat()
+        except (OSError, ValueError):
+            continue
+        seen.add(token)
+        found.append((token, stat.st_mtime_ns, stat.st_size))
+    return found
+
+
+def step_fingerprint(step: Step) -> dict[str, Any]:
+    """What the step was run with: its argv and the state of each input file."""
+    inputs = step_inputs(step)
+    digest = hashlib.sha256()
+    digest.update(json.dumps(step.argv).encode("utf-8"))
+    for path, mtime_ns, size in inputs:
+        digest.update(f"\n{path}\t{mtime_ns}\t{size}".encode("utf-8"))
+    return {"fingerprint": digest.hexdigest(), "argv": list(step.argv), "inputs": [list(row) for row in inputs]}
+
+
+def _record_done(pipeline: Pipeline, index: int, step: Step) -> None:
+    dest = _done_path(pipeline, index, step)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(step_fingerprint(step), indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _forget_done(pipeline: Pipeline, index: int, step: Step) -> None:
+    try:
+        _done_path(pipeline, index, step).unlink()
+    except OSError:
+        pass
+
+
+def _done_matches(pipeline: Pipeline, index: int, step: Step) -> bool:
+    """True only when the step finished with this argv and these inputs."""
+    dest = _done_path(pipeline, index, step)
+    try:
+        stored = json.loads(dest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(stored, dict) and stored.get("fingerprint") == step_fingerprint(step)["fingerprint"]
+
+
 def output_ready(path: str | Path) -> bool:
     """Resume only on a real file. Empty plan placeholders do not count."""
     dest = Path(path)
@@ -169,13 +256,20 @@ def execute(
             StepReport(name=s.name, ok=True, duration_ms=0, outputs=s.outputs)
             for s in pipeline.steps
         ]
+    # The old report describes the old file. Until this run writes its own, there is none.
+    try:
+        (pipeline.work_dir / "report.json").unlink()
+    except OSError:
+        pass
     total = len(pipeline.steps)
+    # Once one step runs again, everything after it was built from stale inputs.
+    reran = False
     for index, step in enumerate(pipeline.steps, start=1):
         if cancel_event is not None and cancel_event.is_set():
             raise RenderCancelled(f"render cancelled before step '{step.name}'")
         if progress:
             print(f"==> [{index}/{total}] {step.name}: {step.description}", file=sys.stderr, flush=True)
-        if resume and outputs_complete(step):
+        if resume and not reran and outputs_complete(step) and _done_matches(pipeline, index, step):
             reports.append(
                 StepReport(
                     name=step.name,
@@ -188,6 +282,8 @@ def execute(
             if progress:
                 print("    skipped (outputs exist)", file=sys.stderr, flush=True)
             continue
+        reran = True
+        _forget_done(pipeline, index, step)
         started = time.perf_counter()
         try:
             result: CommandResult = run_command(
@@ -195,6 +291,15 @@ def execute(
                 stream_stderr=progress and sys.stderr.isatty(),
                 cancel_event=cancel_event,
             )
+        except RenderCancelled:
+            _discard_partial_outputs(step)
+            raise
+        except RenderError as exc:
+            _discard_partial_outputs(step)
+            reports.append(StepReport(name=step.name, ok=False, duration_ms=int((time.perf_counter() - started) * 1000),
+                                      outputs=step.outputs, stderr_tail=str(exc)[-2000:]))
+            _write_failure_report(pipeline, reports, step=step, message=str(exc), stderr_tail=str(exc)[-2000:])
+            raise
         except BaseException:
             _discard_partial_outputs(step)
             raise
@@ -215,8 +320,10 @@ def execute(
         if progress:
             mark = "ok" if ok else "FAIL"
             print(f"    {mark} {elapsed}ms", file=sys.stderr, flush=True)
-        if not ok and not step.optional:
-            raise RenderError(
+        if ok:
+            _record_done(pipeline, index, step)
+        elif not step.optional:
+            error = RenderError(
                 f"step '{step.name}' failed (exit {result.returncode}).\n"
                 f"command: {shell_join(step.argv)}\n"
                 f"{report.stderr_tail}"
@@ -224,7 +331,24 @@ def execute(
                 step=step.name,
                 detail=result.stderr,
             )
+            _write_failure_report(pipeline, reports, step=step, message=str(error), stderr_tail=report.stderr_tail)
+            raise error
     return reports
+
+
+def _meta_finals(pipeline: Pipeline) -> list[Path]:
+    raw = pipeline.meta.get("finals") if isinstance(pipeline.meta, dict) else None
+    return [Path(str(item)) for item in raw] if isinstance(raw, list) else []
+
+
+def _write_failure_report(pipeline: Pipeline, reports: list[StepReport], *, step: Step, message: str, stderr_tail: str) -> None:
+    """A failed render leaves a report that says so, never the previous run's passing one."""
+    try:
+        write_report(pipeline, reports, finals=_meta_finals(pipeline),
+                     failed={"step": step.name, "message": message, "stderr_tail": stderr_tail})
+    except Exception:
+        # The failure itself is what the caller sees; a report that could not be written must not hide it.
+        pass
 
 
 def write_report(
@@ -232,19 +356,33 @@ def write_report(
     step_reports: list[StepReport],
     *,
     finals: list[Path],
+    failed: dict[str, Any] | None = None,
 ) -> Path:
+    """The proof of a render. ``ok`` is true only when every step passed and every final file exists."""
+    try:
+        ffmpeg = resolve_ffmpeg()
+    except Exception as exc:  # the report must still say the render failed
+        ffmpeg = f"unavailable: {exc}"
     payload: dict[str, Any] = {
         "name": pipeline.name,
-        "ffmpeg": resolve_ffmpeg(),
+        "ok": failed is None and bool(step_reports) and all(r.ok for r in step_reports) and all(path.is_file() for path in finals),
+        "ffmpeg": ffmpeg,
         "work_dir": str(pipeline.work_dir),
         "steps": [asdict(r) for r in step_reports],
         "outputs": [],
     }
+    if failed is not None:
+        payload["failed"] = failed
     for path in finals:
         if not path.is_file():
             payload["outputs"].append({"path": str(path), "exists": False})
             continue
-        info = probe(path)
+        try:
+            info = probe(path)
+        except Exception as exc:  # a file ffprobe cannot read is not a delivered render
+            payload["ok"] = False
+            payload["outputs"].append({"path": str(path), "exists": True, "error": str(exc)})
+            continue
         payload["outputs"].append(
             {
                 "path": str(path),

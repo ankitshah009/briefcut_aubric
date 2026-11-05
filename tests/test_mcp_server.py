@@ -20,6 +20,7 @@ from vedit.media import resolve_ffmpeg  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parents[1] / "examples" / "demo" / "talk.mp4"
 JOB = "a" * 32
+_TINY_PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0300050001012718e3660000000049454e44ae426082")
 NEW_TOOLS = {"briefcut_status", "briefcut_timeline", "briefcut_edit", "briefcut_add_asset", "briefcut_generate_background"}
 
 
@@ -204,9 +205,13 @@ def test_wait_times_out_with_a_tool_error(workspace: Path, monkeypatch: pytest.M
 
 def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, tuple[Any, ...]]] = []
+    # A real picture on disk: the tool must copy it into an inbox the manager accepts.
+    picture = workspace / "scene.png"
+    picture.write_bytes(_TINY_PNG)
 
     class Stub:
         _closed = False
+        sessions = workspace / "vedit-sessions"
 
         def find(self, job_id: str, value: dict[str, Any]) -> dict[str, Any]:
             calls.append(("find", (job_id, value)))
@@ -235,7 +240,7 @@ def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path,
             script = _payload(await client.call_tool("briefcut_script_to_video", {
                 "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
                 "provider": "meta", "budget_usd": 0.5, "language": "en",
-                "images": ["/tmp/scene.png"], "review": True, "auto_refine": 1,
+                "images": [str(picture)], "review": True, "auto_refine": 1,
                 "template": "tutorial", "edit": {"captions": {"style": "bold"}},
             }))
             assert script["job"]["id"] == "script-1"
@@ -245,12 +250,66 @@ def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path,
     assert calls[1][0] == "shorts" and calls[1][1][1] == {
         "count": 2, "target_duration": 12.0, "aspect": "9:16", "auto_render": False, "budget_usd": 0.5,
     }
+    sent = calls[2][1][0]
+    staged = Path(sent["images"][0])
+    # The job keeps this path, so it must sit exactly where CampaignManager._source looks.
+    assert staged.is_file() and staged.suffix == ".png" and staged.read_bytes() == _TINY_PNG
+    assert staged.parent.name == "inbox" and staged.parent.parent.parent == workspace / "vedit-sessions"
+    assert staged.parent.parent.name.startswith("source-")
     assert calls[2] == ("script", ({
         "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
-        "provider": "meta", "budget_usd": 0.5, "language": "en", "images": ["/tmp/scene.png"],
+        "provider": "meta", "budget_usd": 0.5, "language": "en", "images": [str(staged)],
         "review": True, "auto_refine": 1, "template": "tutorial",
         "edit": {"captions": {"style": "bold"}}, "caption_provider": "meta",
     },))
+
+
+def test_a_missing_script_image_is_refused_and_leaves_no_staged_copies(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    first = workspace / "one.png"
+    first.write_bytes(_TINY_PNG)
+
+    class Stub:
+        _closed = False
+        sessions = workspace / "vedit-sessions"
+
+        def create_script(self, value: dict[str, Any]) -> dict[str, Any]:
+            pytest.fail("a request with a missing picture must not reach the manager")
+
+    server = _serve(monkeypatch, Stub())
+
+    async def flow() -> Any:
+        async with Client(server) as client:
+            return _payload(await client.call_tool("briefcut_script_to_video", {"script": "One line.", "images": [str(first), str(workspace / "missing.png")]}))
+
+    assert _refused(_run(flow()), "No file at")
+    assert not list((workspace / "vedit-sessions").glob("*/inbox/*")), "the picture staged before the failure is removed"
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("写真.png", "media.png"),
+    ("a b.MOV", "a_b.MOV"),
+    ("/Users/me/Movies/clip final.mp4", "clip_final.mp4"),
+    ("C:\\Users\\me\\写真 2.JPG", "2.JPG"),
+    ("...", "clip.mp4"),
+])
+def test_safe_filename_keeps_the_extension(raw: str, expected: str) -> None:
+    # The manager type-checks pictures by suffix, so 写真.png must not become "png".
+    assert mcp_server._safe_filename(raw) == expected
+
+
+def test_workspace_falls_back_to_the_desktop_default_not_the_agent_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit import settings
+
+    monkeypatch.delenv("VEDIT_WORKSPACE", raising=False)
+    monkeypatch.setattr(settings, "load", lambda: {})
+    monkeypatch.chdir(tmp_path)
+    assert mcp_server.workspace() == settings.default_workspace().expanduser().resolve()
+    assert mcp_server.workspace() != tmp_path.resolve()
+    assert not list(tmp_path.iterdir()), "choosing the workspace writes nothing"
+    monkeypatch.setattr(settings, "load", lambda: {"workspace": str(tmp_path / "chosen")})
+    assert mcp_server.workspace() == (tmp_path / "chosen").resolve(), "the Settings folder wins over the default"
+    monkeypatch.setenv("VEDIT_WORKSPACE", str(tmp_path / "env"))
+    assert mcp_server.workspace() == (tmp_path / "env").resolve(), "the environment wins over Settings"
 
 
 def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:

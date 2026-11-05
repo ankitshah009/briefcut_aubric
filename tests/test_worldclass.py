@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from vedit.otio import pipeline_to_otio, write_otio
 from vedit.pipeline import Pipeline, Step, execute, output_ready, outputs_complete
 from vedit.presets import encode_args, get_preset, video_encoder
@@ -24,6 +26,21 @@ def test_web_preview_never_uses_videotoolbox():
     args = encode_args(get_preset("web_preview"), hw=True)
     assert "h264_videotoolbox" not in args
     assert args[args.index("-c:v") + 1] == "libx264"
+
+
+@pytest.mark.parametrize("name", ["web_preview", "web_preview_9x16", "web_preview_1x1", "web_preview_4x5"])
+def test_every_web_preview_variant_stays_on_libx264(monkeypatch: pytest.MonkeyPatch, name: str):
+    """A proxy wants a CRF, not VideoToolbox's fixed q:v, whatever its aspect."""
+    import vedit.presets as presets
+
+    monkeypatch.setattr(presets, "has_encoder", lambda encoder: True)
+    monkeypatch.setattr(presets.sys, "platform", "darwin")
+    assert presets.video_encoder(None, preset_name="youtube_1080p") == "h264_videotoolbox"
+    assert presets.video_encoder(None, preset_name=name) == "libx264"
+    assert presets.video_encoder(True, preset_name=name) == "libx264"
+    args = presets.encode_args(presets.get_preset(name), hw=True)
+    assert "h264_videotoolbox" not in args and "-q:v" not in args
+    assert args[args.index("-crf") + 1] == str(presets.get_preset(name).crf) == "28"
 
 
 def test_software_hw_flag_is_libx264():

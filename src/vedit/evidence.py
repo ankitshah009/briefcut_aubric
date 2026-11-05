@@ -22,6 +22,7 @@ import os
 import platform
 import unicodedata
 import zipfile
+import zlib
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -35,6 +36,10 @@ _CHUNK = 1 << 20
 # Records in root order. Checks follow, in the order they were graded.
 SECTIONS = ("video", "probe", "plan", "meta_calls", "versions", "files", "limitations")
 _CHECK_FIELDS = ("name", "passed", "at", "note", "basis", "by", "inputs")
+# ``verify(expect=...)`` takes a prefix of the root id, so a person can read one off a
+# screen. Below 16 hex digits (64 bits) a prefix is short enough to forge by brute force.
+EXPECT_MIN_HEX = 16
+_UNREADABLE = (UnicodeDecodeError, zipfile.BadZipFile, zlib.error, OSError)
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +109,12 @@ def root_id(receipts: dict[str, Any]) -> str:
     })
 
 
-def short_id(ident: str, length: int = 12) -> str:
-    """``ev_`` and the first hex digits, for a label. The full id is what verifies."""
+def short_id(ident: str, length: int = EXPECT_MIN_HEX) -> str:
+    """``ev_`` and the first hex digits, for a label.
+
+    The default is the shortest prefix ``verify(expect=...)`` trusts, so any id
+    shown this way can be copied straight into ``vedit verify --expect``.
+    """
     return ident[: 3 + length] if ident.startswith("ev_") else ident[:length]
 
 
@@ -323,6 +332,15 @@ class _Source:
         self.target = target
         self.archive: zipfile.ZipFile | None = None
         self.folder: Path | None = None
+        # A video handed to `vedit verify`, or a zip cut short in transfer, is a plain
+        # answer, not a UnicodeDecodeError or BadZipFile traceback.
+        try:
+            self._open(target)
+        except _UNREADABLE as exc:
+            self.close()
+            raise ReceiptsMissing(f"{target.name} is not a readable receipts file or bundle.") from exc
+
+    def _open(self, target: Path) -> None:
         if target.is_file() and zipfile.is_zipfile(target):
             self.archive = zipfile.ZipFile(target)
             if RECEIPTS not in self.archive.namelist():
@@ -350,6 +368,8 @@ class _Source:
                     return _stream_sha256(handle)
             except KeyError:
                 return f"{name} is missing from the bundle"
+            except _UNREADABLE:
+                return f"{name} could not be read from the bundle: the archive is damaged"
         member = _safe_member(record.get("path"))
         if member is None:
             return f"{record.get('path')!r} is not a path inside this folder"
@@ -434,8 +454,14 @@ def verify(target: Path | str, *, expect: str | None = None) -> dict[str, Any]:
             add("root id", True, f"{stored} covers the video and {len(SECTIONS) + len(checks)} records")
         if expect is not None:
             wanted = expect.strip()
-            matches = bool(wanted) and (stored == wanted or (len(wanted) >= 9 and stored.startswith(wanted)))
-            add("expected root", matches, ("matches " if matches else f"is {short_id(stored)}, not ") + short_id(wanted))
+            if stored == wanted:
+                add("expected root", True, "matches " + short_id(wanted))
+            elif len(wanted) < 3 + EXPECT_MIN_HEX:
+                add("expected root", False, f"{wanted!r} is too short to trust: give the full id, or at least ev_ and {EXPECT_MIN_HEX} hex digits")
+            elif stored.startswith(wanted):
+                add("expected root", True, "matches " + short_id(wanted))
+            else:
+                add("expected root", False, f"is {short_id(stored)}, not {short_id(wanted)}")
     finally:
         source.close()
     changed = [item for item in items if not item["ok"]]

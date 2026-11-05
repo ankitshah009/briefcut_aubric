@@ -405,6 +405,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--in", dest="inp", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--ref")
+    p.add_argument("--width", type=int, default=None, help="expected picture width")
+    p.add_argument("--height", type=int, default=None, help="expected picture height")
+    sound = p.add_mutually_exclusive_group()
+    sound.add_argument("--audio", dest="expect_audio", action="store_const", const=True, default=None, help="the file must carry sound")
+    sound.add_argument("--no-audio", dest="expect_audio", action="store_const", const=False, help="the file must carry no sound")
+    p.add_argument("--seconds", type=float, default=None, help="expected duration")
+    p.add_argument("--tolerance", type=float, default=0.5, help="allowed duration error in seconds")
+    p.add_argument("--no-color", dest="color", action="store_false", help="skip the BT.709 limited-range check")
     p = sub.add_parser("scenes")
     p.add_argument("--in", dest="inp", required=True)
     p.add_argument("--out", required=True)
@@ -450,7 +458,9 @@ def main(argv: list[str] | None = None) -> int:
             fade_out=float(args.fade_out),
         )
     elif args.cmd == "verify":
-        apply_verify(Path(args.inp), Path(args.out), ref=Path(args.ref) if args.ref else None)
+        apply_verify(Path(args.inp), Path(args.out), ref=Path(args.ref) if args.ref else None,
+                     width=args.width, height=args.height, has_audio=args.expect_audio,
+                     seconds=args.seconds, tolerance=args.tolerance, color=args.color)
     elif args.cmd == "scenes":
         apply_scenes(Path(args.inp), Path(args.out), threshold=float(args.threshold))
     return 0
@@ -595,11 +605,28 @@ def _vmaf_enabled() -> bool:
     return os.environ.get("VEDIT_VMAF", "").strip() == "1"
 
 
-def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str, object]:
-    """Prove the file: streams, duration, loudness. VMAF runs only when VEDIT_VMAF=1."""
-    from vedit.media import has_filter, probe
+def apply_verify(
+    src: Path,
+    dest: Path,
+    *,
+    ref: Path | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    has_audio: bool | None = None,
+    seconds: float | None = None,
+    tolerance: float = 0.5,
+    color: bool = True,
+) -> dict[str, object]:
+    """Prove the file: streams, duration, loudness. VMAF runs only when VEDIT_VMAF=1.
+
+    With ``width`` and ``height`` the file is held to the export it was asked
+    for: size, sound, length within ``tolerance`` and, unless ``color`` is off,
+    BT.709 limited range. Without a size only the sound and length are checked.
+    """
+    from vedit.media import export_problem, has_filter, probe
 
     info = probe(src)
+    expected = {"width": width, "height": height, "has_audio": has_audio, "seconds": seconds, "tolerance": tolerance, "color": color}
     payload: dict[str, object] = {
         "path": str(src),
         "duration": info.duration,
@@ -614,6 +641,17 @@ def apply_verify(src: Path, dest: Path, *, ref: Path | None = None) -> dict[str,
         raise AnalysisError(f"verify failed: no streams in {src}")
     if info.duration <= 0.04:
         raise AnalysisError(f"verify failed: duration {info.duration}s in {src}")
+    if width and height:
+        problem = export_problem(info, width=width, height=height, has_audio=bool(has_audio),
+                                 seconds=info.duration if seconds is None else seconds, tolerance=tolerance, color=color)
+        if problem:
+            raise AnalysisError(f"verify failed for {src}: {problem}")
+    else:
+        if has_audio is not None and info.has_audio != has_audio:
+            raise AnalysisError(f"verify failed: {src} {'lost its sound' if has_audio else 'carries sound it should not'}")
+        if seconds is not None and abs(info.duration - seconds) > tolerance:
+            raise AnalysisError(f"verify failed: {src} runs {info.duration:.3f}s, not the expected {seconds:.3f}s")
+    payload["expected"] = expected
     if info.video:
         payload["color"] = {
             "primaries": info.video.color_primaries,

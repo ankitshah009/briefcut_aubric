@@ -250,10 +250,15 @@ def _identity(source: Path) -> str:
     return f"{source}|{stat.st_size}|{stat.st_mtime_ns}"
 
 
+def _window_path(source: Path, start: float, end: float, fps: float, height: int, folder: Path) -> Path:
+    """Where the sampled window lives; the name is fixed by the source and the window, so a re-check finds it."""
+    digest = hashlib.sha256(f"{_identity(source)}|{start:.3f}|{end:.3f}|{fps:.3f}|{height}|v1".encode()).hexdigest()[:16]
+    return folder / f"window-{digest}-{round(start * 1000)}-{round(end * 1000)}.mp4"
+
+
 def _window_clip(source: Path, start: float, end: float, fps: float, height: int, folder: Path) -> Path:
     """The sampled window as a small H.264 file. An existing one is reused, so SAM's cache stays warm."""
-    digest = hashlib.sha256(f"{_identity(source)}|{start:.3f}|{end:.3f}|{fps:.3f}|{height}|v1".encode()).hexdigest()[:16]
-    out = folder / f"window-{digest}-{round(start * 1000)}-{round(end * 1000)}.mp4"
+    out = _window_path(source, start, end, fps, height, folder)
     if out.is_file() and out.stat().st_size > 0:
         return out
     folder.mkdir(parents=True, exist_ok=True)
@@ -345,6 +350,13 @@ def _receipt(phrase: str | None, note: str, passed: bool, at: float | None, inpu
     return {"name": name, "passed": passed, "at": at, "note": note, "basis": "derived", "by": SAM_MODEL, "inputs": inputs}
 
 
+def _spend(index: int, plan: dict[str, Any], usage: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    """One SAM window on the result's bill. A cached or shared answer costs nothing."""
+    return {"model": SAM_MODEL, "operation": "verify-find", "moment": index, "window": list(plan["window"]),
+            "frames": usage.get("video_frames_processed"), "cost_usd": 0.0 if usage.get("cached") else float(usage.get("cost_usd", 0)),
+            "estimated_max_usd": usage.get("estimated_max_usd"), "cached": bool(usage.get("cached")), **extra}
+
+
 def _pass_through(moments: list[dict[str, Any]], note: str) -> list[dict[str, Any]]:
     return [dict(moment, verified=None, coverage=None, thumbnail=None, verification=note) for moment in moments]
 
@@ -406,12 +418,13 @@ def verify_moments(moments: list[dict[str, Any]], query: str, source: Path, work
     if not order:
         note = "No moment found by looking at the footage, so SAM had nothing to check."
         result.update(reason=note, moments=_pass_through(moments, note))
-        result["receipt"] = _receipt(phrase, "Not checked: " + note, True, None, inputs)
+        result["receipt"] = _receipt(None, "Not checked: " + note, True, None, inputs)
         return result
     if not meta.capabilities()["available"]:
+        # SAM never looked, so the receipt neither names the phrase nor passes: a tally must not count it as a pass.
         note = "SAM needs Meta, which is not connected right now."
         result.update(status="unavailable", reason=note, moments=_pass_through(moments, note))
-        result["receipt"] = _receipt(phrase, "Not checked: " + note, True, None, inputs)
+        result["receipt"] = _receipt(None, "Not checked: " + note, False, None, inputs)
         return result
 
     info = probe(source)
@@ -425,28 +438,35 @@ def verify_moments(moments: list[dict[str, Any]], query: str, source: Path, work
         first, last = window_for(float(moment["start"]), float(moment["end"]), duration, seconds=window_seconds)
         fps = sample_rate(last - first, source_fps, max_frames=max_frames)
         plans.append({"index": index, "window": (first, last), "fps": fps, "frames": max(1, math.ceil((last - first) * fps))})
-    needed = round(sum(billed_usd(plan["frames"]) for plan in {(*plan["window"], plan["fps"]): plan for plan in plans}.values()), 8)
+    # Overlapping moments can share a window; one call answers all of them, and only the first pays.
+    unique: dict[tuple[float, float, float], dict[str, Any]] = {}
+    for plan in plans:
+        unique.setdefault((*plan["window"], plan["fps"]), plan)
+    windows = work_dir / "verify-windows"
+
+    def stored(plan: dict[str, Any]) -> bool:
+        """SAM already answered for this window (a re-check): asking again is free, so it is not priced."""
+        clip = _window_path(Path(source), *plan["window"], plan["fps"], height, windows)
+        return clip.is_file() and clip.stat().st_size > 0 and meta.sam_answer_stored(clip, subject=phrase, work_dir=work_dir)
+
+    needed = round(sum(billed_usd(plan["frames"]) for plan in unique.values() if not stored(plan)), 8)
     remaining = float(meta.call_log(work_dir, budget_usd=budget)["totals"].get("remaining_usd", budget))
     settings["planned_usd"] = needed
     if needed > remaining + 1e-9:
         note = (f"Checking {len(plans)} moments with SAM needs up to ${needed:.4f}, and ${remaining:.4f} of the ${budget:.4f} budget is left. "
                 "Nothing was sent. Raise the cap or check fewer moments.")
         result.update(status="refused", reason=note, moments=_pass_through(moments, note))
-        result["receipt"] = _receipt(phrase, "Not checked: " + note, True, None, inputs)
+        result["receipt"] = _receipt(None, "Not checked: " + note, False, None, inputs)
         return result
 
     def look(plan: dict[str, Any]) -> dict[str, Any]:
         first, last = plan["window"]
-        clip = _window_clip(Path(source), first, last, plan["fps"], height, work_dir / "verify-windows")
+        clip = _window_clip(Path(source), first, last, plan["fps"], height, windows)
         made = probe(clip)
         masks = meta.subject_masks(clip, subject=phrase, duration=float(made.duration), work_dir=work_dir, budget_usd=budget,
                                    purpose=f"Check \u201c{phrase[:60]}\u201d in a found moment")
         return {"clip": clip, "sampled": max(1, round(float(made.duration) * float(made.fps or plan["fps"]))), "masks": masks}
 
-    # Overlapping moments can share a window; one call answers all of them, and only the first pays.
-    unique: dict[tuple[float, float, float], dict[str, Any]] = {}
-    for plan in plans:
-        unique.setdefault((*plan["window"], plan["fps"]), plan)
     looked: dict[int, dict[str, Any] | Exception] = {}
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(unique)))) as pool:
         futures = {key: pool.submit(look, plan) for key, plan in unique.items()}
@@ -468,17 +488,23 @@ def verify_moments(moments: list[dict[str, Any]], query: str, source: Path, work
         evidence: dict[str, Any] = {"phrase": phrase, "window": list(plan["window"]), "sample_fps": plan["fps"], "basis": "derived",
                                     "by": SAM_MODEL, "inputs": inputs}
         moment["evidence"] = evidence
+        owner = unique[(*plan["window"], plan["fps"])] is plan
         if isinstance(outcome, Exception):
             message = str(getattr(outcome, "plain", "") or outcome) or type(outcome).__name__
             moment.update(verified=None, coverage=None, thumbnail=None, verification=f"SAM did not finish: {message}")
-            result["warnings"].append(f"SAM could not check the moment at {float(moment['start']):.1f}s: {message}")
+            billed = getattr(outcome, "usage", None)
+            if isinstance(billed, dict) and owner:
+                # Meta answered and billed the window; only its answer could not be read. The charge is real, so it counts.
+                charge = _spend(index, plan, billed, error=message)
+                result["spend"].append(charge)
+                result["warnings"].append(f"SAM was billed ${charge['cost_usd']:.4f} for the moment at {float(moment['start']):.1f}s "
+                                          f"but its answer could not be read: {message}")
+            else:
+                result["warnings"].append(f"SAM could not check the moment at {float(moment['start']):.1f}s: {message}")
             continue
         masks = outcome["masks"]
         usage = {"cached": True, "cost_usd": 0.0} if outcome.get("shared") else masks.get("usage") or {}
-        result["spend"].append({"model": SAM_MODEL, "operation": "verify-find", "moment": index, "window": list(plan["window"]),
-                                "frames": usage.get("video_frames_processed"),
-                                "cost_usd": 0.0 if usage.get("cached") else float(usage.get("cost_usd", 0)),
-                                "estimated_max_usd": usage.get("estimated_max_usd"), "cached": bool(usage.get("cached"))})
+        result["spend"].append(_spend(index, plan, usage))
         result["warnings"].extend(masks.get("warnings") or [])
         gathered.append((plan, outcome, _entries(masks, min_confidence=min_confidence), moment))
 

@@ -33,9 +33,9 @@ from vedit.media import (
 )
 from vedit.motion import MotionError, plan_pieces, zoom_filter
 from vedit.overlays import DEFAULT_FADE, corner, drawtext_filters, image_filter, logo_reserve, text_engine, text_warnings, write_text_ass
-from vedit.pipeline import Pipeline, Step
+from vedit.pipeline import Pipeline, Step, reset_resume_state
 from vedit.settings import default_language
-from vedit.presets import MATCH_SOURCE, ExportPreset, encode_args, export_preset_name, get_preset
+from vedit.presets import MATCH_SOURCE, ExportPreset, encode_args, export_preset_name, get_preset, verification
 from vedit.sound import duck_filter, voice_filters
 from vedit.timeline import MAX_SPEED, MIN_SPEED, Span, build_timeline, effective_transition, output_duration, segment_keeps, segment_speed
 from vedit.edit_spec import HERO_COLORS, HERO_FONTS, HERO_MAX_CHARS, HERO_MAX_SECONDS, HERO_MAX_WORDS, HERO_MIN_SECONDS, HERO_SIDES, hero_word_ok
@@ -60,8 +60,8 @@ CUTOUT_EDGE_TIGHTEST = 32
 
 # Stored pixels can be non-square (PAL, HDV). Shape decisions need square ones.
 SQUARE_PIXELS = "scale=iw*sar:ih,setsar=1"
-# The tape's own form: nothing after it sets a size, so its width has to stay even.
-SQUARE_TAPE = "scale='trunc(iw*sar/2)*2':ih,setsar=1"
+# The tape's own form: nothing after it sets a size, so both sides have to stay even for H.264.
+SQUARE_TAPE = "scale='trunc(iw*sar/2)*2':'trunc(ih/2)*2',setsar=1"
 
 
 def vf_fit(canvas: Canvas) -> str:
@@ -212,8 +212,13 @@ class Compiler:
         path = self.current
         out = self._next(label)
         argv = self._ffmpeg() + ["-i", str(path)]
-        if self.vf and self.has_video:
-            argv += ["-vf", _join(self.vf)]
+        # The original footage is converted here (HDR, interlace, bars, full range), so the
+        # tape this writes is already what every export tags it as. Later ops see an
+        # intermediate and never convert twice.
+        original = self.info if self.info and self.info.path == path.resolve() else None
+        video = _join([source_filters(original) if original else "", *self.vf])
+        if video and self.has_video:
+            argv += ["-vf", video]
         elif not self.has_video:
             argv += ["-vn"]
         if self.af and self.has_audio:
@@ -256,6 +261,8 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
     if not root.is_absolute():
         root = Path.cwd() / root
     compiler = Compiler(brief=brief, work_dir=root, canvas=brief.canvas)
+    # A new plan in this folder: nothing finished for an older plan may be skipped or reported.
+    reset_resume_state(root)
     primary = compiler.primary_source()
     missing = [f"{name}={path}" for name, path in brief.sources.items() if not Path(path).is_file()]
     if missing:
@@ -266,10 +273,10 @@ def compile_brief(brief: Brief, *, work_dir: Path | None = None) -> Compiler:
         if compiler.info is not None and compiler.info.has_video:
             # Black bars are measured once per file; select_ranges crops them before any reframe.
             compiler.info = with_borders(compiler.info)
-            # select_ranges squares anamorphic pixels and truncates the tape
-            # width to an even number before a cutout composites the matte.
-            square_width = compiler.info.square_width
-            compiler.source_size = (square_width - square_width % 2, compiler.info.display_height)
+            # select_ranges squares anamorphic pixels and truncates both sides of
+            # the tape to even numbers before a cutout composites the matte.
+            square_width, height = compiler.info.square_width, compiler.info.display_height
+            compiler.source_size = (square_width - square_width % 2, height - height % 2)
     if not compiler.canvas.fps:
         # A rate of 0 means "match the source": its own rate, snapped to a standard one, before any op counts frames.
         footage = compiler.info.fps if compiler.info is not None and compiler.info.has_video else None
@@ -350,7 +357,17 @@ def _master_argv(
     return argv
 
 
-def _verify_export(c: Compiler, dest: Path, *, ref: Path | None) -> None:
+def _verify_export(
+    c: Compiler,
+    dest: Path,
+    *,
+    ref: Path | None,
+    preset: ExportPreset | None = None,
+    has_video: bool = True,
+    has_audio: bool | None = None,
+    seconds: float | None = None,
+) -> None:
+    """Hold the finished file to the export it was asked for, not just to "has a stream"."""
     report = dest.with_suffix(dest.suffix + ".verify.json")
     argv = [
         sys.executable,
@@ -364,7 +381,15 @@ def _verify_export(c: Compiler, dest: Path, *, ref: Path | None) -> None:
     ]
     if ref is not None:
         argv += ["--ref", str(ref)]
-    c._pipeline.add(Step(f"verify_{dest.stem}", argv, [str(report)], f"verify {dest.name} (streams + loudness)"))
+    if preset is not None and preset.canvas.width and preset.canvas.height and has_video:
+        argv += ["--width", str(preset.canvas.width), "--height", str(preset.canvas.height)]
+    if has_audio is not None:
+        argv.append("--audio" if has_audio else "--no-audio")
+    if seconds is not None and seconds > 0:
+        argv += ["--seconds", f"{seconds:.6f}", "--tolerance", f"{max(0.5, 0.005 * seconds):.3f}"]
+    if preset is not None and not verification(preset)["color"]:
+        argv.append("--no-color")
+    c._pipeline.add(Step(f"verify_{dest.stem}", argv, [str(report)], f"verify {dest.name} (size, streams, length, loudness)"))
 
 
 def _flush_thumbs(c: Compiler) -> None:
@@ -387,23 +412,37 @@ def _trim(c: Compiler, op: dict[str, Any]) -> None:
     duration = op.get("duration")
     c.materialize("pre_trim")
     src = c.resolve_source(op.get("source"))
+    # The tape so far is an intermediate that exists only at render; a named file is probed now.
+    original = c.info if c.info and c.info.path == src.resolve() else None
+    if original is None and src.is_file():
+        original = probe(src)
+    has_video = original.has_video if original is not None else c.has_video
+    has_audio = original.has_audio if original is not None else c.has_audio
+    if not has_video and not has_audio:
+        raise CompileError("trim requires audio or video")
     out = c._next("trim")
     argv = c._ffmpeg() + ["-ss", f"{start:.3f}", "-i", str(src)]
     if duration is not None:
         argv += ["-t", f"{float(duration):.3f}"]
     elif end is not None:
         argv += ["-t", f"{max(0.01, float(end) - start):.3f}"]
-    argv += ["-vf", vf_fit(c.canvas), "-af", af_norm(c.canvas)] + c._encode() + [str(out)]
+    if has_video:
+        argv += ["-vf", _join([source_filters(original) if original is not None else "", vf_fit(c.canvas)])]
+    else:
+        argv += ["-vn"]
+    argv += ["-af", af_norm(c.canvas)] if has_audio else ["-an"]
+    argv += c._encode() + [str(out)]
     c._pipeline.add(Step("trim", argv, [str(out)], f"trim {start}→{end or duration}"))
+    length = original.duration if original is not None else c.duration
     c.set_current(out)
     if duration is not None:
         c.duration = float(duration)
     elif end is not None:
         c.duration = max(0.01, float(end) - start)
-    elif c.duration is not None:
-        c.duration = max(0.01, c.duration - start)
-    c.has_video = True
-    c.has_audio = True
+    elif length is not None:
+        c.duration = max(0.01, length - start)
+    c.has_video = has_video
+    c.has_audio = has_audio
 
 
 def _finite_number(value: Any, label: str) -> float:
@@ -685,6 +724,11 @@ def _cut_silence(c: Compiler, op: dict[str, Any]) -> None:
     c.sidecar["keeps"] = keeps
 
 
+def _clip_length(info: MediaInfo) -> float:
+    """How long a concat input plays: to its last frame, or for a sound-only file to the end of its sound."""
+    return info.duration if info.has_video else max(info.duration, info.file_duration)
+
+
 def _concat(c: Compiler, op: dict[str, Any]) -> None:
     raw_sources = op.get("sources") or op.get("clips")
     if not raw_sources:
@@ -705,21 +749,24 @@ def _concat(c: Compiler, op: dict[str, Any]) -> None:
     parts: list[str] = []
     for i, path in enumerate(paths):
         info = probe(path)
+        # A sound-only clip gets a blank picture for exactly its own length: an
+        # unbounded source would keep concat and xfade from ever reaching the end.
+        held = max(_clip_length(info), 0.05)
         if info.has_video:
-            parts.append(f"[{i}:v]{vf_fit(c.canvas)},setpts=PTS-STARTPTS[v{i}]")
+            parts.append(f"[{i}:v:{info.video_map}]{_join([source_filters(info), vf_fit(c.canvas)])},setpts=PTS-STARTPTS[v{i}]")
         else:
             parts.append(
-                f"color=c={c.canvas.background}:s={c.canvas.width}x{c.canvas.height}:r={c.canvas.fps},"
+                f"color=c={c.canvas.background}:s={c.canvas.width}x{c.canvas.height}:r={c.canvas.fps}:d={held:.3f},"
                 f"format={c.canvas.pixel_format}[v{i}]"
             )
         if info.has_audio:
-            parts.append(f"[{i}:a]{af_norm(c.canvas)},asetpts=PTS-STARTPTS[a{i}]")
+            parts.append(f"[{i}:a:{info.audio_map}]{af_norm(c.canvas)},asetpts=PTS-STARTPTS[a{i}]")
         else:
             parts.append(
-                f"anullsrc=r={c.canvas.sample_rate}:cl=stereo,atrim=0:{max(info.duration, 0.05):.3f}[a{i}]"
+                f"anullsrc=r={c.canvas.sample_rate}:cl=stereo,atrim=0:{held:.3f}[a{i}]"
             )
     if transition and n >= 2 and has_filter("xfade"):
-        durations = [probe(p).duration for p in paths]
+        durations = [_clip_length(probe(p)) for p in paths]
         acc = durations[0]
         last_v, last_a = "v0", "a0"
         for i in range(1, n):
@@ -741,7 +788,7 @@ def _concat(c: Compiler, op: dict[str, Any]) -> None:
     argv += c._encode() + [str(out)]
     c._pipeline.add(Step("concat", argv, [str(out)], desc))
     c.set_current(out)
-    total = sum(probe(p).duration for p in paths)
+    total = sum(_clip_length(probe(p)) for p in paths)
     if transition and n >= 2:
         total -= tdur * (n - 1)
     c.duration = total
@@ -1137,6 +1184,10 @@ def _replace_audio(c: Compiler, op: dict[str, Any]) -> None:
     c._pipeline.add(Step("replace_audio", argv, [str(out)], f"replace audio with {audio.name}"))
     c.set_current(out)
     c.has_audio = True
+    if audio.is_file() and c.duration is not None:
+        # -shortest: a sound shorter than the picture ends the tape where it ends.
+        track = probe(audio)
+        c.duration = min(c.duration, max(track.duration, track.file_duration)) or c.duration
     _ = af
 
 
@@ -1966,7 +2017,11 @@ def _export(c: Compiler, op: dict[str, Any]) -> None:
         )
         c._pipeline.add(Step(f"export_{preset.name}", argv, [str(dest)], preset.description))
         c.finals.append(dest)
-        _verify_export(c, dest, ref=src if i == 0 else first_dest)
+        # Trimming pauses sets the length during the render, so the plan cannot promise one then.
+        promised = None if "keeps" in c.sidecar else (ending if ending is not None else c.duration)
+        _verify_export(c, dest, ref=src if i == 0 else first_dest, preset=preset,
+                       has_video=has_video and bool(preset.video_codec),
+                       has_audio=has_audio and bool(preset.audio_codec), seconds=promised)
         if i == 0:
             first_dest = dest
             c.set_current(dest)

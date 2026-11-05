@@ -6,10 +6,13 @@ import base64
 import copy
 import io
 import json
+import subprocess
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from threading import Barrier, Event
+from threading import Barrier, Event, Thread
 from typing import Any
 from urllib.error import HTTPError, URLError
 
@@ -289,8 +292,9 @@ def test_sam_boxes_become_normalized_timestamped_geometry(
     assert points[0]["time"] == pytest.approx(0.0)
     assert points[0]["x"] == pytest.approx(0.1)
     assert points[0]["y"] == pytest.approx(0.2)
-    assert points[0]["width"] == pytest.approx(0.2)
-    assert points[0]["height"] == pytest.approx(0.4)
+    # x2 and y2 are inclusive: x1=10, x2=30 is 21 columns of a 100-wide frame.
+    assert points[0]["width"] == pytest.approx(0.21)
+    assert points[0]["height"] == pytest.approx(0.41)
     assert any(point["time"] == pytest.approx(1.0) and point["x"] == pytest.approx(0.2) for point in points)
     assert points[-1]["time"] == pytest.approx(299 / 30, abs=1e-6)
     assert http.payload("/responses")["model"] == "sam-3.1"
@@ -1050,3 +1054,108 @@ def test_translation_is_offered_only_when_meta_is(enabled: None, monkeypatch: py
     assert meta.capabilities()["features"]["translate"] is True
     monkeypatch.delenv("VEDIT_META_ENABLED")
     assert meta.capabilities()["features"]["translate"] is False
+
+
+# --- Review fixes: inclusive SAM boxes, merged cleanup notices, $0 local calls, the ledger lock ---
+
+def test_a_one_pixel_sam_box_is_valid_and_a_box_on_the_frame_edge_is_not() -> None:
+    # x2 and y2 are inclusive, so a one-pixel detection has x1 == x2, and the last valid column is width - 1.
+    one = "<0f>0<|box;x1=5;y1=7;x2=5;y2=7;w=100;h=50|><|mask;x=0;y=0;data=1,1,~a|>"
+    [record] = list(meta._sam_records(one, fps=30, duration=1.0))
+    assert record["point"]["width"] == pytest.approx(0.01) and record["point"]["height"] == pytest.approx(0.02)
+    assert record["box"] == (5, 7, 6, 8)
+    last = "<0f>0<|box;x1=90;y1=40;x2=99;y2=49;w=100;h=50|><|mask;x=0;y=0;data=1,1,~a|>"
+    assert list(meta._sam_records(last, fps=30, duration=1.0))[0]["box"] == (90, 40, 100, 50)
+    for outside in ("x1=90;y1=40;x2=100;y2=49", "x1=90;y1=40;x2=99;y2=50", "x1=6;y1=7;x2=5;y2=7"):
+        with pytest.raises(meta.MetaError, match="invalid subject coordinates"):
+            list(meta._sam_records(f"<0f>0<|box;{outside};w=100;h=50|><|mask;x=0;y=0;data=1,1,~a|>", fps=30, duration=1.0))
+
+
+def test_the_real_bowl_fixture_box_still_parses() -> None:
+    line = "<0f>0<|box;x1=390;y1=90;x2=569;y2=539;w=960;h=540;c=0.9|><|mask;x=0;y=0;data=1,1,~a|>"
+    [record] = list(meta._sam_records(line, fps=30, duration=1.0))
+    assert record["point"]["height"] == pytest.approx(450 / 540) and record["box"] == (390, 90, 570, 540)
+
+
+def test_every_upload_meta_kept_is_named_in_the_cleanup_notice(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    uploads = iter(["file-first", "file-second", "file-third"])
+
+    def request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if method == "POST" and path == "/files":
+            return {"id": next(uploads), "status": "uploaded"}
+        raise meta.MetaError("Meta is unavailable", status=500)
+
+    monkeypatch.setattr(meta, "_request", request)
+    work = tmp_path / "work"
+    still = tmp_path / "still.png"
+    still.write_bytes(PNG)
+    notices: list[str] = []
+    for _ in range(3):
+        with meta._uploaded(still, work, notices):
+            pass
+    notice = json.loads((work / "meta-cleanup.json").read_text())
+    assert notice["file_ids"] == ["file-first", "file-second", "file-third"], "an earlier failed delete is never overwritten"
+    assert notice["file_id"] == "file-third" and "delete" in notice["warning"].lower() and len(notices) == 3
+
+
+def test_a_cleanup_notice_that_cannot_be_written_never_hides_the_call_that_failed(enabled: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(meta, "_request", lambda method, path, **kwargs: {"id": "file-abc123"} if path == "/files" else (_ for _ in ()).throw(meta.MetaError("gone", status=500)))
+    monkeypatch.setattr(meta, "_write_json", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    still = tmp_path / "still.png"
+    still.write_bytes(PNG)
+    with pytest.raises(meta.MetaError, match="the real failure"):
+        with meta._uploaded(still, tmp_path / "work"):
+            raise meta.MetaError("the real failure")
+
+
+def test_a_free_local_call_is_never_refused_by_a_spent_budget(tmp_path: Path) -> None:
+    work = tmp_path / "meta"
+    paid = meta._reserve(work, "story", "muse-spark-1.3", 0.4, 0.5)
+    # Meta billed more than the cap allows (an overrun): the ledger now exceeds the budget.
+    meta._ledger(work, {"id": paid, "status": "completed", "usage": {"cost_usd": 0.6}})
+    with pytest.raises(meta.MetaError, match="short"):
+        meta._reserve(work, "patch", "muse-spark-1.3", 0.001, 0.5)
+    local = meta._reserve(work, "patch", "meta-models/Muse-Glimmer-30B", 0.0, 0.5, runs_on="local", runtime="llama.cpp", weights="g.gguf")
+    calls = json.loads((work / "meta-usage.json").read_text())["calls"]
+    assert [call["id"] for call in calls] == [paid, local] and calls[1]["reserved_usd"] == 0
+
+
+def test_the_ledger_lock_is_reentrant_and_released_between_threads(tmp_path: Path) -> None:
+    work = tmp_path / "meta"
+    order: list[str] = []
+
+    def hold(name: str) -> None:
+        with meta._ledger_locked(work):
+            order.append(name + ":in")
+            with meta._ledger_locked(work):  # _reserve writes through _ledger while holding the lock
+                assert meta._LEDGER_HOLDS[work.resolve()][0] == 2
+            time.sleep(0.05)
+            order.append(name + ":out")
+
+    threads = [Thread(target=hold, args=(name,)) for name in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert order in (["a:in", "a:out", "b:in", "b:out"], ["b:in", "b:out", "a:in", "a:out"]), "one holder at a time"
+    assert meta._LEDGER_HOLDS == {} and (work / "meta-usage.lock").is_file()
+
+
+@pytest.mark.skipif(meta.fcntl is None, reason="no flock on this platform")
+def test_a_reservation_waits_for_another_process_holding_the_ledger(tmp_path: Path) -> None:
+    work = tmp_path / "meta"
+    work.mkdir()
+    holder = subprocess.Popen(
+        [sys.executable, "-I", "-c",
+         "import fcntl, os, sys, time; fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600); fcntl.flock(fd, fcntl.LOCK_EX); "
+         "print('locked', flush=True); time.sleep(0.5); fcntl.flock(fd, fcntl.LOCK_UN)",
+         str(work / "meta-usage.lock")], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout and holder.stdout.readline().strip() == "locked"
+        started = time.monotonic()
+        ident = meta._reserve(work, "story", "muse-spark-1.3", 0.01, 0.5)
+        waited = time.monotonic() - started
+    finally:
+        holder.wait(timeout=5)
+    assert waited >= 0.3, f"the reservation went ahead while another process held the ledger ({waited:.2f}s)"
+    assert [call["id"] for call in json.loads((work / "meta-usage.json").read_text())["calls"]] == [ident]

@@ -37,6 +37,7 @@ import shutil
 import sys
 import threading
 import time
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -259,7 +260,8 @@ def identity(url: str | None = None) -> dict[str, Any]:
         if exc.code == 401:
             raise OpenWeightsError(f"The local model server at {base} rejected Briefcut's key. Restart it with: uv run python -m vedit.open_weights serve") from None
         raise OpenWeightsError(f"The local model server at {base} answered HTTP {exc.code} to /props. Is it llama-server, and has it finished loading?") from None
-    except (URLError, TimeoutError, ConnectionError, OSError):
+    except (URLError, TimeoutError, ConnectionError, OSError, HTTPException):
+        # HTTPException: a server that crashed mid-answer (IncompleteRead, BadStatusLine) is as good as down.
         raise _down(base) from None
     except (ValueError, UnicodeError):
         raise OpenWeightsError(f"The server at {base} is not a llama.cpp server.") from None
@@ -373,6 +375,9 @@ def structured(work_dir: Path, operation: str, *, name: str, schema: dict[str, A
             raise _down(base) from None
         except (TimeoutError, OSError):
             raise OpenWeightsError("The local Muse Glimmer server did not finish within VEDIT_PRIVATE_MODEL_TIMEOUT.") from None
+        except HTTPException:
+            # IncompleteRead, BadStatusLine, LineTooLong: llama-server crashed or truncated its answer.
+            raise OpenWeightsError("The local Muse Glimmer server closed the connection before it finished. Check its log; nothing was sent to Meta.") from None
         except (ValueError, UnicodeError):
             raise OpenWeightsError("The local Muse Glimmer server returned an unreadable response.") from None
         latency = time.time() - started

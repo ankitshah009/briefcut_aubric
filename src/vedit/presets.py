@@ -90,6 +90,17 @@ PRESETS: dict[str, ExportPreset] = {
         extra=BROADCAST_COLOR,
         description="Small square preview encode",
     ),
+    "web_preview_4x5": ExportPreset(
+        name="web_preview_4x5",
+        # 4:5 at about 540 wide; 540x675 would give H.264 an odd height, so the frame is 544x680.
+        canvas=Canvas(width=544, height=680, fps=30.0),
+        video_codec="libx264",
+        audio_codec="aac",
+        crf=28,
+        audio_bitrate="128k",
+        extra=BROADCAST_COLOR,
+        description="Small 4:5 portrait preview encode",
+    ),
     "podcast_audio": ExportPreset(
         name="podcast_audio",
         canvas=Canvas(width=0, height=0, fps=0.0, sample_rate=48000),
@@ -216,8 +227,13 @@ def resolve_hw(explicit: bool | None) -> bool:
     return sys.platform == "darwin" and has_encoder("h264_videotoolbox")
 
 
+def is_preview_preset(preset_name: str) -> bool:
+    """Every web_preview variant (16:9, 9:16, 1:1, 4:5) is a small proxy that wants CRF, not VideoToolbox's fixed q:v."""
+    return preset_name.startswith("web_preview")
+
+
 def video_encoder(hw: bool | None, *, preset_name: str = "") -> str:
-    use = resolve_hw(hw) and preset_name != "web_preview"
+    use = resolve_hw(hw) and not is_preview_preset(preset_name)
     if use and has_encoder("h264_videotoolbox"):
         return "h264_videotoolbox"
     return "libx264"

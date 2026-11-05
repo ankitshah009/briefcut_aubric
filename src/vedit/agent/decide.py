@@ -180,8 +180,31 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         cut=cut,
         has_music=has_music,
         canvas=canvas,
+        unused=_unused_inputs(shots, primary, sources, slideshow=slideshow),
     )
     return Decision(rationale=rationale, risks=risks, brief=brief)
+
+
+def _unused_inputs(
+    shots: tuple[SourceShot, ...],
+    primary: SourceShot,
+    sources: dict[str, str],
+    *,
+    slideshow: bool,
+) -> tuple[str, ...]:
+    """Inputs the ops never reach: a slideshow shows every image; any other cut edits the primary alone."""
+    used_paths = {primary.path}
+    for role in ("music", "logo"):
+        if role in sources:
+            used_paths.add(sources[role])
+    names: list[str] = []
+    for shot in shots:
+        if shot.name == primary.name or shot.name in ("music", "logo") or shot.path in used_paths:
+            continue
+        if slideshow and _kind(shot) == "image":
+            continue
+        names.append(shot.name)
+    return tuple(names)
 
 
 def _canvas(intent: Intent, contract: PlatformContract) -> Canvas:
@@ -434,9 +457,10 @@ def _silence_line(
             if shorts
             else "min_silence 0.45 seconds and pad 0.12 seconds"
         )
+        threshold = silence_threshold_db(primary.loudness_i)
         return (
             f"Cut silence is on (silence ratio {ratio} on a {dur} source), "
-            f"so the {contract.name} pass uses threshold -34 dB, {window}."
+            f"so the {contract.name} pass uses threshold {threshold:g} dB, {window}."
         )
     if not primary.has_audio:
         return (
@@ -499,8 +523,10 @@ def _caption_line(
     has_audio: bool,
 ) -> str:
     if captions:
+        language = settings.default_language()
+        spoken = "the detected language" if language == "auto" else language
         return (
-            f"Captions burn in as {style} in en because the {dur} primary has audio "
+            f"Captions burn in as {style} in {spoken} because the {dur} primary has audio "
             f"and captions were requested for {contract.name}."
         )
     if slideshow:
@@ -556,8 +582,12 @@ def _risks(
     cut: bool,
     has_music: bool,
     canvas: Canvas,
+    unused: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     risks: list[str] = []
+    if unused:
+        what = "the slideshow shows only the images" if slideshow else f"only the primary {primary.name} is edited"
+        risks.append(f"Ignored inputs: {', '.join(unused)} ({what}).")
     if intent.captions:
         risks.append("Captions were requested. Meta Voice Transcribe hears them, so they need a Meta key.")
     if cut and primary.silence_ratio is None:

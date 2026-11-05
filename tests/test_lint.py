@@ -205,11 +205,36 @@ def test_subject_in_frame_check_grades_sam_tracks():
     gappy = [box for box in steady if not 2 < box["time"] < 6]
     gap = subject_in_frame_check(gappy, duration=10, aspect="9:16", source_width=1280, source_height=720)
     assert not gap["passed"] and gap["at"] == 2.0 and "longest gap" in gap["note"]
-    # A subject wider than the vertical crop cannot be kept inside it.
+    # A subject wider than the vertical crop cannot be kept inside it, so the check says so.
     wide = [{"time": i / 10, "x": 0.0, "y": 0.3, "width": 0.98, "height": 0.3} for i in range(100)]
-    assert subject_in_frame_check(wide, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]  # centre is what must stay inside
+    cut_off = subject_in_frame_check(wide, duration=10, aspect="9:16", source_width=1280, source_height=720)
+    assert not cut_off["passed"] and cut_off["at"] == 0.0 and "inside the 9:16 crop in 0% of boxes" in cut_off["note"]
+    # A small subject at either edge still fits: the crop slides to it.
     edge = [{"time": i / 10, "x": 0.9 if i % 2 else 0.0, "y": 0.3, "width": 0.1, "height": 0.3} for i in range(100)]
     assert subject_in_frame_check(edge, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]
+    # One box of a hundred poking past the crop is within the 95% allowance; six are not.
+    mostly = [dict(box, width=0.5) if i < 1 else box for i, box in enumerate(steady)]
+    assert subject_in_frame_check(mostly, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]
+    often = [dict(box, width=0.5) if i < 6 else box for i, box in enumerate(steady)]
+    assert not subject_in_frame_check(often, duration=10, aspect="9:16", source_width=1280, source_height=720)["passed"]
+
+
+def test_subject_in_frame_coverage_counts_only_tracked_time():
+    from vedit.lint import subject_in_frame_check
+
+    # Dense for the first 2 s, then nothing: the track covers 2 s plus one allowed gap, not the whole cut.
+    early = [{"time": i / 10, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3} for i in range(21)]
+    sparse = subject_in_frame_check(early, duration=10, aspect="9:16", source_width=1280, source_height=720)
+    assert not sparse["passed"] and sparse["at"] == 2.0 and "21 tracked boxes cover 30% of 10.0 s" in sparse["note"]
+    # The same density across the cut is full coverage, and one 1.5 s hole costs only its excess over the allowed gap.
+    steady = [{"time": i / 10, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3} for i in range(100)]
+    assert "cover 100%" in subject_in_frame_check(steady, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+    holed = [box for box in steady if not 4.0 < box["time"] < 5.5]
+    hole = subject_in_frame_check(holed, duration=10, aspect="9:16", source_width=1280, source_height=720)
+    assert not hole["passed"] and "cover 95%" in hole["note"] and "longest gap 1.5 s" in hole["note"]
+    # Boxes past the end of the cut add nothing.
+    late = steady + [{"time": 12.0, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3}]
+    assert "101 tracked boxes cover 100%" in subject_in_frame_check(late, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
 
 
 def test_strict_lint_moves_a_model_cut_to_the_nearest_boundary_however_far() -> None:

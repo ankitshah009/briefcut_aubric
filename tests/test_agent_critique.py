@@ -124,3 +124,44 @@ def test_revise_brief_inserts_cut_and_captions_and_keeps_original_ops():
     assert "cut_silence" in names
     assert "captions" in names
     assert names[-1] == "export"
+
+
+def _cut(threshold: float) -> dict:
+    return {"op": "cut_silence", "threshold_db": threshold, "min_silence": 0.45, "pad": 0.12}
+
+
+def test_a_tighter_silence_cut_keeps_the_recording_relative_threshold():
+    brief = Brief(name="t", sources={"main": "/tmp/talk.mp4"}, ops=[_cut(-47.0), {"op": "export", "presets": ["shorts_9x16"]}], canvas=Canvas())
+    revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=True)
+    cut = revised.ops[0]
+    assert cut["min_silence"] == 0.25 and cut["pad"] == 0.08
+    assert cut["threshold_db"] == -44.0, "a quiet phone recording moves by 3 dB, not to a fixed -30"
+    assert notes == ("tightened silence cut (min_silence 0.25 s, pad 0.08 s, threshold -44 dB)",)
+    loud = Brief(name="t", sources={"main": "/tmp/talk.mp4"}, ops=[_cut(-27.0), {"op": "export"}], canvas=Canvas())
+    revised, _ = revise_brief(loud, _critique([_finding("duration_over")]), _intent(), has_audio=True)
+    assert revised.ops[0]["threshold_db"] == -26.0, "the cap holds"
+
+
+def test_a_silent_source_is_trimmed_instead_of_silence_cut():
+    brief = Brief(name="t", sources={"a": "/tmp/a.png", "b": "/tmp/b.png"},
+                  ops=[{"op": "slideshow", "images": ["a", "b"], "duration": 20}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=False)
+    names = [op["op"] for op in revised.ops]
+    assert names == ["slideshow", "trim", "export"]
+    assert revised.ops[1] == {"op": "trim", "start": 0, "end": 30}
+    assert notes == ("trimmed to max duration",)
+
+
+def test_an_added_silence_cut_comes_after_the_tape_op():
+    brief = Brief(name="t", sources={"a": "/tmp/a.mp4", "b": "/tmp/b.mp4"},
+                  ops=[{"op": "concat", "clips": ["a", "b"]}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=True)
+    assert [op["op"] for op in revised.ops] == ["concat", "cut_silence", "export"]
+    assert notes == ("added silence cut",)
+
+
+def test_revise_reports_nothing_when_the_brief_already_has_the_fix():
+    brief = Brief(name="t", sources={"main": "/tmp/talk.mp4"},
+                  ops=[{"op": "captions", "burn": True}, {"op": "loudnorm"}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    revised, notes = revise_brief(brief, _critique([_finding("captions_missing"), _finding("loudness")]), _intent())
+    assert revised.ops == brief.ops and notes == ()

@@ -185,8 +185,11 @@ def coerce_edit_value(field: EditField, value: Any, *, seconds: Any = None, text
         length = placed.get("duration", TEXT_DEFAULTS["duration"])
         if isinstance(length, bool) or not isinstance(length, (int, float)) or not math.isfinite(float(length)) or length <= 0:
             length = TEXT_DEFAULTS["duration"]
-        style = placed.get("style") if placed.get("style") in {row[0] for row in TEXT_STYLES} else TEXT_DEFAULTS["style"]
-        position = placed.get("position") if placed.get("position") in TEXT_POSITIONS else TEXT_DEFAULTS["position"]
+        # A list or dict here is unhashable: test the type first, or one bad patch would crash a billed answer.
+        style = placed.get("style")
+        style = style if isinstance(style, str) and style in {row[0] for row in TEXT_STYLES} else TEXT_DEFAULTS["style"]
+        position = placed.get("position")
+        position = position if isinstance(position, str) and position in TEXT_POSITIONS else TEXT_DEFAULTS["position"]
         return {"text": " ".join(body.split()), "start": float(start), "duration": float(length), "style": style, "position": position}
     return None
 

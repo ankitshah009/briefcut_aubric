@@ -18,6 +18,7 @@ from urllib.request import ProxyHandler, build_opener
 
 from vedit import __version__
 from vedit.agent.loop import _session_dir, load_session, run_session
+from vedit.agent.tools import session_failure
 from vedit.media import plain_failure, trace
 from vedit.errors import BriefError, VeditError
 from vedit.project_media import MAX_SOURCE_BYTES, MediaProblem, inspect_media
@@ -141,6 +142,55 @@ def _form_bool(value: str | None, default: bool) -> bool:
     raise BriefError(f"expected true or false, got {value!r}")
 
 
+def _workspace_sessions() -> Path:
+    """The one folder a session may live in: ``vedit-sessions/`` under the workspace this server runs in."""
+    return (Path.cwd() / "vedit-sessions").resolve()
+
+
+def _confined_root(raw: str) -> Path:
+    """A client's ``root`` only when it is a session folder directly under the workspace.
+
+    The server writes session.json, brief.yaml and uploads into ``root``, so an
+    arbitrary absolute path from the page would let any script that reaches
+    loopback write into the person's home folder.
+    """
+    sessions = _workspace_sessions()
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        relative = path.resolve().relative_to(sessions)
+    except (OSError, ValueError) as exc:
+        raise BriefError(f"root must be a session folder under {sessions}") from exc
+    if len(relative.parts) != 1 or relative.parts[0] == "campaigns" or relative.parts[0].startswith("."):
+        raise BriefError(f"root must be a session folder directly under {sessions}")
+    return sessions / relative.parts[0]
+
+
+def _confined_paths(raw: list[str]) -> list[str]:
+    """Media paths only when each is an uploaded file at ``<workspace>/vedit-sessions/<folder>/inbox/<file>``.
+
+    Mirrors ``CampaignManager._source``: the page names uploads, never files
+    elsewhere on this machine.
+    """
+    sessions = _workspace_sessions()
+    accepted = []
+    for item in raw:
+        if not item or not Path(item).is_absolute():
+            raise BriefError("Upload the clip in Studio first; paths must come from /api/upload.")
+        try:
+            path = Path(item).resolve()
+            relative = path.relative_to(sessions)
+        except (OSError, ValueError) as exc:
+            raise BriefError("Use a clip uploaded through Studio.") from exc
+        if len(relative.parts) != 3 or relative.parts[1] != "inbox" or relative.parts[0] == "campaigns" or path.name.startswith("."):
+            raise BriefError("Use a clip uploaded through Studio.")
+        if not path.is_file():
+            raise BriefError("This clip is no longer in the workspace. Upload it again.")
+        accepted.append(str(path))
+    return accepted
+
+
 def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str], bool, bool, Path | None]:
     if not isinstance(payload, dict):
         raise BriefError("JSON object required")
@@ -153,7 +203,7 @@ def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str
         raw_paths = payload["paths"]
         if not isinstance(raw_paths, list) or any(not isinstance(item, str) for item in raw_paths):
             raise BriefError("paths must be a list of strings")
-        paths = list(raw_paths)
+        paths = _confined_paths(list(raw_paths))
     body_render = _bool_field(payload, "render", False)
     analyze = _bool_field(payload, "analyze", False)
     do_render = body_render if force_render is None else force_render
@@ -162,7 +212,7 @@ def _run_args(payload: Any, *, force_render: bool | None) -> tuple[str, list[str
     elif isinstance(payload["root"], str):
         if not payload["root"].strip():
             raise BriefError("root must be a non-empty string or null")
-        root = Path(payload["root"])
+        root = _confined_root(payload["root"])
     else:
         raise BriefError("root must be a string or null")
     return goal, paths, do_render, analyze, root
@@ -180,7 +230,7 @@ def _session_root(query: str) -> Path:
     path = Path(values[0])
     if not path.is_absolute():
         raise BriefError("root must be an absolute path")
-    return path
+    return _confined_root(values[0])
 
 
 
@@ -778,7 +828,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         except (VeditError, FileNotFoundError) as exc:
             self._send_json(400, {"ok": False, "error": _client_error(exc)})
             return
-        self._send_json(200, {"ok": True, "session": session.to_dict()})
+        payload = session.to_dict()
+        if payload.get("status") == "failed":
+            # The session is saved and returned, but a failed plan or render is not a 200.
+            self._send_json(422, {"ok": False, "error": session_failure(payload), "session": payload})
+            return
+        self._send_json(200, {"ok": True, "session": payload})
 
     def _read_multipart(
         self, force_render: bool | None
@@ -801,9 +856,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         do_render = _form_bool(fields.get("render"), False) if force_render is None else force_render
         analyze = _form_bool(fields.get("analyze"), False)
         if fields.get("root", "").strip():
-            root = Path(fields["root"]).expanduser()
-            if not root.is_absolute():
-                root = (Path.cwd() / root).resolve()
+            root = _confined_root(fields["root"])
         else:
             root = _session_dir(None, goal)
         chosen = files.get("clip") or files.get("file")
@@ -812,7 +865,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             stored = _store_clip(root, chosen[0], chosen[1])
             paths = [str(stored)]
         elif fields.get("paths", "").strip():
-            paths = [line.strip() for line in fields["paths"].splitlines() if line.strip()]
+            paths = _confined_paths([line.strip() for line in fields["paths"].splitlines() if line.strip()])
         return goal, paths, do_render, analyze, root
 
     def _read_json(self) -> tuple[bool, Any]:

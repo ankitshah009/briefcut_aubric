@@ -15,6 +15,7 @@ import queue
 import re
 import shutil
 import sqlite3
+import sys
 import threading
 import time
 import uuid
@@ -52,7 +53,7 @@ from vedit.timeline import MAX_SPEED, MIN_SPEED, build_timeline, output_duration
 
 _ACTIVE = {"queued", "analyzing", "rendering"}
 _ASPECTS = {"9:16": "shorts_9x16", "16:9": "youtube_1080p", "1:1": "square_1x1", "4:5": "portrait_4x5"}
-_REVIEW_PRESETS = {"9:16": "web_preview_9x16", "16:9": "web_preview", "1:1": "web_preview_1x1"}
+_REVIEW_PRESETS = {"9:16": "web_preview_9x16", "16:9": "web_preview", "1:1": "web_preview_1x1", "4:5": "web_preview_4x5"}
 _META_OPERATIONS = ("story", "tracking", "cover", "transcribe", "review", "patch", "translate")
 _RENDER_OPERATIONS = ("tracking", "transcribe", "cover", "review")
 _CAPTION_PROVIDERS = {"local", "meta"}
@@ -87,6 +88,14 @@ class CampaignError(Exception):
 
 class _Cancelled(Exception):
     pass
+
+
+def _check_reading_time(scenes: list[str]) -> list[float]:
+    """How long each scene of a script stays on screen, refused when the whole runs past the story limit."""
+    lengths = [reading_seconds(text) for text in scenes]
+    if sum(lengths) > _MAX_STORY_SECONDS:
+        raise CampaignError(f"The script takes {sum(lengths):.0f} seconds to read. Keep a script under {_MAX_STORY_SECONDS} seconds.")
+    return lengths
 
 
 def _now() -> str:
@@ -1158,8 +1167,11 @@ class CampaignManager:
         aspect = value.get("aspect", "9:16")
         if not isinstance(aspect, str) or aspect not in _ASPECTS:
             raise CampaignError("Choose 9:16, 16:9, or 1:1 as the frame shape.")
+        renders = _boolean(value, "auto_render", True)
         with self._lock, self._connect() as connection:
             parent = self._load(connection, ident)
+            if parent["request"].get("script"):
+                raise CampaignError("Shorts cut a footage story, not a script video.", 409)
             if not parent.get("plan") or not parent.get("source"):
                 raise CampaignError("Wait for the story plan before making shorts.", 409)
             request = parent["request"]
@@ -1178,18 +1190,26 @@ class CampaignManager:
             family = uuid.uuid4().hex
             members = [uuid.uuid4().hex for _ in range(count)]
             rows = [{"id": member, "role": "short", "index": index, "title": f"Short {index}"} for index, member in enumerate(members, 1)]
+            home = {"id": ident, "role": "source", "index": 0, "title": parent["plan"].get("title") or "Original story"}
+            # The children exist before the parent names them, so a failure part way (the queue filling
+            # between the check above and the third insert) never leaves phantom family rows or orphan shorts.
+            jobs = []
+            try:
+                for index, member in enumerate(members, 1):
+                    short = {"parent": ident, "family": family, "index": index, "count": count, "brief": request["goal"]}
+                    copied = dict(json.loads(_json(request)), goal=f"{request['goal']} This is short {index} of {count}: one moment with its own hook.",
+                                  target_duration=round(each, 3), aspect=aspect, budget_usd=budget, effect=None, generate_cover=False, auto_refine=0,
+                                  auto_render=renders, short=short)
+                    jobs.append(self._add_job(copied, f"{family}:{index}", ident=member, extras={"family": [home] + [row for row in rows if row["id"] != member]}))
+            except Exception:
+                for made in jobs:
+                    with suppress(CampaignError):
+                        self.cancel(made["id"])
+                raise
+            parent = self._load(connection, ident)
             parent["family"] = list(parent.get("family") or []) + rows
             parent["updated_at"] = _now()
             self._save(connection, parent)
-        renders = _boolean(value, "auto_render", True)
-        home = {"id": ident, "role": "source", "index": 0, "title": parent["plan"].get("title") or "Original story"}
-        jobs = []
-        for index, member in enumerate(members, 1):
-            short = {"parent": ident, "family": family, "index": index, "count": count, "brief": request["goal"]}
-            copied = dict(json.loads(_json(request)), goal=f"{request['goal']} This is short {index} of {count}: one moment with its own hook.",
-                          target_duration=round(each, 3), aspect=aspect, budget_usd=budget, effect=None, generate_cover=False, auto_refine=0,
-                          auto_render=renders, short=short)
-            jobs.append(self._add_job(copied, f"{family}:{index}", ident=member, extras={"family": [home] + [row for row in rows if row["id"] != member]}))
         return jobs
 
     def _used_ranges(self, job: dict[str, Any]) -> list[list[float]]:
@@ -1471,6 +1491,7 @@ class CampaignManager:
             raise CampaignError("Meta is not enabled. Add your Meta API key and allow Meta calls in Settings, then try again.", 409)
         if review and not ready:
             raise CampaignError("Meta is not enabled. Add your Meta API key and allow Meta calls in Settings, or turn the review off.", 409)
+        _check_reading_time(scenes)
         needed = 0.0 if pictures else len(scenes) * IMAGE_PRICE_USD
         if needed > budget:
             raise CampaignError(f"{len(scenes)} scenes need ${needed:.2f} for pictures, which is more than the ${budget:.2f} budget. Raise it or shorten the script.")
@@ -1492,6 +1513,9 @@ class CampaignManager:
         root, script = self.root / ident, request["script"]
         scenes = script["scenes"]
         canvas = get_preset(_ASPECTS[request["aspect"]]).canvas
+        # Each scene holds for as long as its words take to read. Too long a script is refused
+        # here, before any picture is generated and paid for.
+        lengths = _check_reading_time(scenes)
         self._update(ident, status="analyzing", stage="scripting", progress=0.04, message="Choosing a picture for each scene.")
         titles = [""] * len(scenes)
         prompts: list[str | None] = [None] * len(scenes)
@@ -1510,10 +1534,6 @@ class CampaignManager:
                 self._update(ident, stage="imagining", progress=0.08 + 0.35 * index / len(scenes), message=f"Generating the picture for scene {index + 1} of {len(scenes)}.")
                 image = meta.generate_image(prompt=scene["prompt"], size=IMAGE_SIZES[request["aspect"]], work_dir=root / "meta", budget_usd=request["budget_usd"])
                 pictures.append(Path(image["path"]))
-        # Each scene holds for as long as its words take to read.
-        lengths = [reading_seconds(text) for text in scenes]
-        if sum(lengths) > _MAX_STORY_SECONDS:
-            raise CampaignError(f"The script takes {sum(lengths):.0f} seconds to read. Keep a script under {_MAX_STORY_SECONDS} seconds.")
         inbox = self.sessions / f"script-{ident}" / "inbox"
         inbox.mkdir(parents=True, exist_ok=True)
         clips = []
@@ -1815,6 +1835,10 @@ class CampaignManager:
                     except CampaignError:
                         # Deleted after being cancelled, while it still sat in the queue.
                         pass
+                    except Exception as exc:  # noqa: BLE001 - the worker outlives any one job
+                        # A database lock or an unreadable ledger must not end the only worker,
+                        # or every later job would wait in the queue forever while Studio keeps accepting them.
+                        print(f"vedit-campaigns: job {ident} stopped with {type(exc).__name__}: {exc}", file=sys.stderr)
                 finally:
                     self._queue.task_done()
         finally:

@@ -31,7 +31,7 @@ EMPHASIS_COLOR = "#3CE88C"  # an accent apart from the spoken-word highlight, so
 ASSET_ID = re.compile(r"^[a-f0-9]{8,32}$")
 CUE_KEY = re.compile(r"\d{1,8}")
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
-LANGUAGE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$")
+LANGUAGE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$")  # en, pt-BR, es-419, zh-Hant-TW; the same tags emphasis accepts
 
 LOOKS = (
     ("none", "Original", "Keep the footage as shot."),

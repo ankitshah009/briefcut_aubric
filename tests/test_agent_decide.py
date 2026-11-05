@@ -231,3 +231,30 @@ def test_a_quiet_recording_cuts_silence_at_its_own_level() -> None:
     quiet = replace(shot, loudness_i=-31.0)
     ops = _ops(decide(intent, Inventory(shots=(quiet,), primary="main", notes=())))
     assert _op(ops, "cut_silence")["threshold_db"] == -47.0
+
+
+def test_the_rationale_names_the_real_threshold_and_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+
+    shot, intent = _talk_short()
+    monkeypatch.setattr("vedit.agent.decide.settings.default_language", lambda: "es")
+    decision = decide(intent, Inventory(shots=(replace(shot, loudness_i=-32.0),), primary="main", notes=()))
+    text = " ".join(decision.rationale)
+    assert "threshold -48 dB" in text and "threshold -34 dB" not in text
+    assert " in es " in text and " in en " not in text
+    monkeypatch.setattr("vedit.agent.decide.settings.default_language", lambda: "auto")
+    text = " ".join(decide(intent, Inventory(shots=(shot,), primary="main", notes=())).rationale)
+    assert "threshold -34 dB" in text and "in the detected language" in text
+
+
+def test_unused_inputs_are_named_as_a_risk() -> None:
+    from dataclasses import replace
+
+    shot, intent = _talk_short()
+    broll = replace(shot, name="broll1", path="/tmp/broll.mp4")
+    picture = _image("image1", "/tmp/picture.png")
+    bed = replace(shot, name="music", path="/tmp/bed.mp3", kind="audio", has_video=False, width=0, height=0)
+    decision = decide(intent, Inventory(shots=(shot, broll, picture, bed), primary="main", notes=()))
+    assert any(risk.startswith("Ignored inputs: broll1, image1 (only the primary main is edited)") for risk in decision.risks), decision.risks
+    alone = decide(intent, Inventory(shots=(shot,), primary="main", notes=()))
+    assert not any(risk.startswith("Ignored inputs") for risk in alone.risks)

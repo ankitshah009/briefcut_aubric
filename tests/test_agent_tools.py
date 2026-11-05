@@ -86,3 +86,57 @@ def test_serve_stdio_two_json_lines():
     assert first["result"]["platform"] == "podcast"
     assert first["result"]["captions"] is False
     assert second["ok"] is False
+
+
+def _failed_session(**fields):
+    return {
+        "status": "failed", "root": "/x", "revision": 0,
+        "critique": {"ok": False, "findings": [
+            {"code": "render_failed", "severity": "fail", "message": "step 'export' failed (exit 1)", "fix": "read project.json and the step stderr"},
+            {"code": "soft", "severity": "warn", "message": "the hook is late", "fix": "trim the open"},
+        ]},
+        **fields,
+    }
+
+
+def test_a_failed_render_or_plan_is_not_ok(monkeypatch):
+    from vedit.agent import tools
+
+    monkeypatch.setitem(tools._HANDLERS, "render", lambda args: _failed_session())
+    monkeypatch.setitem(tools._HANDLERS, "plan", lambda args: dict(_failed_session(), status="planned"))
+    out = dispatch("render", {"goal": "youtube talk", "paths": ["/x.mp4"]})
+    assert out["ok"] is False
+    assert out["result"]["status"] == "failed", "the session still comes back for inspection"
+    assert out["error"] == "step 'export' failed (exit 1) (read project.json and the step stderr)", "only failing findings make the error"
+    assert dispatch("plan", {"goal": "youtube talk"})["ok"] is True
+
+
+def test_a_failed_session_without_a_critique_still_says_why(monkeypatch):
+    from vedit.agent import tools
+
+    monkeypatch.setitem(tools._HANDLERS, "render", lambda args: {"status": "failed", "critique": None})
+    out = dispatch("render", {"goal": "youtube talk"})
+    assert out["ok"] is False and out["error"] == "The session failed and left no critique."
+
+
+def test_revise_is_clamped_to_zero_through_three(monkeypatch):
+    import vedit.agent.loop as loop
+    from vedit.agent import tools
+
+    seen = []
+
+    class _Session:
+        def to_dict(self):
+            return {"status": "verified"}
+
+    def fake_run_session(goal, paths, **kwargs):
+        seen.append(kwargs["max_revisions"])
+        return _Session()
+
+    monkeypatch.setattr(loop, "run_session", fake_run_session)
+    for asked, expected in [(None, 1), (0, 0), (2, 2), (3, 3), (50, tools.MAX_REVISIONS), (-4, 0), ("7", 3)]:
+        args = {"goal": "youtube talk", "paths": ["/x.mp4"]}
+        if asked is not None:
+            args["revise"] = asked
+        assert dispatch("render", args)["ok"] is True
+    assert seen == [1, 0, 2, 3, 3, 0, 3]

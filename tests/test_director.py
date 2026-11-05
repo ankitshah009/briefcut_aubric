@@ -157,6 +157,31 @@ def test_split_halves_move_and_disappear_together() -> None:
     assert [(s["start"], s["end"]) for s in fixed["segments"]] == [(0.0, 4.0), (7.0, 9.0), (9.0, 11.0), (14.0, 16.0)]
 
 
+def test_a_whole_moment_changes_speed_after_a_split() -> None:
+    plan = story((0.0, 4.0), (6.0, 12.0), (14.0, 16.0))
+    fixed, applied = apply_patches(plan, [{"op": "split", "segment": 2, "seconds": 9.0}, {"op": "set_speed", "segment": 2, "value": 2.0}], duration=20)
+    assert [(s["start"], s["end"], s.get("speed")) for s in fixed["segments"]] == [(0.0, 4.0, None), (6.0, 9.0, 2.0), (9.0, 12.0, 2.0), (14.0, 16.0, None)]
+    assert all("plays at 2× speed" in s["reason"] for s in fixed["segments"][1:3])
+    assert applied[1]["skipped"] is None and fixed["duration"] == pytest.approx(4 + 3 + 2)
+    # A source time still picks one half.
+    fixed, _ = apply_patches(plan, [{"op": "split", "segment": 2, "seconds": 9.0}, {"op": "set_speed", "segment": 2, "seconds": 10.0, "value": 2.0}], duration=20)
+    assert [s.get("speed") for s in fixed["segments"]] == [None, None, 2.0, None]
+    # When the whole moment would run the story past its limit, neither half keeps the speed.
+    long = story((0.0, 100.0), (110.0, 170.0))
+    fixed, applied = apply_patches(long, [{"op": "split", "segment": 1, "seconds": 50.0}, {"op": "set_speed", "segment": 1, "value": 0.5}], duration=200)
+    assert applied[1]["skipped"] == "would run past 180 s" and not any("speed" in s for s in fixed["segments"])
+    assert fixed["duration"] == 160.0
+
+
+def test_a_move_after_a_split_is_noted_on_the_first_half() -> None:
+    # Moment 2's second half spans 2.5 to 4 s, so a target moment number of 3 must not be read as a time inside it.
+    plan = story((0.0, 1.0), (1.5, 4.0), (5.0, 6.0))
+    fixed, applied = apply_patches(plan, [{"op": "split", "segment": 2, "seconds": 2.5}, {"op": "move_before", "segment": 2, "seconds": 3}], duration=20)
+    assert [(s["start"], s["end"]) for s in fixed["segments"]] == [(0.0, 1.0), (1.5, 2.5), (2.5, 4.0), (5.0, 6.0)]
+    assert applied[1]["skipped"] is None and applied[1]["before"] == {"start": 1.5, "end": 2.5}
+    assert "moved before moment 3" in fixed["segments"][1]["reason"] and "moved before" not in fixed["segments"][2]["reason"]
+
+
 def test_a_split_keeps_a_move_continuous() -> None:
     plan = story((0.0, 4.0))
     plan["segments"][0]["motion"] = {"from": {"scale": 1.0, "x": 0.5, "y": 0.5}, "to": {"scale": 2.0, "x": 0.5, "y": 0.5}}
@@ -224,6 +249,10 @@ def test_model_values_are_coerced_only_when_unambiguous() -> None:
     placed = director.coerce_edit_value(fields["texts"], "From raw oak", seconds=1.5, text={"duration": 2.0, "style": "title", "position": "top"})
     assert placed == {"text": "From raw oak", "start": 1.5, "duration": 2.0, "style": "title", "position": "top"}
     assert director.coerce_edit_value(fields["texts"], "   ") is None
+    # A model may send a list or a dict where a word belongs; the patch keeps the defaults instead of crashing a billed answer.
+    odd = director.coerce_edit_value(fields["texts"], "From raw oak", text={"style": ["title"], "position": {"top": True}})
+    assert odd["style"] == director.TEXT_DEFAULTS["style"] and odd["position"] == director.TEXT_DEFAULTS["position"]
+    assert director.coerce_edit_value(fields["texts"], "From raw oak", text={"style": None, "position": 3})["style"] == "label"
 
 
 # --- Provider boundary ----------------------------------------------------------
@@ -1090,3 +1119,61 @@ def test_routes_for_find_shorts_and_script(server: int, tmp_path: Path, monkeypa
     status, caps = call(server, "GET", "/api/capabilities")
     assert caps["director"]["auto_refine_rounds"] == 3 and "set_speed" in caps["director"]["patch_ops"] and "look.preset" in caps["director"]["edit_paths"]
     assert {"narration", "voices", "default_voice", "reason", "generates_images"} <= set(caps["script"])
+
+
+def test_shorts_leave_nothing_behind_when_a_child_cannot_be_queued(manager: CampaignManager, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ident = planned_story(manager, clip)
+    original = manager._add_job
+    calls: list[str] = []
+
+    def flaky(request: dict[str, Any], key: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(key)
+        if len(calls) == 2:
+            raise CampaignError("The edit queue is full. Wait for a job to finish, then try again.", 429)
+        return original(request, key, **kwargs)
+
+    monkeypatch.setattr(manager, "_add_job", flaky)
+    with pytest.raises(CampaignError, match="queue is full"):
+        manager.shorts(ident, {"count": 2, "auto_render": False})
+    parent = manager.get(ident)
+    assert not parent.get("family"), "no phantom family rows"
+    orphans = [job for job in manager.list() if job["id"] != ident]
+    assert [job["status"] for job in orphans] == ["cancelled"], "the short made before the failure does not sit in the queue spending budget"
+    monkeypatch.setattr(manager, "_add_job", original)
+    shorts = manager.shorts(ident, {"count": 2, "auto_render": False})
+    assert [short["status"] for short in shorts] == ["queued", "queued"]
+    assert [row["id"] for row in manager.get(ident)["family"]] == [short["id"] for short in shorts]
+
+
+def test_shorts_refuse_a_script_video(manager: CampaignManager, tmp_path: Path) -> None:
+    image = write_png(tmp_path / "vedit-sessions" / "mine" / "inbox" / "photo.png", "green")
+    job = manager.create_script({"script": "One thing.\n\nAnother thing.", "provider": "local", "images": [str(image)]})
+    manager.process(job["id"])
+    assert manager.get(job["id"])["status"] == "planned"
+    with pytest.raises(CampaignError, match="footage story, not a script") as refused:
+        manager.shorts(job["id"], {"count": 2})
+    assert refused.value.status == 409
+
+
+LONG_READ = "\n\n".join(["Go."] * 12 + [" ".join(["word"] * 400)])  # 412 words, under the word cap, 190 s to read
+
+
+def test_a_script_too_long_to_read_is_refused_before_any_picture_is_paid_for(manager: CampaignManager, tmp_path: Path, enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from vedit.campaign import _MAX_STORY_SECONDS
+
+    scenes = director.split_script(LONG_READ)
+    assert director.count_words(LONG_READ) <= director.MAX_SCRIPT_WORDS and sum(director.reading_seconds(s) for s in scenes) > _MAX_STORY_SECONDS
+    calls = script_answers(monkeypatch, tmp_path, len(scenes))
+    with pytest.raises(CampaignError, match="seconds to read"):
+        manager.create_script({"script": LONG_READ, "aspect": "9:16", "budget_usd": 5})
+    assert calls["images"] == [] and manager.list() == []
+    # The worker checks again before the image branch, so an older queued job is refused before Muse Image runs.
+    monkeypatch.setattr(meta, "script_prompts", lambda *a, **k: pytest.fail("prompts were written for a script that cannot be made"))
+    request = {"paths": [], "goal": "g", "provider": "meta", "target_duration": _MAX_STORY_SECONDS, "aspect": "9:16", "captions": True, "caption_provider": "local",
+               "language": "en", "subject": "", "budget_usd": 5, "generate_cover": False, "effect": None, "review": False, "auto_refine": 0, "template": "none",
+               "edit": default_edit(), "script": {"text": LONG_READ, "scenes": scenes, "voice": None, "images": []}}
+    job = manager._add_job(request, "long", extras={"_action": "script"})
+    manager.process(job["id"])
+    failed = manager.get(job["id"])
+    assert failed["status"] == "failed" and "seconds to read" in failed["error"]
+    assert calls["images"] == [] and failed["budget"]["reserved_usd"] == 0

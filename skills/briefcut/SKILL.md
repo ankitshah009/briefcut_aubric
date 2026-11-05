@@ -37,7 +37,9 @@ manual install registers the server with `claude mcp add` or the repository's
   `MODEL_API_KEY` with `VEDIT_META_ENABLED=1`). Do not write keys or change
   settings yourself.
 - Projects live in `<workspace>/vedit-sessions/`. The workspace is
-  `VEDIT_WORKSPACE` when set, otherwise the folder the server started in.
+  `VEDIT_WORKSPACE` when set, otherwise the workspace saved in Studio Settings, otherwise
+  the desktop default (`~/Library/Application Support/Vedit` on macOS, `~/.local/share/briefcut`
+  elsewhere), so MCP projects appear in Studio's library and never land in the agent's folder.
 - One process at a time holds a workspace. The error "Another Studio is
   already processing this workspace" means Studio, the Mac app, or another
   agent session has it. Tell the user. They can close that one, or restart

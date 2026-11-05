@@ -20,7 +20,7 @@ class Edit:
         self._canvas = canvas or Canvas()
         self._presets: list[str] = []
         self._hw = None
-        self._crf = 18
+        self._crf: int | None = None  # None: each export preset keeps its own CRF
         self._work_dir: Path | None = None
         if source is not None:
             path = Path(source).expanduser().resolve()
@@ -130,7 +130,9 @@ class Edit:
     def title(self, text: str, **kwargs: Any) -> Self:
         return self._op("title", text=text, **kwargs)
 
-    def captions(self, *, burn: bool = True, language: str = "en", style: str = "lower-third") -> Self:
+    def captions(self, *, burn: bool = True, language: str | None = None, style: str = "lower-third") -> Self:
+        """Burn captions. With no ``language`` the op carries none, so the compiler
+        uses the saved default language (which may be ``auto``)."""
         return self._op("captions", burn=burn, language=language, style=style)
 
     def overlay(self, source: str, **kwargs: Any) -> Self:
@@ -232,9 +234,22 @@ class Edit:
         return compiler.finals
 
     def to(self, path: str | Path, *, preset: str = "youtube_1080p", dry_run: bool = False) -> Path:
+        """Render the tape to ``path``. The export is this call's alone: the tape and the
+        work dir are as they were afterwards, so a second ``to()`` writes its own file."""
         dest = Path(path)
-        self._ops.append({"op": "export", "path": str(dest), "preset": preset})
-        if self._work_dir is None and dest.parent and dest.parent != Path("."):
-            self._work_dir = dest.parent / f".vedit-{self._name}"
-        outputs = self.render(dry_run=dry_run)
-        return outputs[0] if outputs else dest
+        kept_work_dir = self._work_dir
+        work_dir = kept_work_dir
+        if work_dir is None and dest.parent and dest.parent != Path("."):
+            work_dir = dest.parent / f".vedit-{self._name}"
+        export = {"op": "export", "path": str(dest), "preset": preset}
+        self._ops.append(export)
+        try:
+            outputs = self.render(dry_run=dry_run, work_dir=work_dir)
+        finally:
+            self._ops = [op for op in self._ops if op is not export]
+            self._work_dir = kept_work_dir
+        wanted = dest.resolve()
+        for output in outputs:
+            if Path(output).resolve() == wanted or Path(output).name == dest.name:
+                return output
+        return dest
