@@ -397,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     hw.add_argument("--hw", dest="hw_flag", action="store_const", const=True)
     hw.add_argument("--no-hw", dest="hw_flag", action="store_const", const=False)
     p.set_defaults(hw_flag=None)
-    p.add_argument("--crf", type=int, default=18)
+    p.add_argument("--crf", type=int, default=None, help="override the preset's CRF; left out, the preset's own applies")
     p.add_argument("--video", action="store_true")
     p.add_argument("--audio", action="store_true")
     p.add_argument("--fade-out", type=float, default=0.0)
@@ -444,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             lra=args.lra,
             preset=args.preset,
             hw=args.hw_flag,
-            crf=int(args.crf),
+            crf=args.crf,
             has_video=bool(args.video),
             has_audio=bool(args.audio),
             fade_out=float(args.fade_out),
@@ -527,12 +527,15 @@ def apply_encode(
     lra: float = 11.0,
     preset: str = "youtube_1080p",
     hw: bool | None = None,
-    crf: int = 18,
+    crf: int | None = None,
     has_video: bool = True,
     has_audio: bool = True,
     fade_out: float = 0.0,
 ) -> None:
-    """One master encode: optional pending filters + two-pass loudnorm + preset."""
+    """One master encode: optional pending filters + two-pass loudnorm + preset.
+
+    ``crf`` left as None lets ``encode_args`` use the preset's own quality.
+    """
     from vedit.media import probe
     from vedit.presets import encode_args, get_preset
 

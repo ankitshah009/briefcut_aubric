@@ -320,9 +320,9 @@ def _master_argv(
         str(dest),
         "--preset",
         preset_name,
-        "--crf",
-        str(c.brief.crf),
     ]
+    if c.brief.crf is not None:
+        argv += ["--crf", str(c.brief.crf)]
     if vf:
         argv += ["--vf", vf]
     if af:

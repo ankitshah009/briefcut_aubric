@@ -78,7 +78,8 @@ class Brief:
     output: str | None = None
     presets: list[str] = field(default_factory=list)
     hw: bool | None = None
-    crf: int = 18
+    # None means each export preset's own CRF; a number overrides every export.
+    crf: int | None = None
     work_dir: str | None = None
 
     def source_path(self, key: str, *, base: Path | None = None) -> Path:
@@ -144,7 +145,7 @@ def brief_from_mapping(data: dict[str, Any], *, origin: Path | None = None) -> B
         output=str(data["output"]) if data.get("output") else None,
         presets=[str(p) for p in presets],
         hw=parse_hw(data["hw"]) if "hw" in data else None,
-        crf=int(data.get("crf", 18)),
+        crf=int(data["crf"]) if data.get("crf") is not None else None,
         work_dir=str(data["work_dir"]) if data.get("work_dir") else None,
     )
 
