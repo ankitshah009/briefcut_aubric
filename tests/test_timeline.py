@@ -64,8 +64,16 @@ def test_map_interval_reports_each_piece_of_a_cut_up_range() -> None:
 
 def test_cues_with_words_lose_the_words_that_were_cut() -> None:
     spans = build_timeline([{"start": 0, "end": 3, "keep": [[0, 1], [1.5, 3]]}])
-    cue = {"start": 0, "end": 3, "text": "well um okay", "words": [
-        {"start": 0.2, "end": 0.8, "text": "well"}, {"start": 1.1, "end": 1.4, "text": "um"}, {"start": 1.6, "end": 2.5, "text": "okay"}]}
+    cue = {
+        "start": 0,
+        "end": 3,
+        "text": "well um okay",
+        "words": [
+            {"start": 0.2, "end": 0.8, "text": "well"},
+            {"start": 1.1, "end": 1.4, "text": "um"},
+            {"start": 1.6, "end": 2.5, "text": "okay"},
+        ],
+    }
     moved = map_cues([cue], spans)
     assert [item["text"] for item in moved] == ["well okay"]
     assert moved[0]["start"] == pytest.approx(0.2) and moved[0]["end"] == pytest.approx(2.0)
@@ -92,9 +100,13 @@ def test_pause_removal_keeps_a_breath_and_never_blanks_a_silent_moment() -> None
 
 
 def test_filler_removal_only_touches_what_was_heard() -> None:
-    words = [{"start": 0.0, "end": 0.3, "text": "So"}, {"start": 0.4, "end": 0.7, "text": "um,"},
-             {"start": 0.8, "end": 1.0, "text": "the"}, {"start": 1.05, "end": 1.2, "text": "the"},
-             {"start": 1.3, "end": 1.6, "text": "shape"}]
+    words = [
+        {"start": 0.0, "end": 0.3, "text": "So"},
+        {"start": 0.4, "end": 0.7, "text": "um,"},
+        {"start": 0.8, "end": 1.0, "text": "the"},
+        {"start": 1.05, "end": 1.2, "text": "the"},
+        {"start": 1.3, "end": 1.6, "text": "shape"},
+    ]
     assert filler_removals(words, 0, 2) == [(0.38, 0.72), (0.78, 1.05)]
     assert filler_removals([{"start": 0, "end": 1, "text": "umbrella"}], 0, 2) == []
 
@@ -119,14 +131,24 @@ def test_plan_timeline_is_the_single_view_of_duration() -> None:
     view = plan_timeline(plan)
     assert view["transition_seconds"] == pytest.approx(0.5)
     assert view["duration"] == pytest.approx(5.5)
-    assert plan_timeline({"segments": plan["segments"], "edit": {"transition": {"type": "none", "seconds": 0.5}}})["duration"] == pytest.approx(6.0)
+    assert plan_timeline({"segments": plan["segments"], "edit": {"transition": {"type": "none", "seconds": 0.5}}})[
+        "duration"
+    ] == pytest.approx(6.0)
 
 
 def test_a_word_across_a_cut_stays_with_the_moment_it_starts_in() -> None:
     """Under a transition the next moment begins earlier on the output clock, so the word's end must come from its own moment."""
     spans = build_timeline([{"start": 0, "end": 2}, {"start": 4, "end": 6}], transition=0.5)
-    cue = {"start": 1.5, "end": 4.5, "text": "over the cut", "words": [
-        {"start": 1.5, "end": 1.8, "text": "over"}, {"start": 1.8, "end": 4.2, "text": "the"}, {"start": 4.2, "end": 4.5, "text": "cut"}]}
+    cue = {
+        "start": 1.5,
+        "end": 4.5,
+        "text": "over the cut",
+        "words": [
+            {"start": 1.5, "end": 1.8, "text": "over"},
+            {"start": 1.8, "end": 4.2, "text": "the"},
+            {"start": 4.2, "end": 4.5, "text": "cut"},
+        ],
+    }
     first, second = map_cues([cue], spans)
     assert first["text"] == "over the" and first["segment"] == 1 and first["end"] == pytest.approx(2.0)
     assert all(word["end"] >= word["start"] for word in first["words"])

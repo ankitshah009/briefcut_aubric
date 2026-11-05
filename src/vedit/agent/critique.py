@@ -8,7 +8,7 @@ from typing import Any
 
 from vedit.agent.model import Critique, Finding, Intent
 from vedit.agent.policy import PlatformContract, contract_for
-from vedit.errors import ProbeError
+from vedit.errors import ProbeError, VeditError
 from vedit.media import probe
 
 
@@ -220,10 +220,7 @@ def _duration_finding(intent: Intent, duration: float | None) -> Finding | None:
     return Finding(
         code="duration_over",
         severity="fail",
-        message=(
-            f"Duration is {_fmt(duration)}s, over the {_fmt(limit)}s limit "
-            f"by {_fmt(over)}s (slack is 0.35s)."
-        ),
+        message=(f"Duration is {_fmt(duration)}s, over the {_fmt(limit)}s limit by {_fmt(over)}s (slack is 0.35s)."),
         fix=f"Add a trim op ending at {_fmt(limit)}s, or a cut_silence op, before export.",
     )
 
@@ -254,17 +251,26 @@ def _loudness_finding(contract: PlatformContract, media_path: Path) -> Finding |
     from vedit.analyze import measure_loudness
 
     target = float(contract.target_lufs)
+    fix = f"Add a loudnorm op targeting {_fmt(target)} LUFS before export."
     try:
         measured = measure_loudness(media_path)
-        measured_i = float(measured["input_i"])
-    except Exception as exc:
+    except (VeditError, OSError) as exc:
         detail = " ".join(str(exc).split()).rstrip(".") or "unknown error"
         return Finding(
             code="loudness",
             severity="warn",
             message=f"Loudness measurement failed with 0 readings ({detail}).",
-            fix=f"Add a loudnorm op targeting {_fmt(target)} LUFS before export.",
+            fix=fix,
         )
+    if measured is None:
+        # BS.1770 gates out digital silence and anything under 0.4 s: there is no programme to measure.
+        return Finding(
+            code="loudness",
+            severity="warn",
+            message="Integrated loudness is under -70 LUFS: the audio is silent or too short to measure.",
+            fix=fix,
+        )
+    measured_i = float(measured["input_i"])
     delta = abs(measured_i - target)
     if delta <= 2.5:
         return None
@@ -275,7 +281,7 @@ def _loudness_finding(contract: PlatformContract, media_path: Path) -> Finding |
             f"Integrated loudness is {_fmt(measured_i)} LUFS, {_fmt(delta)} LUFS "
             f"away from the {_fmt(target)} LUFS target."
         ),
-        fix=f"Add a loudnorm op targeting {_fmt(target)} LUFS before export.",
+        fix=fix,
     )
 
 
@@ -324,7 +330,7 @@ def _as_int(value: Any) -> int | None:
     number = _as_float(value)
     if number is None:
         return None
-    return int(round(number))
+    return round(number)
 
 
 def _fmt(value: float) -> str:

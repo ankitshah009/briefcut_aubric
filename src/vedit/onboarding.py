@@ -32,20 +32,19 @@ STUDIO_FILTERS = {
 def _ffmpeg_item() -> dict[str, Any]:
     install = ffmpeg_install()
     item: dict[str, Any] = {
-        "id": "ffmpeg", "title": "FFmpeg", "required": True, "ok": False,
+        "id": "ffmpeg",
+        "title": "FFmpeg",
+        "required": True,
+        "ok": False,
         "why": "Briefcut reads your footage and renders the video with FFmpeg. Nothing can be made without it.",
-        "install": install, "missing_filters": [],
+        "install": install,
+        "missing_filters": [],
     }
-    try:
-        path, probe = media.resolve_ffmpeg(), media.resolve_ffprobe()
-        runnable = all(os.access(tool, os.X_OK) for tool in (path, probe))
-        if not runnable:
-            raise VeditError("not runnable")
-        missing = [f"{name} ({why})" for name, why in STUDIO_FILTERS.items() if not media.has_filter(name)]
-        encoder = media.has_encoder("libx264")
-    except (VeditError, OSError):
+    report = _ffmpeg_report()
+    if report is None:
         item["summary"] = "FFmpeg is not installed, or Briefcut cannot run it."
         return item
+    missing, encoder = report
     item["missing_filters"] = missing
     if not encoder:
         item["summary"] = "This FFmpeg cannot encode H.264 video (libx264 is missing). Install the build below."
@@ -55,6 +54,18 @@ def _ffmpeg_item() -> dict[str, Any]:
         item["ok"] = True
         item["summary"] = "FFmpeg is ready, with titles and captions."
     return item
+
+
+def _ffmpeg_report() -> tuple[list[str], bool] | None:
+    """The Studio filters this FFmpeg lacks and whether it has libx264, or None when it cannot be run."""
+    try:
+        tools = (media.resolve_ffmpeg(), media.resolve_ffprobe())
+        if not all(os.access(tool, os.X_OK) for tool in tools):
+            return None
+        missing = [f"{name} ({why})" for name, why in STUDIO_FILTERS.items() if not media.has_filter(name)]
+        return missing, media.has_encoder("libx264")
+    except (VeditError, OSError):
+        return None
 
 
 def _meta_item() -> dict[str, Any]:
@@ -69,9 +80,15 @@ def _meta_item() -> dict[str, Any]:
     else:
         summary = cloud.get("reason") or "Allow Meta calls in Settings."
     return {
-        "id": "meta", "title": "Meta API key", "required": True, "ok": bool(cloud.get("available")),
+        "id": "meta",
+        "title": "Meta API key",
+        "required": True,
+        "ok": bool(cloud.get("available")),
         "why": "Briefcut runs on Meta models. Muse Spark plans the story, SAM 3.1 follows the subject, and Meta Voice Transcribe writes the captions.",
-        "summary": summary, "action": "settings", "key_url": META_KEY_URL, "key_configured": bool(key["configured"]),
+        "summary": summary,
+        "action": "settings",
+        "key_url": META_KEY_URL,
+        "key_configured": bool(key["configured"]),
     }
 
 
@@ -91,7 +108,12 @@ def setup_status(*, refresh: bool = False) -> dict[str, Any]:
         checks = doctor_dict()["checks"]
     except (VeditError, OSError):
         checks = []
-    return {"ready": all(item["ok"] for item in items if item["required"]), "items": items, "checks": checks, "host": host_capabilities()}
+    return {
+        "ready": all(item["ok"] for item in items if item["required"]),
+        "items": items,
+        "checks": checks,
+        "host": host_capabilities(),
+    }
 
 
 def host_capabilities() -> dict[str, Any]:
@@ -146,14 +168,23 @@ def diagnostics(last_job: dict[str, Any] | None) -> str:
         report, version = {"ok": False, "checks": []}, "unavailable"
     lines.append(f"FFmpeg {scrub(version)}")
     lines.append("Doctor: " + ("required tools present" if report["ok"] else "required tools missing"))
-    lines.extend(f"  {'ok' if check['ok'] else 'no'} {check['name']}" + (" [required]" if check["required"] else "") for check in report["checks"])
+    lines.extend(
+        f"  {'ok' if check['ok'] else 'no'} {check['name']}" + (" [required]" if check["required"] else "")
+        for check in report["checks"]
+    )
     key = settings.meta_key_state()
-    lines.append(f"Meta: key {'configured' if key['configured'] else 'not configured'}, {'enabled' if settings.meta_enabled() else 'disabled'}, mode {settings.meta_mode()}")
+    lines.append(
+        f"Meta: key {'configured' if key['configured'] else 'not configured'}, {'enabled' if settings.meta_enabled() else 'disabled'}, mode {settings.meta_mode()}"
+    )
     if last_job is None:
         lines.append("Last job: none")
     else:
-        request = last_job.get("request") if isinstance(last_job.get("request"), dict) else {}
-        lines.append(f"Last job: status {last_job.get('status')}, stage {last_job.get('stage')}, revision {last_job.get('revision')}, provider {request.get('provider')}")
+        request = last_job.get("request")
+        if not isinstance(request, dict):
+            request = {}
+        lines.append(
+            f"Last job: status {last_job.get('status')}, stage {last_job.get('stage')}, revision {last_job.get('revision')}, provider {request.get('provider')}"
+        )
         error = last_job.get("error")
         if isinstance(error, str) and error:
             lines.append("Last error: " + " ".join(scrub(error, secrets=[settings.meta_api_key()]).split())[:400])

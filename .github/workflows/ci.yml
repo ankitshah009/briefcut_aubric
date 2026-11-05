@@ -20,6 +20,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-noto-core fonts-noto-cjk
       - name: Install package
         run: uv sync
+      - name: Lint and format
+        run: |
+          uv run ruff format --check src tests
+          uv run ruff check src tests
+      - name: Type check
+        run: uv run pyright
       - name: Unit and render tests
         run: uv run pytest -q -n auto
         env:

@@ -44,9 +44,17 @@ SAM_LINE = "<{frame}f>1<|box;x1=10;y1=10;x2=50;y2=50;w=96;h=54;c=0.9|>"
 
 # --- Fixtures -------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def clean(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    for name in ("VEDIT_META_MODE", "VEDIT_META_BASE_URL", "VEDIT_META_TIMEOUT", "VEDIT_META_REASONING", "MODEL_API_KEY", "VEDIT_META_ENABLED"):
+    for name in (
+        "VEDIT_META_MODE",
+        "VEDIT_META_BASE_URL",
+        "VEDIT_META_TIMEOUT",
+        "VEDIT_META_REASONING",
+        "MODEL_API_KEY",
+        "VEDIT_META_ENABLED",
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(meta, "_BASE", "http://127.0.0.1:9/v1")
     sleeps: list[float] = []
@@ -64,8 +72,14 @@ def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 def clip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "source.mp4"
     path.write_bytes(b"test media bytes; probe is the I/O boundary")
-    info = MediaInfo(path=path, duration=2.0, format_name="mov,mp4,m4a,3gp,3g2,mj2", size_bytes=path.stat().st_size, bit_rate=100_000,
-                     streams=(StreamInfo(index=0, codec_type="video", codec_name="h264", width=96, height=54, fps=30),))
+    info = MediaInfo(
+        path=path,
+        duration=2.0,
+        format_name="mov,mp4,m4a,3gp,3g2,mj2",
+        size_bytes=path.stat().st_size,
+        bit_rate=100_000,
+        streams=(StreamInfo(index=0, codec_type="video", codec_name="h264", width=96, height=54, fps=30),),
+    )
     monkeypatch.setattr(meta, "probe", lambda _: info)
     return path
 
@@ -76,12 +90,23 @@ def answer(status: int = 200, payload: Any = None, *, headers: dict[str, str] | 
 
 def remote_error(code: str = "model_not_found") -> dict[str, Any]:
     # Meta's message is client-safe, but it is still never shown: it could echo anything.
-    return {"error": {"type": "invalid_request_error", "code": code, "param": "model", "message": f"echoed remote text {SECRET}"}}
+    return {
+        "error": {
+            "type": "invalid_request_error",
+            "code": code,
+            "param": "model",
+            "message": f"echoed remote text {SECRET}",
+        }
+    }
 
 
 def completed(text: str) -> dict[str, Any]:
-    return {"id": "resp_robust1", "status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
-            "usage": {"input_tokens": 1200, "output_tokens": 300}}
+    return {
+        "id": "resp_robust1",
+        "status": "completed",
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
+        "usage": {"input_tokens": 1200, "output_tokens": 300},
+    }
 
 
 class Fake(BaseHTTPRequestHandler):
@@ -136,7 +161,7 @@ class Fake(BaseHTTPRequestHandler):
             if finish:
                 self.wfile.write(b"0\r\n\r\n")
             else:
-                self.wfile.write(b"4000\r\n" + b"data: {\"type\":")  # a chunk that never ends
+                self.wfile.write(b"4000\r\n" + b'data: {"type":')  # a chunk that never ends
             self.wfile.flush()
             self.close_connection = True
 
@@ -169,10 +194,12 @@ def fake(monkeypatch: pytest.MonkeyPatch, enabled: None):
 
 
 def story_routes(*responses: tuple) -> dict[str, list[tuple]]:
-    return {"POST /files": [answer(payload={"id": "file-abc123"})],
-            "POST /responses/input_tokens": [answer(payload={"input_tokens": 1200})],
-            "POST /responses": list(responses),
-            "DELETE /files/file-abc123": [answer(payload={"deleted": True})]}
+    return {
+        "POST /files": [answer(payload={"id": "file-abc123"})],
+        "POST /responses/input_tokens": [answer(payload={"input_tokens": 1200})],
+        "POST /responses": list(responses),
+        "DELETE /files/file-abc123": [answer(payload={"deleted": True})],
+    }
 
 
 def plan(clip: Path, work: Path, budget: float = 0.5) -> dict[str, Any]:
@@ -210,22 +237,45 @@ class Raising:
 
 # --- HTTP statuses --------------------------------------------------------
 
-@pytest.mark.parametrize(("status", "path", "model", "words", "billed"), [
-    (400, "/responses", "muse-spark-1.3", ("refused the request as invalid", "model_not_found", "nothing was billed"), False),
-    (401, "/responses", "muse-spark-1.3", ("rejected the API key", "MODEL_API_KEY", "ending in wxyz", "dev.meta.ai"), False),
-    (402, "/responses", "muse-spark-1.3", ("billing or credits",), False),
-    (403, "/responses", "muse-wonder-1.0", ("not allowed to use muse-wonder-1.0", "Muse Spark as the director"), False),
-    (403, "/responses", "sam-3.1", ("not allowed to use sam-3.1", "Cutouts"), False),
-    (404, "/responses", "muse-spark-9.9", ("does not offer muse-spark-9.9", "vedit meta check"), False),
-    (413, "/files", "", ("upload size",), False),
-    (413, "/asr/transcribe", "", ("32 MB",), False),
-    (500, "/responses", "muse-spark-1.3", ("internal error", "may have been billed"), None),
-    (502, "/responses", "muse-spark-1.3", ("unavailable (HTTP 502", "may have been billed"), None),
-    (503, "/responses", "muse-spark-1.3", ("unavailable (HTTP 503",), None),
-    (504, "/responses", "muse-spark-1.3", ("unavailable (HTTP 504",), None),
-])
+
+@pytest.mark.parametrize(
+    ("status", "path", "model", "words", "billed"),
+    [
+        (
+            400,
+            "/responses",
+            "muse-spark-1.3",
+            ("refused the request as invalid", "model_not_found", "nothing was billed"),
+            False,
+        ),
+        (
+            401,
+            "/responses",
+            "muse-spark-1.3",
+            ("rejected the API key", "MODEL_API_KEY", "ending in wxyz", "dev.meta.ai"),
+            False,
+        ),
+        (402, "/responses", "muse-spark-1.3", ("billing or credits",), False),
+        (
+            403,
+            "/responses",
+            "muse-wonder-1.0",
+            ("not allowed to use muse-wonder-1.0", "Muse Spark as the director"),
+            False,
+        ),
+        (403, "/responses", "sam-3.1", ("not allowed to use sam-3.1", "Cutouts"), False),
+        (404, "/responses", "muse-spark-9.9", ("does not offer muse-spark-9.9", "vedit meta check"), False),
+        (413, "/files", "", ("upload size",), False),
+        (413, "/asr/transcribe", "", ("32 MB",), False),
+        (500, "/responses", "muse-spark-1.3", ("internal error", "may have been billed"), None),
+        (502, "/responses", "muse-spark-1.3", ("unavailable (HTTP 502", "may have been billed"), None),
+        (503, "/responses", "muse-spark-1.3", ("unavailable (HTTP 503",), None),
+        (504, "/responses", "muse-spark-1.3", ("unavailable (HTTP 504",), None),
+    ],
+)
 def test_each_status_gets_its_own_plain_message_without_meta_text_or_the_key(
-        fake: type[Fake], status: int, path: str, model: str, words: tuple[str, ...], billed: bool | None) -> None:
+    fake: type[Fake], status: int, path: str, model: str, words: tuple[str, ...], billed: bool | None
+) -> None:
     fake.script = {f"POST {path}": [answer(status, remote_error())]}
     payload = {"model": model} if model else None
     with pytest.raises(meta.MetaError) as caught:
@@ -241,9 +291,13 @@ def test_each_status_gets_its_own_plain_message_without_meta_text_or_the_key(
 
 
 def test_free_calls_retry_5xx_with_backoff_and_paid_calls_never_do(fake: type[Fake], clean: list[float]) -> None:
-    fake.script = {"POST /responses/input_tokens": [answer(503), answer(502), answer(payload={"input_tokens": 7})],
-                   "POST /responses": [answer(503)]}
-    assert meta._request("POST", "/responses/input_tokens", payload={"model": "muse-spark-1.3"}, retry_safe=True) == {"input_tokens": 7}
+    fake.script = {
+        "POST /responses/input_tokens": [answer(503), answer(502), answer(payload={"input_tokens": 7})],
+        "POST /responses": [answer(503)],
+    }
+    assert meta._request("POST", "/responses/input_tokens", payload={"model": "muse-spark-1.3"}, retry_safe=True) == {
+        "input_tokens": 7
+    }
     assert count(("POST", "/responses/input_tokens")) == 3 and len(clean) == 2
     assert 0.5 <= clean[0] <= 1.0 and 1.0 <= clean[1] <= 2.0, "exponential backoff with jitter"
     with pytest.raises(meta.MetaError, match="HTTP 503"):
@@ -253,19 +307,30 @@ def test_free_calls_retry_5xx_with_backoff_and_paid_calls_never_do(fake: type[Fa
 
 # --- 429 ------------------------------------------------------------------
 
-def test_a_rate_limited_paid_call_honours_retry_after_and_settles_one_reservation(fake: type[Fake], clip: Path, tmp_path: Path, clean: list[float]) -> None:
-    fake.script = story_routes(answer(429, remote_error("rate_limit_exceeded"), headers={"Retry-After": "2"}), answer(429), answer(payload=completed(json.dumps(STORY))))
+
+def test_a_rate_limited_paid_call_honours_retry_after_and_settles_one_reservation(
+    fake: type[Fake], clip: Path, tmp_path: Path, clean: list[float]
+) -> None:
+    fake.script = story_routes(
+        answer(429, remote_error("rate_limit_exceeded"), headers={"Retry-After": "2"}),
+        answer(429),
+        answer(payload=completed(json.dumps(STORY))),
+    )
     work = tmp_path / "work"
     result = plan(clip, work)
     assert result["title"] == "Made by hand"
     assert count(("POST", "/responses")) == 3 and clean[0] >= 2 and len(clean) == 2
     [call] = ledger(work)
-    assert call["status"] == "completed" and call["usage"]["cost_usd"] > 0, "one call, one reservation, however many 429s"
+    assert call["status"] == "completed" and call["usage"]["cost_usd"] > 0, (
+        "one call, one reservation, however many 429s"
+    )
     [row] = meta.call_log(work)["calls"]
     assert row["status"] == "done" and "reason" not in row
 
 
-def test_a_long_retry_after_hands_back_with_the_wait_and_frees_the_budget(fake: type[Fake], clip: Path, tmp_path: Path, clean: list[float]) -> None:
+def test_a_long_retry_after_hands_back_with_the_wait_and_frees_the_budget(
+    fake: type[Fake], clip: Path, tmp_path: Path, clean: list[float]
+) -> None:
     later = email.utils.formatdate(time.time() + 120, usegmt=True)
     fake.script = story_routes(answer(429, remote_error("rate_limit_exceeded"), headers={"Retry-After": later}))
     work = tmp_path / "work"
@@ -290,12 +355,21 @@ def test_a_429_without_retry_after_backs_off_three_times_then_stops(fake: type[F
 
 def test_retry_after_reads_seconds_and_dates_and_ignores_nonsense() -> None:
     assert meta._retry_after({"Retry-After": "7"}) == 7
-    assert meta._retry_after({"Retry-After": email.utils.formatdate(time.time() + 30, usegmt=True)}) == pytest.approx(30, abs=2)
-    assert meta._retry_after({"Retry-After": email.utils.formatdate(time.time() - 30, usegmt=True)}) == 0, "a clock behind Meta's never waits backwards"
-    assert meta._retry_after({"Retry-After": "soon"}) is None and meta._retry_after({}) is None and meta._retry_after(None) is None
+    assert meta._retry_after({"Retry-After": email.utils.formatdate(time.time() + 30, usegmt=True)}) == pytest.approx(
+        30, abs=2
+    )
+    assert meta._retry_after({"Retry-After": email.utils.formatdate(time.time() - 30, usegmt=True)}) == 0, (
+        "a clock behind Meta's never waits backwards"
+    )
+    assert (
+        meta._retry_after({"Retry-After": "soon"}) is None
+        and meta._retry_after({}) is None
+        and meta._retry_after(None) is None
+    )
 
 
 # --- Network: connect, send, read -----------------------------------------
+
 
 def cert_error(why: str) -> ssl.SSLCertVerificationError:
     error = ssl.SSLCertVerificationError(1, f"[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {why}")
@@ -303,20 +377,28 @@ def cert_error(why: str) -> ssl.SSLCertVerificationError:
     return error
 
 
-@pytest.mark.parametrize(("reason", "words", "tries"), [
-    (socket.gaierror(8, "nodename nor servname provided"), ("could not look up api.meta.ai (DNS)",), 3),
-    (ConnectionRefusedError(61, "Connection refused"), ("refused the connection",), 3),
-    (OSError(errno.ENETUNREACH, "Network is unreachable"), ("looks offline",), 3),
-    ("unknown url type: htps", ("network timeout",), 1),
-    (TimeoutError("timed out"), ("network timeout of 180 s", "VEDIT_META_TIMEOUT"), 1),
-    (ConnectionResetError(54, "Connection reset by peer"), ("dropped while Briefcut was sending",), 1),
-    (cert_error("certificate is not yet valid"), ("date or time is wrong",), 1),
-    (cert_error("certificate has expired"), ("date or time is wrong",), 1),
-    (cert_error("self-signed certificate in certificate chain"), ("replaced api.meta.ai's security certificate",), 1),
-    (cert_error("unable to get local issuer certificate"), ("SSL_CERT_FILE",), 1),
-])
+@pytest.mark.parametrize(
+    ("reason", "words", "tries"),
+    [
+        (socket.gaierror(8, "nodename nor servname provided"), ("could not look up api.meta.ai (DNS)",), 3),
+        (ConnectionRefusedError(61, "Connection refused"), ("refused the connection",), 3),
+        (OSError(errno.ENETUNREACH, "Network is unreachable"), ("looks offline",), 3),
+        ("unknown url type: htps", ("network timeout",), 1),
+        (TimeoutError("timed out"), ("network timeout of 180 s", "VEDIT_META_TIMEOUT"), 1),
+        (ConnectionResetError(54, "Connection reset by peer"), ("dropped while Briefcut was sending",), 1),
+        (cert_error("certificate is not yet valid"), ("date or time is wrong",), 1),
+        (cert_error("certificate has expired"), ("date or time is wrong",), 1),
+        (
+            cert_error("self-signed certificate in certificate chain"),
+            ("replaced api.meta.ai's security certificate",),
+            1,
+        ),
+        (cert_error("unable to get local issuer certificate"), ("SSL_CERT_FILE",), 1),
+    ],
+)
 def test_a_request_meta_never_received_says_why_and_is_never_billed(
-        enabled: None, monkeypatch: pytest.MonkeyPatch, reason: BaseException, words: tuple[str, ...], tries: int) -> None:
+    enabled: None, monkeypatch: pytest.MonkeyPatch, reason: BaseException, words: tuple[str, ...], tries: int
+) -> None:
     monkeypatch.setattr(meta, "_BASE", "https://api.meta.ai/v1")
     opener = Raising(URLError(reason))
     monkeypatch.setattr(meta, "build_opener", lambda *_: opener)
@@ -342,11 +424,15 @@ def test_a_real_refused_port_is_reported_and_retried(enabled: None, monkeypatch:
     assert caught.value.billed is False
 
 
-def test_a_read_timeout_on_a_paid_call_is_sent_once_and_stays_reserved(fake: type[Fake], clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_read_timeout_on_a_paid_call_is_sent_once_and_stays_reserved(
+    fake: type[Fake], clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(meta, "_RESPONSE_TIMEOUT", 0.4)
     fake.script = story_routes(("hang", 1.5))
     work = tmp_path / "work"
-    with pytest.raises(meta.MetaError, match=r"took longer than 0.4 s.*may have been billed.*VEDIT_META_TIMEOUT") as caught:
+    with pytest.raises(
+        meta.MetaError, match=r"took longer than 0.4 s.*may have been billed.*VEDIT_META_TIMEOUT"
+    ) as caught:
         plan(clip, work)
     assert caught.value.billed is None and count(("POST", "/responses")) == 1
     assert count(("DELETE", "/files/file-abc123")) == 1, "the upload is still deleted"
@@ -375,7 +461,9 @@ def test_a_reset_mid_upload_is_retried_because_uploads_are_free(fake: type[Fake]
     assert call["status"] == "completed"
 
 
-def test_a_cutout_whose_upload_keeps_resetting_frees_its_reservation(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
+def test_a_cutout_whose_upload_keeps_resetting_frees_its_reservation(
+    fake: type[Fake], clip: Path, tmp_path: Path
+) -> None:
     big = clip.with_name("big.mp4")
     big.write_bytes(bytes(16_000_000))
     fake.script = {"POST /files": [("reset",)]}
@@ -391,27 +479,52 @@ def test_a_cutout_whose_upload_keeps_resetting_frees_its_reservation(fake: type[
 
 # --- SAM streams ----------------------------------------------------------
 
+
 def sse(kind: str, **data: Any) -> bytes:
     return f"event: {kind}\ndata: {json.dumps({'type': kind, **data})}\n\n".encode()
 
 
 def deltas(frames: int) -> list[bytes]:
     return [sse("response.created", response={"status": "in_progress"})] + [
-        sse("response.output_text.delta", delta=SAM_LINE.format(frame=frame) + "\n") for frame in range(frames)]
+        sse("response.output_text.delta", delta=SAM_LINE.format(frame=frame) + "\n") for frame in range(frames)
+    ]
 
 
-@pytest.mark.parametrize(("chunks", "finish", "words"), [
-    (deltas(20), True, "ended early"),
-    (deltas(20) + [b"data: {\"type\": \"response.output_te"], True, "cut off or garbled"),
-    (deltas(20), False, "connection closed partway"),
-    (deltas(5) + [sse("error", error={"code": "server_overloaded", "message": f"echoed remote text {SECRET}"})], True, "server_overloaded"),
-    ([sse("response.completed", response={"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "usage": {"video_frames_processed": 60}})],
-     True, "did not finish"),
-])
+@pytest.mark.parametrize(
+    ("chunks", "finish", "words"),
+    [
+        (deltas(20), True, "ended early"),
+        (deltas(20) + [b'data: {"type": "response.output_te'], True, "cut off or garbled"),
+        (deltas(20), False, "connection closed partway"),
+        (
+            deltas(5) + [sse("error", error={"code": "server_overloaded", "message": f"echoed remote text {SECRET}"})],
+            True,
+            "server_overloaded",
+        ),
+        (
+            [
+                sse(
+                    "response.completed",
+                    response={
+                        "status": "incomplete",
+                        "incomplete_details": {"reason": "content_filter"},
+                        "usage": {"video_frames_processed": 60},
+                    },
+                )
+            ],
+            True,
+            "did not finish",
+        ),
+    ],
+)
 def test_a_truncated_sam_stream_fails_with_a_reason_and_keeps_its_reservation(
-        fake: type[Fake], clip: Path, tmp_path: Path, chunks: list[bytes], finish: bool, words: str) -> None:
-    fake.script = {"POST /files": [answer(payload={"id": "file-abc123"})], "POST /responses": [("stream", chunks, finish)],
-                   "DELETE /files/file-abc123": [answer(payload={"deleted": True})]}
+    fake: type[Fake], clip: Path, tmp_path: Path, chunks: list[bytes], finish: bool, words: str
+) -> None:
+    fake.script = {
+        "POST /files": [answer(payload={"id": "file-abc123"})],
+        "POST /responses": [("stream", chunks, finish)],
+        "DELETE /files/file-abc123": [answer(payload={"deleted": True})],
+    }
     work = tmp_path / "work"
     with pytest.raises(meta.MetaError, match=words) as caught:
         meta.subject_masks(clip, subject="the bowl", duration=2.0, work_dir=work, budget_usd=0.05)
@@ -421,11 +534,14 @@ def test_a_truncated_sam_stream_fails_with_a_reason_and_keeps_its_reservation(
     [call] = ledger(work)
     assert call["status"] == "failed_or_incomplete" and "released" not in call, "frames may have been billed"
     [row] = meta.call_log(work)["calls"]
-    assert row["status"] == "failed" and row["reason"] and row["cost_usd"] > 0, "counted: reserved, or what Meta said it billed"
+    assert row["status"] == "failed" and row["reason"] and row["cost_usd"] > 0, (
+        "counted: reserved, or what Meta said it billed"
+    )
     clean_text(written(work))
 
 
 # --- Malformed and off-schema answers --------------------------------------
+
 
 class Http:
     """Meta's boundary answering every route; ``text`` is the model's output."""
@@ -444,15 +560,25 @@ class Http:
         return completed(self.text)
 
 
-@pytest.mark.parametrize(("text", "words"), [
-    ("null", "invalid story"),
-    ("{not json", "malformed story JSON"),
-    (json.dumps({key: value for key, value in STORY.items() if key != "title"}), "did not match the format Briefcut asked for: title"),
-    (json.dumps(dict(STORY, segments=[dict(STORY["segments"][0], start="0")])), "did not match the format Briefcut asked for: segment start must be a finite number"),
-    (json.dumps(dict(STORY, hashtags="woodwork")), "invalid hashtags"),
-])
+@pytest.mark.parametrize(
+    ("text", "words"),
+    [
+        ("null", "invalid story"),
+        ("{not json", "malformed story JSON"),
+        (
+            json.dumps({key: value for key, value in STORY.items() if key != "title"}),
+            "did not match the format Briefcut asked for: title",
+        ),
+        (
+            json.dumps(dict(STORY, segments=[dict(STORY["segments"][0], start="0")])),
+            "did not match the format Briefcut asked for: segment start must be a finite number",
+        ),
+        (json.dumps(dict(STORY, hashtags="woodwork")), "invalid hashtags"),
+    ],
+)
 def test_an_answer_off_the_schema_is_refused_whole_and_stays_billed(
-        enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, words: str) -> None:
+    enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, words: str
+) -> None:
     monkeypatch.setattr(meta, "_request", Http(text))
     work = tmp_path / "work"
     with pytest.raises(meta.MetaError, match=words) as caught:
@@ -464,17 +590,24 @@ def test_an_answer_off_the_schema_is_refused_whole_and_stays_billed(
     assert row["status"] == "failed" and row["reason"].startswith("Meta")
 
 
-def test_extra_fields_in_an_answer_are_ignored_not_fatal(enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(meta, "_request", Http(json.dumps(dict(STORY, mood="warm", segments=[dict(STORY["segments"][0], extra=1)]))))
+def test_extra_fields_in_an_answer_are_ignored_not_fatal(
+    enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        meta, "_request", Http(json.dumps(dict(STORY, mood="warm", segments=[dict(STORY["segments"][0], extra=1)])))
+    )
     result = plan(clip, tmp_path / "work")
     assert "mood" not in result and set(result["segments"][0]) == {"start", "end", "label", "reason"}
 
 
-@pytest.mark.parametrize(("body", "content_type", "words"), [
-    (b"<html><body>Sign in to the hotel Wi-Fi</body></html>", "text/html; charset=utf-8", "web page answered"),
-    (b"{\"truncated\": ", "application/json", "unreadable response"),
-    (b"[1, 2]", "application/json", "unexpected shape"),
-])
+@pytest.mark.parametrize(
+    ("body", "content_type", "words"),
+    [
+        (b"<html><body>Sign in to the hotel Wi-Fi</body></html>", "text/html; charset=utf-8", "web page answered"),
+        (b'{"truncated": ', "application/json", "unreadable response"),
+        (b"[1, 2]", "application/json", "unexpected shape"),
+    ],
+)
 def test_a_200_that_is_not_meta_json_is_named(fake: type[Fake], body: bytes, content_type: str, words: str) -> None:
     fake.script = {"GET /models": [("raw", 200, body, content_type)]}
     result = meta.check_access()
@@ -482,6 +615,7 @@ def test_a_200_that_is_not_meta_json_is_named(fake: type[Fake], body: bytes, con
 
 
 # --- Transcription --------------------------------------------------------
+
 
 def wav(path: Path, seconds: float = 1.5) -> Path:
     with wave.open(str(path), "wb") as handle:
@@ -492,7 +626,9 @@ def wav(path: Path, seconds: float = 1.5) -> Path:
     return path
 
 
-def test_an_empty_transcription_completes_with_a_warning_and_bills_only_the_audio(fake: type[Fake], tmp_path: Path) -> None:
+def test_an_empty_transcription_completes_with_a_warning_and_bills_only_the_audio(
+    fake: type[Fake], tmp_path: Path
+) -> None:
     fake.script = {"POST /asr/transcribe": [answer(payload={"audioDurationMs": 1500, "turns": []})]}
     work = tmp_path / "work"
     result = meta.transcribe_audio(wav(tmp_path / "speech.wav"), duration=1.5, work_dir=work)
@@ -502,7 +638,12 @@ def test_an_empty_transcription_completes_with_a_warning_and_bills_only_the_audi
 
 
 def test_a_transcription_rate_limit_is_retried_and_its_model_named_on_refusal(fake: type[Fake], tmp_path: Path) -> None:
-    fake.script = {"POST /asr/transcribe": [answer(429), answer(payload={"audioDurationMs": 1500, "turns": [{"startMs": 0, "endMs": 1400, "transcript": "hello"}]})]}
+    fake.script = {
+        "POST /asr/transcribe": [
+            answer(429),
+            answer(payload={"audioDurationMs": 1500, "turns": [{"startMs": 0, "endMs": 1400, "transcript": "hello"}]}),
+        ]
+    }
     result = meta.transcribe_audio(wav(tmp_path / "speech.wav"), duration=1.5, work_dir=tmp_path / "work")
     assert result["cues"][0]["text"] == "hello" and count(("POST", "/asr/transcribe")) == 2
     fake.script = {"POST /asr/transcribe": [answer(403, remote_error("permission_denied"))]}
@@ -520,13 +661,18 @@ def test_a_transcription_rate_limit_is_retried_and_its_model_named_on_refusal(fa
 
 # --- Budget ---------------------------------------------------------------
 
-def test_running_out_of_budget_mid_project_says_how_much_to_raise_it(enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_running_out_of_budget_mid_project_says_how_much_to_raise_it(
+    enabled: None, clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     http = Http(json.dumps(STORY))
     monkeypatch.setattr(meta, "_request", http)
     work = tmp_path / "work"
     plan(clip, work, budget=0.072)  # reserves about $0.0711, then holds the $0.0028 Meta billed
     with pytest.raises(meta.MetaError) as caught:
-        meta.plan_story(clip, goal="A second, different cut.", duration=2.0, target_duration=2.0, work_dir=work, budget_usd=0.072)
+        meta.plan_story(
+            clip, goal="A second, different cut.", duration=2.0, target_duration=2.0, work_dir=work, budget_usd=0.072
+        )
     message = str(caught.value)
     assert "$0.0028 of the $0.0720 campaign budget is already reserved" in message and "short" in message
     assert "Raise the campaign budget to at least $0.08" in message and "Nothing was billed" in message
@@ -536,12 +682,17 @@ def test_running_out_of_budget_mid_project_says_how_much_to_raise_it(enabled: No
 
 # --- Accounts: contributor mode, key sources -------------------------------
 
-@pytest.mark.parametrize(("mode", "model", "hint"), [
-    ("contributor", "muse-spark-1.3-contributor", "VEDIT_META_MODE=standard"),
-    ("standard", "muse-spark-1.3", "vedit meta check"),
-])
+
+@pytest.mark.parametrize(
+    ("mode", "model", "hint"),
+    [
+        ("contributor", "muse-spark-1.3-contributor", "VEDIT_META_MODE=standard"),
+        ("standard", "muse-spark-1.3", "vedit meta check"),
+    ],
+)
 def test_a_model_this_account_cannot_use_is_named_with_the_way_out(
-        fake: type[Fake], clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, model: str, hint: str) -> None:
+    fake: type[Fake], clip: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, model: str, hint: str
+) -> None:
     monkeypatch.setenv("VEDIT_META_MODE", mode)
     fake.script = story_routes(answer(payload=completed(json.dumps(STORY))))
     fake.script["POST /responses/input_tokens"] = [answer(403, remote_error("model_not_enabled"))]
@@ -553,7 +704,9 @@ def test_a_model_this_account_cannot_use_is_named_with_the_way_out(
 
 
 @pytest.mark.parametrize("source", ["environment", "settings", "env_local"])
-def test_a_rejected_key_says_which_key_was_sent_and_never_the_key(fake: type[Fake], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+def test_a_rejected_key_says_which_key_was_sent_and_never_the_key(
+    fake: type[Fake], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
     monkeypatch.delenv("MODEL_API_KEY")
     monkeypatch.delenv("VEDIT_META_ENABLED")
     if source == "settings":
@@ -576,7 +729,9 @@ def test_a_rejected_key_says_which_key_was_sent_and_never_the_key(fake: type[Fak
 
 
 @pytest.mark.parametrize("damaged", ["“" + SECRET + "”", SECRET[:10] + " " + SECRET[10:], SECRET + " x"])
-def test_a_key_damaged_by_copy_and_paste_is_refused_before_the_network(enabled: None, monkeypatch: pytest.MonkeyPatch, damaged: str) -> None:
+def test_a_key_damaged_by_copy_and_paste_is_refused_before_the_network(
+    enabled: None, monkeypatch: pytest.MonkeyPatch, damaged: str
+) -> None:
     monkeypatch.setenv("MODEL_API_KEY", damaged)
     monkeypatch.setattr(meta, "build_opener", lambda *_: pytest.fail("a damaged key must never be sent"))
     with pytest.raises(meta.MetaError, match="copy and paste") as caught:
@@ -593,6 +748,7 @@ def test_a_key_pasted_with_its_bearer_prefix_is_sent_once(fake: type[Fake], monk
 
 # --- Overrides for other regions, gateways and slow links -------------------
 
+
 def test_a_base_url_override_reaches_that_gateway(fake: type[Fake], monkeypatch: pytest.MonkeyPatch) -> None:
     gateway = meta._BASE
     monkeypatch.setattr(meta, "_BASE", "https://api.meta.ai/v1")
@@ -601,8 +757,19 @@ def test_a_base_url_override_reaches_that_gateway(fake: type[Fake], monkeypatch:
     assert meta.check_access()["ok"] is True and fake.seen == [("GET", "/models")]
 
 
-@pytest.mark.parametrize("bad", ["http://api.meta.ai/v1", "https://user:pw@api.meta.ai/v1", "https://api.meta.ai/v1?x=1", "ftp://api.meta.ai", "https://:99999/v1"])
-def test_an_unsafe_base_url_is_refused_and_doctor_says_so(enabled: None, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "http://api.meta.ai/v1",
+        "https://user:pw@api.meta.ai/v1",
+        "https://api.meta.ai/v1?x=1",
+        "ftp://api.meta.ai",
+        "https://:99999/v1",
+    ],
+)
+def test_an_unsafe_base_url_is_refused_and_doctor_says_so(
+    enabled: None, monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
     from vedit.doctor import meta_check
 
     monkeypatch.setenv("VEDIT_META_BASE_URL", bad)
@@ -615,8 +782,12 @@ def test_an_unsafe_base_url_is_refused_and_doctor_says_so(enabled: None, monkeyp
         meta._request("GET", "/models")
 
 
-def test_the_timeout_can_be_raised_for_long_clips_and_a_bad_value_is_explained(enabled: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert meta._timeout("/responses") == 180 and meta._timeout("/asr/transcribe") == 180 and meta._timeout("/files") == 90
+def test_the_timeout_can_be_raised_for_long_clips_and_a_bad_value_is_explained(
+    enabled: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        meta._timeout("/responses") == 180 and meta._timeout("/asr/transcribe") == 180 and meta._timeout("/files") == 90
+    )
     monkeypatch.setenv("VEDIT_META_TIMEOUT", "900")
     assert meta._timeout("/responses") == 900 and meta._timeout("/files") == 900
     for bad in ("2", "ten", "nan", "99999"):
@@ -627,7 +798,10 @@ def test_the_timeout_can_be_raised_for_long_clips_and_a_bad_value_is_explained(e
 
 # --- Uploads and cleanup ----------------------------------------------------
 
-def test_an_upload_meta_already_removed_is_not_reported_as_left_behind(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
+
+def test_an_upload_meta_already_removed_is_not_reported_as_left_behind(
+    fake: type[Fake], clip: Path, tmp_path: Path
+) -> None:
     fake.script = story_routes(answer(payload=completed(json.dumps(STORY))))
     fake.script["DELETE /files/file-abc123"] = [answer(404, remote_error("file_not_found"))]
     work = tmp_path / "work"
@@ -644,7 +818,9 @@ def test_an_upload_that_cannot_be_deleted_is_still_reported(fake: type[Fake], cl
     assert count(("DELETE", "/files/file-abc123")) == 3, "deleting is free, so it is retried"
 
 
-def test_a_failure_inside_an_upload_is_never_swallowed_by_its_cleanup(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
+def test_a_failure_inside_an_upload_is_never_swallowed_by_its_cleanup(
+    fake: type[Fake], clip: Path, tmp_path: Path
+) -> None:
     fake.script = story_routes(answer(400, remote_error("invalid_value")))
     fake.script["DELETE /files/file-abc123"] = [answer(404)]
     with pytest.raises(meta.MetaError, match="refused the request as invalid"):
@@ -652,6 +828,7 @@ def test_a_failure_inside_an_upload_is_never_swallowed_by_its_cleanup(fake: type
 
 
 # --- Where the words go ----------------------------------------------------
+
 
 def test_a_meta_message_reaches_mcp_and_studio_whole() -> None:
     message = "Meta rejected the API key (HTTP 401). Copy a working key from https://dev.meta.ai/keys and paste it in Settings."
@@ -671,13 +848,18 @@ def test_no_failure_path_writes_the_key_or_a_header_anywhere(fake: type[Fake], c
 
 # --- What status says after a failure ----------------------------------------
 
-def test_status_repeats_a_rejected_key_until_a_call_succeeds_or_the_key_changes(fake: type[Fake], monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_status_repeats_a_rejected_key_until_a_call_succeeds_or_the_key_changes(
+    fake: type[Fake], monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert meta.capabilities()["last_problem"] is None
     fake.script = {"GET /models": [answer(401, remote_error("invalid_api_key"))]}
     meta.check_access()
     status = meta.capabilities()
     assert status["available"] is True, "a retry after fixing the key must still be allowed"
-    assert status["reason"].startswith("Meta is set up, but the last call with this key failed: Meta rejected the API key")
+    assert status["reason"].startswith(
+        "Meta is set up, but the last call with this key failed: Meta rejected the API key"
+    )
     assert "ending in wxyz" in status["reason"] and status["last_problem"]
     clean_text(json.dumps(status))
     monkeypatch.setenv("MODEL_API_KEY", SECRET[:-4] + "abcd")
@@ -705,29 +887,48 @@ def test_a_model_refusal_does_not_mark_the_whole_key_broken(fake: type[Fake]) ->
 
 # --- Advertised prices ------------------------------------------------------
 
+
 @pytest.mark.parametrize(("mode", "per_million"), [("standard", (1.25, 4.25)), ("contributor", (0.10, 0.20))])
-def test_the_advertised_prices_are_the_constants_that_are_charged(enabled: None, monkeypatch: pytest.MonkeyPatch, mode: str, per_million: tuple[float, float]) -> None:
+def test_the_advertised_prices_are_the_constants_that_are_charged(
+    enabled: None, monkeypatch: pytest.MonkeyPatch, mode: str, per_million: tuple[float, float]
+) -> None:
     from vedit import director
 
     monkeypatch.setenv("VEDIT_META_MODE", mode)
     status = meta.capabilities()
     price_in, price_out = meta._story_prices()
     assert status["prices_as_of"] == meta._PRICES_AS_OF == "2026-11-04"
-    assert status["prices"] == {"input_per_million": pytest.approx(price_in * 1e6), "output_per_million": pytest.approx(price_out * 1e6),
-                                "sam_per_thousand_frames": pytest.approx(meta._FRAME_PRICE * 1000), "cover_per_image": meta._IMAGE_PRICE,
-                                "transcribe_per_hour": meta._TRANSCRIBE_PRICE_PER_HOUR}
+    assert status["prices"] == {
+        "input_per_million": pytest.approx(price_in * 1e6),
+        "output_per_million": pytest.approx(price_out * 1e6),
+        "sam_per_thousand_frames": pytest.approx(meta._FRAME_PRICE * 1000),
+        "cover_per_image": meta._IMAGE_PRICE,
+        "transcribe_per_hour": meta._TRANSCRIBE_PRICE_PER_HOUR,
+    }
     # And the constants are the 2026-11-04 dev.meta.ai pricing page.
     assert (round(price_in * 1e6, 4), round(price_out * 1e6, 4)) == per_million
     assert meta._FRAME_PRICE * 1000 == pytest.approx(0.20) and meta._TRANSCRIBE_PRICE_PER_HOUR == 0.18
     assert meta._IMAGE_PRICE == director.IMAGE_PRICE_USD == 0.01, "one image price for the adapter and the director"
-    assert (meta._WONDER_INPUT_PRICE * 1e6, meta._WONDER_OUTPUT_PRICE * 1e6) == (pytest.approx(4.0), pytest.approx(20.0))
+    assert (meta._WONDER_INPUT_PRICE * 1e6, meta._WONDER_OUTPUT_PRICE * 1e6) == (
+        pytest.approx(4.0),
+        pytest.approx(20.0),
+    )
 
 
 # --- A hard cap for video calls -----------------------------------------------
 
 # (video seconds, what /responses/input_tokens counted, what Meta billed), from live runs in docs/evidence.
-MEASURED = [(15.6, 488, 4300), (15.6, 459, 4319), (5.005, 470, 1550), (4.838, 470, 1225), (4.838, 453, 1256),
-            (23.633, 486, 6478), (40.021, 1078, 11696), (18.933, 2173, 6579), (17.667, 2174, 6373)]
+MEASURED = [
+    (15.6, 488, 4300),
+    (15.6, 459, 4319),
+    (5.005, 470, 1550),
+    (4.838, 470, 1225),
+    (4.838, 453, 1256),
+    (23.633, 486, 6478),
+    (40.021, 1078, 11696),
+    (18.933, 2173, 6579),
+    (17.667, 2174, 6373),
+]
 WONDER_MEASURED = [(18.933, 1933, 5401)]
 
 
@@ -743,19 +944,38 @@ def test_the_video_allowance_covers_every_live_measurement(seconds: float, count
 
 
 def request_with(file_id: str, model: str = "muse-spark-1.3") -> dict[str, Any]:
-    return {"model": model, "input": [{"type": "message", "role": "user", "content": [
-        {"type": "input_text", "text": "x"}, {"type": "input_file", "file_id": file_id}]}]}
+    return {
+        "model": model,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "x"}, {"type": "input_file", "file_id": file_id}],
+            }
+        ],
+    }
 
 
-def test_the_count_adds_the_video_meta_leaves_out_and_more_for_a_model_that_listens(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_count_adds_the_video_meta_leaves_out_and_more_for_a_model_that_listens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setitem(meta._UPLOADS, "file-v1", (10.0, True))
     spark = meta._with_media_allowance(request_with("file-v1"), {"input_tokens": 500})
-    assert spark == {"input_tokens": 500 + allowance(10.0), "counted_input_tokens": 500, "media_tokens_allowance": allowance(10.0)}
+    assert spark == {
+        "input_tokens": 500 + allowance(10.0),
+        "counted_input_tokens": 500,
+        "media_tokens_allowance": allowance(10.0),
+    }
     wonder = meta._with_media_allowance(request_with("file-v1", "muse-wonder-1.0"), {"input_tokens": 500})
     assert wonder["input_tokens"] == 500 + allowance(10.0, listens=True) > spark["input_tokens"]
     monkeypatch.setitem(meta._UPLOADS, "file-v2", (10.0, False))
-    assert meta._with_media_allowance(request_with("file-v2", "muse-wonder-1.0"), {"input_tokens": 500})["input_tokens"] == spark["input_tokens"]
-    assert meta._with_media_allowance(request_with("file-unknown"), {"input_tokens": 500}) == {"input_tokens": 500}, "text only adds nothing"
+    assert (
+        meta._with_media_allowance(request_with("file-v2", "muse-wonder-1.0"), {"input_tokens": 500})["input_tokens"]
+        == spark["input_tokens"]
+    )
+    assert meta._with_media_allowance(request_with("file-unknown"), {"input_tokens": 500}) == {"input_tokens": 500}, (
+        "text only adds nothing"
+    )
 
 
 def test_a_story_reservation_includes_the_uploaded_video(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
@@ -783,7 +1003,10 @@ def test_an_overrun_is_warned_counted_and_shrinks_what_is_left(fake: type[Fake],
     reserved = call["reserved_usd"]
     assert billed > reserved and call["usage"]["cost_usd"] == pytest.approx(billed)
     assert call["usage"]["overran_usd"] == pytest.approx(billed - reserved, abs=1e-8)
-    assert any("more than the" in warning and "later calls have that much less room" in warning for warning in result["warnings"])
+    assert any(
+        "more than the" in warning and "later calls have that much less room" in warning
+        for warning in result["warnings"]
+    )
     [row] = meta.call_log(work, budget_usd=0.2)["calls"]
     assert row["cost_kind"] == "actual" and row["cost_usd"] == pytest.approx(billed)
     # Two reservations would fit in $0.20; the true cost plus the next reservation does not, so the cap holds.
@@ -794,14 +1017,19 @@ def test_an_overrun_is_warned_counted_and_shrinks_what_is_left(fake: type[Fake],
 
 def test_an_overrun_on_a_found_moment_search_reaches_its_warnings(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
     text = json.dumps({"moments": [{"start": 0.0, "end": 1.0, "reason": "The bowl is on screen."}], "subject": "bowl"})
-    fake.script = story_routes(answer(payload=dict(completed(text), usage={"input_tokens": 90_000, "output_tokens": 100})))
+    fake.script = story_routes(
+        answer(payload=dict(completed(text), usage={"input_tokens": 90_000, "output_tokens": 100}))
+    )
     result = meta.find_moments(clip, query="the bowl", duration=2.0, work_dir=tmp_path / "work", budget_usd=0.5)
     assert result["moments"] and any("more than the" in warning for warning in result["warnings"])
 
 
 def test_a_sam_call_billed_for_more_frames_than_reserved_says_so(fake: type[Fake], clip: Path, tmp_path: Path) -> None:
     done = sse("response.completed", response={"status": "completed", "usage": {"video_frames_processed": 5000}})
-    fake.script = {"POST /files": [answer(payload={"id": "file-abc123"})], "POST /responses": [("stream", [done], True)],
-                   "DELETE /files/file-abc123": [answer(payload={"deleted": True})]}
+    fake.script = {
+        "POST /files": [answer(payload={"id": "file-abc123"})],
+        "POST /responses": [("stream", [done], True)],
+        "DELETE /files/file-abc123": [answer(payload={"deleted": True})],
+    }
     masks = meta.subject_masks(clip, subject="the bowl", duration=2.0, work_dir=tmp_path / "work", budget_usd=1.0)
     assert masks["usage"]["overran_usd"] > 0 and any("more than the" in warning for warning in masks["warnings"])

@@ -1,15 +1,12 @@
 import importlib.util
 import json
-import shutil
-import subprocess
-import sys
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 import vedit.campaign
+import vedit.campaign_plan
 from vedit import meta
 from vedit.analyze import Range
 from vedit.campaign import CampaignManager
@@ -20,7 +17,6 @@ from vedit.captions import (
     build_caption_file,
     concat_cues,
     cue_key,
-    cue_words,
     format_ts,
     heard_cues,
     interpolate_words,
@@ -75,7 +71,7 @@ def test_write_srt_without_cues_is_still_probeable(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert text.startswith("1\n00:00:00,000 --> 00:00:00,001\n")
     assert len(read_srt(path)) == 1
-    assert read_srt(path)[0].text.strip("​ ") == ""
+    assert read_srt(path)[0].text.strip("\u200b ") == ""
 
 
 def test_ass_timestamps_use_centiseconds_and_keep_commas(tmp_path):
@@ -157,7 +153,12 @@ def test_polish_respects_gap_and_length_limits_and_short_trailers():
 def test_polish_normalizes_whitespace_capitalizes_and_drops_empty_cues():
     from vedit.captions import polish_cues
 
-    cues = [Cue(0, 0.5, "   "), Cue(0.5, 1.0, "\tthis  is\n the   bowl."), Cue(1.0, 1.2, ""), Cue(2.0, 3.0, "24 hours later, it is ready.")]
+    cues = [
+        Cue(0, 0.5, "   "),
+        Cue(0.5, 1.0, "\tthis  is\n the   bowl."),
+        Cue(1.0, 1.2, ""),
+        Cue(2.0, 3.0, "24 hours later, it is ready."),
+    ]
     out = polish_cues(cues)
     assert out == [Cue(0.5, 1.0, "This is the bowl."), Cue(2.0, 3.0, "24 hours later, it is ready.")]
     assert polish_cues([]) == []
@@ -186,19 +187,24 @@ def test_wrap_breaks_long_cues_into_two_balanced_lines(tmp_path: Path):
     ass = tmp_path / "c.ass"
     write_ass([cue], ass)
     dialogue = [line for line in ass.read_text().splitlines() if line.startswith("Dialogue:")]
-    assert dialogue == [r"Dialogue: 0,0:00:00.38,0:00:03.50,Default,,0,0,0,,This is the finished oak bowl,\Noiled and ready for the table."]
+    assert dialogue == [
+        r"Dialogue: 0,0:00:00.38,0:00:03.50,Default,,0,0,0,,This is the finished oak bowl,\Noiled and ready for the table."
+    ]
 
 
 def test_meta_shaped_cues_with_doubled_words_come_out_clean():
     """The same conversion campaign._meta_captions applies to Meta Voice Transcribe output."""
     from vedit.captions import polish_cues
 
-    result = {"cues": [
-        {"start": 16.0, "end": 18.8, "text": "on the lathe the the shape appears in long,"},
-        {"start": 18.8, "end": 20.0, "text": "steady cuts."},
-        {"start": 24.0, "end": 26.4, "text": "sanding goes from coarse to fine, with the lathe"},
-        {"start": 26.4, "end": 29.0, "text": "lathe turning slowly."},
-    ], "provider": "meta"}
+    result = {
+        "cues": [
+            {"start": 16.0, "end": 18.8, "text": "on the lathe the the shape appears in long,"},
+            {"start": 18.8, "end": 20.0, "text": "steady cuts."},
+            {"start": 24.0, "end": 26.4, "text": "sanding goes from coarse to fine, with the lathe"},
+            {"start": 26.4, "end": 29.0, "text": "lathe turning slowly."},
+        ],
+        "provider": "meta",
+    }
     cues = polish_cues([Cue(float(c["start"]), float(c["end"]), str(c["text"])) for c in result["cues"]])
     assert cues == [
         Cue(16.0, 20.0, "On the lathe the shape appears in long, steady cuts."),
@@ -223,20 +229,38 @@ def test_interpolation_splits_text_without_spaces_and_rejoins_it() -> None:
 
 def test_polish_keeps_words_aligned_with_the_text() -> None:
     words = lambda *rows: tuple(Word(*row) for row in rows)  # noqa: E731
-    first = Cue(0.0, 2.0, "on the the lathe", words((0.0, 0.3, "on"), (0.3, 0.5, "the"), (0.5, 0.7, "the"), (0.7, 2.0, "lathe")))
+    first = Cue(
+        0.0, 2.0, "on the the lathe", words((0.0, 0.3, "on"), (0.3, 0.5, "the"), (0.5, 0.7, "the"), (0.7, 2.0, "lathe"))
+    )
     second = Cue(2.0, 3.0, "lathe, turning.", words((2.0, 2.4, "lathe,"), (2.4, 3.0, "turning.")))
     out = polish_cues([first, second])
     assert [cue.text for cue in out] == ["On the lathe, turning."]
     assert [word.text for word in out[0].words] == ["On", "the", "lathe,", "turning."]
-    assert out[0].words[1].end == 0.7 and out[0].words[2].end == 2.4, "a dropped copy gives its time to the one that stays"
+    assert out[0].words[1].end == 0.7 and out[0].words[2].end == 2.4, (
+        "a dropped copy gives its time to the one that stays"
+    )
 
 
 def test_source_cues_either_side_of_a_cut_stay_apart() -> None:
     """Real case: the tail of one moment plus the start of the next made "...from a fallen to be."."""
-    plan = {"segments": [{"start": 0.0, "end": 2.0}, {"start": 10.0, "end": 12.0}], "edit": {},
-            "analysis": {"transcript": [{"start": 1.0, "end": 3.0, "text": "It started from a fallen tree."}, {"start": 9.0, "end": 10.5, "text": "where it wants to be."}],
-                         "words": [{"start": 1.0, "end": 1.4, "text": "It"}, {"start": 1.4, "end": 1.9, "text": "started"}, {"start": 2.5, "end": 3.0, "text": "tree."},
-                                   {"start": 9.0, "end": 9.5, "text": "where"}, {"start": 10.0, "end": 10.4, "text": "to"}, {"start": 10.4, "end": 10.5, "text": "be."}]}}
+    plan = {
+        "segments": [{"start": 0.0, "end": 2.0}, {"start": 10.0, "end": 12.0}],
+        "edit": {},
+        "analysis": {
+            "transcript": [
+                {"start": 1.0, "end": 3.0, "text": "It started from a fallen tree."},
+                {"start": 9.0, "end": 10.5, "text": "where it wants to be."},
+            ],
+            "words": [
+                {"start": 1.0, "end": 1.4, "text": "It"},
+                {"start": 1.4, "end": 1.9, "text": "started"},
+                {"start": 2.5, "end": 3.0, "text": "tree."},
+                {"start": 9.0, "end": 9.5, "text": "where"},
+                {"start": 10.0, "end": 10.4, "text": "to"},
+                {"start": 10.4, "end": 10.5, "text": "be."},
+            ],
+        },
+    }
     assert [cue.text for cue in story_cues(plan)] == ["It started", "To be."]
 
 
@@ -248,7 +272,16 @@ def test_polish_never_joins_two_story_moments() -> None:
 
 
 def test_word_records_are_bounded_clamped_and_always_have_length() -> None:
-    records = word_records([Word(1.0, 1.0, "tick"), Word(9.0, 12.0, "over"), Word(11.0, 12.0, "after"), {"start": 2, "end": 3, "text": "bell\x07"}, {"start": "x", "end": 1, "text": "bad"}], 10.0)
+    records = word_records(
+        [
+            Word(1.0, 1.0, "tick"),
+            Word(9.0, 12.0, "over"),
+            Word(11.0, 12.0, "after"),
+            {"start": 2, "end": 3, "text": "bell\x07"},
+            {"start": "x", "end": 1, "text": "bad"},
+        ],
+        10.0,
+    )
     assert [record["text"] for record in records] == ["tick", "over", "bell"]
     assert records[0]["end"] > records[0]["start"] and records[1]["end"] == 10.0
     assert len(word_records([Word(0, 1, "w")] * (MAX_WORDS + 5))) == MAX_WORDS
@@ -256,27 +289,53 @@ def test_word_records_are_bounded_clamped_and_always_have_length() -> None:
 
 def test_transcript_cleaning_drops_notes_and_phantoms() -> None:
     assert strip_annotations("[Ding] well (laughs) okay ♪") == "well okay"
-    analysis = {"transcript": [{"start": 0, "end": 2, "text": "You"}, {"start": 3, "end": 5, "text": "(upbeat music)"}, {"start": 6, "end": 8, "text": "Real words."},
-                               {"start": 9, "end": 12, "text": "quiet but long enough to be real"}], "speech": [{"start": 6, "end": 8}]}
+    analysis = {
+        "transcript": [
+            {"start": 0, "end": 2, "text": "You"},
+            {"start": 3, "end": 5, "text": "(upbeat music)"},
+            {"start": 6, "end": 8, "text": "Real words."},
+            {"start": 9, "end": 12, "text": "quiet but long enough to be real"},
+        ],
+        "speech": [{"start": 6, "end": 8}],
+    }
     assert [cue.text for cue in source_cues(analysis)] == ["Real words.", "quiet but long enough to be real"]
 
 
 def test_lines_are_rebuilt_from_words_when_the_transcript_is_missing() -> None:
-    words = [{"start": 0.0, "end": 0.3, "text": "Done."}, {"start": 2.0, "end": 2.3, "text": "Next"}, {"start": 4.0, "end": 4.3, "text": "line"}]
+    words = [
+        {"start": 0.0, "end": 0.3, "text": "Done."},
+        {"start": 2.0, "end": 2.3, "text": "Next"},
+        {"start": 4.0, "end": 4.3, "text": "line"},
+    ]
     assert [cue.text for cue in source_cues({"words": words})] == ["Done.", "Next", "line"]
 
 
 # One caption path.
 
-WORDS = [(0.5, 0.9, "First"), (1.0, 1.4, "words"), (2.2, 2.6, "gone"), (3.0, 3.4, "stay"), (3.6, 3.9, "here."), (6.2, 6.6, "Second"), (6.8, 7.2, "moment"), (7.4, 7.8, "now.")]
+WORDS = [
+    (0.5, 0.9, "First"),
+    (1.0, 1.4, "words"),
+    (2.2, 2.6, "gone"),
+    (3.0, 3.4, "stay"),
+    (3.6, 3.9, "here."),
+    (6.2, 6.6, "Second"),
+    (6.8, 7.2, "moment"),
+    (7.4, 7.8, "now."),
+]
 
 
 def clip_plan(**edit) -> dict:
     """Two moments: the first at double speed with a cut inside it, then a crossfade."""
     return {
         "segments": [{"start": 0.0, "end": 4.0, "speed": 2.0}, {"start": 6.0, "end": 8.0}],
-        "analysis": {"transcript": [{"start": 0.5, "end": 3.9, "text": "First words gone stay here."}, {"start": 6.2, "end": 7.8, "text": "Second moment now."}],
-                     "words": [{"start": start, "end": end, "text": text} for start, end, text in WORDS], "speech": [{"start": 0.0, "end": 8.0}]},
+        "analysis": {
+            "transcript": [
+                {"start": 0.5, "end": 3.9, "text": "First words gone stay here."},
+                {"start": 6.2, "end": 7.8, "text": "Second moment now."},
+            ],
+            "words": [{"start": start, "end": end, "text": text} for start, end, text in WORDS],
+            "speech": [{"start": 0.0, "end": 8.0}],
+        },
         "edit": {"removed": [[2.0, 2.8]], "transition": {"type": "fade", "seconds": 0.4}, **edit},
     }
 
@@ -289,7 +348,9 @@ def test_cues_follow_keep_speed_and_transition_onto_the_output_clock() -> None:
     assert first.text == "First words stay here." and second.text == "Second moment now."
     by_word = {word.text: word for word in (*first.words, *second.words)}
     assert "gone" not in by_word, "the removed moment takes its word with it"
-    assert by_word["First"].start == pytest.approx(0.25) and by_word["words"].start == pytest.approx(0.5), "double speed halves source time"
+    assert by_word["First"].start == pytest.approx(0.25) and by_word["words"].start == pytest.approx(0.5), (
+        "double speed halves source time"
+    )
     assert by_word["stay"].start == pytest.approx(1.1), "after the cut, 3.0 s plays 0.2 s of source past 2.8 s"
     assert by_word["Second"].start == pytest.approx(1.4), "the second moment starts 0.4 s early, under the crossfade"
     assert first.end == second.start, "the outgoing line gives way, so two captions never stack in the overlap"
@@ -301,12 +362,20 @@ def test_turn_level_cues_cross_the_concat_clock_to_the_output_clock() -> None:
     view = plan_timeline(plan)
     # The WAV holds 0-2, then 2.8-4, then 6-8 end to end at normal speed.
     assert sum(span.source_end - span.source_start for span in view["spans"]) == pytest.approx(5.2)
-    heard = [Cue(0.5, 1.5, "hello there."), Cue(2.5, 3.0, "second piece."), Cue(3.7, 4.7, "the third moment of this story.")]
+    heard = [
+        Cue(0.5, 1.5, "hello there."),
+        Cue(2.5, 3.0, "second piece."),
+        Cue(3.7, 4.7, "the third moment of this story."),
+    ]
     first, second, third = concat_cues(heard, plan, view)
     assert (first.start, first.end) == (pytest.approx(0.25), pytest.approx(0.75))
-    assert second.start == pytest.approx(1.25) and second.end == third.start, "a short gap is held so the line does not blink"
+    assert second.start == pytest.approx(1.25) and second.end == third.start, (
+        "a short gap is held so the line does not blink"
+    )
     assert (third.start, third.end) == (pytest.approx(1.7), pytest.approx(2.7))
-    assert [cue_key(cue) for cue in (first, second, third)] == ["500", "3300", "6500"], "edits key on the source clock, whichever clock the recognizer heard"
+    assert [cue_key(cue) for cue in (first, second, third)] == ["500", "3300", "6500"], (
+        "edits key on the source clock, whichever clock the recognizer heard"
+    )
     assert all(word.estimated for cue in (first, second, third) for word in cue.words), "turns have no real word timing"
 
 
@@ -315,16 +384,28 @@ def test_a_turn_heard_across_a_cut_stays_one_line() -> None:
     plan = clip_plan()
     [cue] = concat_cues([Cue(2.2, 4.2, "words on both sides of it")], plan, plan_timeline(plan))
     assert cue.text == "Words on both sides of it"
-    assert [word.text.lower() for word in cue.words] == ["words", "on", "both", "sides", "of", "it"], "a word across the cut stays too"
+    assert [word.text.lower() for word in cue.words] == ["words", "on", "both", "sides", "of", "it"], (
+        "a word across the cut stays too"
+    )
     assert all(word.end >= word.start for word in cue.words)
 
 
 def test_concat_spans_keep_the_placement_and_lay_the_audio_end_to_end() -> None:
     spans = plan_timeline(clip_plan())["spans"]
     laid = concat_spans(spans)
-    assert [(span.source_start, span.source_end) for span in laid] == [(0.0, 2.0), (2.0, pytest.approx(3.2)), (pytest.approx(3.2), pytest.approx(5.2))]
-    assert [(span.output_start, span.speed, span.segment) for span in laid] == [(span.output_start, span.speed, span.segment) for span in spans]
-    assert concat_to_source(spans, 2.5) == pytest.approx(3.3) and concat_to_source(spans, 3.7) == pytest.approx(6.5) and concat_to_source(spans, 99) == 8.0
+    assert [(span.source_start, span.source_end) for span in laid] == [
+        (0.0, 2.0),
+        (2.0, pytest.approx(3.2)),
+        (pytest.approx(3.2), pytest.approx(5.2)),
+    ]
+    assert [(span.output_start, span.speed, span.segment) for span in laid] == [
+        (span.output_start, span.speed, span.segment) for span in spans
+    ]
+    assert (
+        concat_to_source(spans, 2.5) == pytest.approx(3.3)
+        and concat_to_source(spans, 3.7) == pytest.approx(6.5)
+        and concat_to_source(spans, 99) == 8.0
+    )
 
 
 def test_edits_are_keyed_by_the_source_start_and_estimate_their_word_times() -> None:
@@ -333,10 +414,16 @@ def test_edits_are_keyed_by_the_source_start_and_estimate_their_word_times() -> 
     assert keys == ["500", "6200"]
     edited = story_cues(clip_plan(captions={"edits": {"6200": "A better second line"}}))
     assert edited[0].text == cues[0].text and edited[1].text == "A better second line"
-    assert (edited[1].start, edited[1].end) == (cues[1].start, cues[1].end) and [word.text for word in edited[1].words] == ["A", "better", "second", "line"]
+    assert (edited[1].start, edited[1].end) == (cues[1].start, cues[1].end) and [
+        word.text for word in edited[1].words
+    ] == ["A", "better", "second", "line"]
     assert all(word.estimated for word in edited[1].words) and not any(word.estimated for word in edited[0].words)
-    assert [cue.text for cue in story_cues(clip_plan(captions={"edits": {"1400": "Output clock key"}}))] == [cue.text for cue in cues], "the output time is not the key"
-    assert [cue.text for cue in story_cues(clip_plan(captions={"edits": {"6200": ""}}))] == [cues[0].text], "an emptied line is gone"
+    assert [cue.text for cue in story_cues(clip_plan(captions={"edits": {"1400": "Output clock key"}}))] == [
+        cue.text for cue in cues
+    ], "the output time is not the key"
+    assert [cue.text for cue in story_cues(clip_plan(captions={"edits": {"6200": ""}}))] == [cues[0].text], (
+        "an emptied line is gone"
+    )
 
 
 def test_edit_keys_survive_a_change_to_the_cut() -> None:
@@ -348,9 +435,18 @@ def test_edit_keys_survive_a_change_to_the_cut() -> None:
 
 
 def test_a_removed_filler_leaves_the_sound_and_the_caption() -> None:
-    plan = {"segments": [{"start": 0.0, "end": 3.0}],
-            "analysis": {"transcript": [{"start": 0.1, "end": 2.6, "text": "So, um, I think."}],
-                         "words": [{"start": 0.1, "end": 0.4, "text": "So,"}, {"start": 0.6, "end": 1.1, "text": "um,"}, {"start": 1.1, "end": 1.3, "text": "I"}, {"start": 1.3, "end": 2.6, "text": "think."}]}}
+    plan = {
+        "segments": [{"start": 0.0, "end": 3.0}],
+        "analysis": {
+            "transcript": [{"start": 0.1, "end": 2.6, "text": "So, um, I think."}],
+            "words": [
+                {"start": 0.1, "end": 0.4, "text": "So,"},
+                {"start": 0.6, "end": 1.1, "text": "um,"},
+                {"start": 1.1, "end": 1.3, "text": "I"},
+                {"start": 1.3, "end": 2.6, "text": "think."},
+            ],
+        },
+    }
     assert story_cues({**plan, "edit": {"remove_fillers": False}})[0].text == "So, um, I think."
     removed = {**plan, "edit": {"remove_fillers": True}}
     view = plan_timeline(removed)
@@ -363,7 +459,14 @@ def test_a_removed_filler_leaves_the_sound_and_the_caption() -> None:
 def caption_context(plan: dict, tmp_path: Path, **request):
     work = tmp_path / "project" / "render-1"
     work.mkdir(parents=True, exist_ok=True)
-    return render_context(plan, request={"language": "en", "budget_usd": 0.25, **request}, aspect="9:16", canvas=Canvas(width=540, height=960, fps=30), work=work, has_audio=True)
+    return render_context(
+        plan,
+        request={"language": "en", "budget_usd": 0.25, **request},
+        aspect="9:16",
+        canvas=Canvas(width=540, height=960, fps=30),
+        work=work,
+        has_audio=True,
+    )
 
 
 def test_preview_is_exactly_what_the_file_burns(tmp_path: Path) -> None:
@@ -373,21 +476,30 @@ def test_preview_is_exactly_what_the_file_burns(tmp_path: Path) -> None:
     subtitle = build_caption_file(plan, ctx.view, ctx)
     assert subtitle == ctx.work / "captions.ass" and subtitle.is_file()
     burned = read_srt(ctx.work / "captions.srt")
-    assert [(cue.start, cue.end, cue.text) for cue in burned] == [(item["start"], item["end"], item["text"]) for item in shown]
+    assert [(cue.start, cue.end, cue.text) for cue in burned] == [
+        (item["start"], item["end"], item["text"]) for item in shown
+    ]
     assert [item["key"] for item in shown] == ["500", "6200"] and shown[0]["source_start"] == 0.5
     assert shown[1]["estimated"] is True and "estimated" not in shown[0]
-    assert "Edited" in subtitle.read_text(encoding="utf-8") and r"\c&H" in subtitle.read_text(encoding="utf-8"), "the chosen style reached the file"
+    assert "Edited" in subtitle.read_text(encoding="utf-8") and r"\c&H" in subtitle.read_text(encoding="utf-8"), (
+        "the chosen style reached the file"
+    )
 
 
 def test_no_transcript_means_no_file_and_no_model_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(meta, "transcribe_audio", lambda *a, **k: pytest.fail("a transcript in the plan needs no speech model"))
+    monkeypatch.setattr(
+        meta, "transcribe_audio", lambda *a, **k: pytest.fail("a transcript in the plan needs no speech model")
+    )
     plan = {"segments": [{"start": 0.0, "end": 2.0}], "analysis": {"transcript": []}, "edit": {}}
     ctx = caption_context(plan, tmp_path)
     assert build_caption_file(plan, ctx.view, ctx) is None and preview_cues(plan, ctx.view) == []
 
 
 def test_plans_saved_before_word_timing_still_caption() -> None:
-    plan = {"segments": [{"start": 1.0, "end": 3.0}], "analysis": {"transcript": [{"start": 1.2, "end": 2.2, "text": "Old plan."}]}}
+    plan = {
+        "segments": [{"start": 1.0, "end": 3.0}],
+        "analysis": {"transcript": [{"start": 1.2, "end": 2.2, "text": "Old plan."}]},
+    }
     cues = preview_cues(plan)
     assert [cue["text"] for cue in cues] == ["Old plan."] and cues[0]["key"] == "1200" and "words" not in cues[0]
 
@@ -404,8 +516,11 @@ class TranslationHttp:
         assert (method, path) == ("POST", "/responses")
         self.posts += 1
         lines = [{"index": index, "text": text} for index, text in enumerate(self.lines, 1)]
-        return {"status": "completed", "usage": {"input_tokens": 400, "output_tokens": 90},
-                "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps({"lines": lines})}]}]}
+        return {
+            "status": "completed",
+            "usage": {"input_tokens": 400, "output_tokens": 90},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps({"lines": lines})}]}],
+        }
 
 
 def meta_on(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -413,7 +528,9 @@ def meta_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VEDIT_META_ENABLED", "1")
 
 
-def test_translated_lines_burn_and_both_languages_are_delivered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_translated_lines_burn_and_both_languages_are_delivered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     meta_on(monkeypatch)
     http = TranslationHttp("Primeras palabras aquí.", "Segundo momento ahora.")
     monkeypatch.setattr(meta, "_request", http)
@@ -422,7 +539,9 @@ def test_translated_lines_burn_and_both_languages_are_delivered(tmp_path: Path, 
     subtitle = build_caption_file(plan, ctx.view, ctx)
     english, spanish = read_srt(ctx.work / "captions.srt"), read_srt(ctx.work / "captions.es.srt")
     assert [cue.text for cue in spanish] == ["Primeras palabras aquí.", "Segundo momento ahora."]
-    assert [(cue.start, cue.end) for cue in spanish] == [(cue.start, cue.end) for cue in english], "same cues, same times"
+    assert [(cue.start, cue.end) for cue in spanish] == [(cue.start, cue.end) for cue in english], (
+        "same cues, same times"
+    )
     assert english[0].text == "First words stay here."
     burned = subtitle.read_text(encoding="utf-8")
     assert "palabras" in burned and "stay" not in burned
@@ -474,42 +593,72 @@ def manager(tmp_path: Path):
         instance.close()
 
 
-def measured(monkeypatch: pytest.MonkeyPatch, transcript: list[dict], words: list[dict], *, listened: bool = True) -> None:
+def measured(
+    monkeypatch: pytest.MonkeyPatch, transcript: list[dict], words: list[dict], *, listened: bool = True
+) -> None:
     def analyze(source: Path, work_dir: Path, **_kwargs) -> dict:
         work_dir.mkdir(parents=True, exist_ok=True)
-        return {"duration": 1.5, "has_audio": True, "scenes": [], "silences": [], "transcript": transcript, "words": words, "transcribed": listened, "warnings": []}
+        return {
+            "duration": 1.5,
+            "has_audio": True,
+            "scenes": [],
+            "silences": [],
+            "transcript": transcript,
+            "words": words,
+            "transcribed": listened,
+            "warnings": [],
+        }
 
     monkeypatch.setattr("vedit.story.analyze_source", analyze)
 
 
 def tiny_plan(**edit) -> dict:
-    return {"title": "A clear view", "segments": [{"start": 0.1, "end": 1.4, "label": "Product", "reason": "Chosen."}], "caption": "A look.", "hashtags": [], "edit": edit}
+    return {
+        "title": "A clear view",
+        "segments": [{"start": 0.1, "end": 1.4, "label": "Product", "reason": "Chosen."}],
+        "caption": "A look.",
+        "hashtags": [],
+        "edit": edit,
+    }
 
 
 HEARD = [{"start": 0.2, "end": 1.2, "text": "Made by hand."}]
-HEARD_WORDS = [{"start": 0.2, "end": 0.5, "text": "Made"}, {"start": 0.5, "end": 0.7, "text": "by"}, {"start": 0.7, "end": 1.2, "text": "hand."}]
+HEARD_WORDS = [
+    {"start": 0.2, "end": 0.5, "text": "Made"},
+    {"start": 0.5, "end": 0.7, "text": "by"},
+    {"start": 0.7, "end": 1.2, "text": "hand."},
+]
 
 
 @pytest.mark.render
-def test_a_campaign_burns_the_plans_words_without_running_a_model(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_campaign_burns_the_plans_words_without_running_a_model(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     measured(monkeypatch, HEARD, HEARD_WORDS)
-    monkeypatch.setattr("vedit.campaign.transcribe_speech", lambda *a, **k: pytest.fail("the plan already holds the transcript"))
+    monkeypatch.setattr(
+        "vedit.campaign.transcribe_speech", lambda *a, **k: pytest.fail("the plan already holds the transcript")
+    )
     calls: list[str] = []
 
-    def spy(name: str):
-        real = getattr(vedit.campaign, name)
+    def spy(module: object, name: str):
+        real = getattr(module, name)
 
         def wrapped(*args, **kwargs):
             calls.append(name)
             return real(*args, **kwargs)
 
-        monkeypatch.setattr(vedit.campaign, name, wrapped)
+        monkeypatch.setattr(module, name, wrapped)
 
-    spy("preview_cues")
-    spy("build_caption_file")
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True})
+    # The timeline view (campaign_plan) previews the cues; only the render (campaign) writes the caption file.
+    spy(vedit.campaign_plan, "preview_cues")
+    spy(vedit.campaign, "build_caption_file")
+    job = manager.create(
+        {"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True}
+    )
     manager.process(job["id"])
-    assert "preview_cues" in calls and "build_caption_file" not in calls, "the timeline previews; only a render writes the file"
+    assert "preview_cues" in calls and "build_caption_file" not in calls, (
+        "the timeline previews; only a render writes the file"
+    )
     planned = manager.get(job["id"])
     assert planned["status"] == "planned", planned["error"]
     assert planned["plan"]["analysis"]["words"] == HEARD_WORDS
@@ -531,14 +680,21 @@ def test_a_campaign_burns_the_plans_words_without_running_a_model(manager: Campa
 
 
 @pytest.mark.render
-def test_a_local_edit_never_listens_and_says_captions_need_meta(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_local_edit_never_listens_and_says_captions_need_meta(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The model-free path has no speech model to fall back on, so it captions nothing and says why."""
     measured(monkeypatch, [], [], listened=False)
     monkeypatch.setattr("vedit.campaign.transcribe_speech", lambda *a, **k: pytest.fail("a local edit calls no model"))
     monkeypatch.setattr(meta, "transcribe_audio", lambda *a, **k: pytest.fail("a local edit calls no model"))
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True})
+    job = manager.create(
+        {"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True}
+    )
     manager.process(job["id"])
-    assert any("Captions are unavailable: captions use Meta Voice Transcribe" in warning for warning in manager.get(job["id"])["plan"]["warnings"])
+    assert any(
+        "Captions are unavailable: captions use Meta Voice Transcribe" in warning
+        for warning in manager.get(job["id"])["plan"]["warnings"]
+    )
     manager.render(job["id"], {"plan": tiny_plan()})
     manager.process(job["id"])
     complete = manager.get(job["id"])
@@ -549,7 +705,9 @@ def test_a_local_edit_never_listens_and_says_captions_need_meta(manager: Campaig
 
 
 @pytest.mark.render
-def test_meta_mode_hears_the_source_once_and_captions_reuse_it(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_meta_mode_hears_the_source_once_and_captions_reuse_it(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Meta Voice Transcribe hears the whole source at planning; the render cuts captions from that transcript, free."""
     meta_on(monkeypatch)
     heard: list[dict] = []
@@ -557,21 +715,55 @@ def test_meta_mode_hears_the_source_once_and_captions_reuse_it(manager: Campaign
     def transcribe_audio(wav: Path, **kwargs) -> dict:
         info = probe(wav)
         heard.append(dict(kwargs, seconds=info.duration, channels=info.audio.channels, rate=info.audio.sample_rate))
-        return {"cues": [{"start": 0.2, "end": 1.2, "text": "Made by hand. Then oiled."}], "provider": "meta", "usage": {"cost_usd": 0.0001}}
+        return {
+            "cues": [{"start": 0.2, "end": 1.2, "text": "Made by hand. Then oiled."}],
+            "provider": "meta",
+            "usage": {"cost_usd": 0.0001},
+        }
 
     monkeypatch.setattr(meta, "transcribe_audio", transcribe_audio)
-    monkeypatch.setattr(meta, "plan_story", lambda proxy, **kw: {**tiny_plan(), "summary": "s", "cover_prompt": "", "provider": "meta", "usage": {"cost_usd": 0.001}, "warnings": []})
-    monkeypatch.setattr(CampaignManager, "_meta_captions", lambda *a, **k: pytest.fail("the plan already holds Meta's transcript"))
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True, "provider": "meta", "caption_provider": "local"})
+    monkeypatch.setattr(
+        meta,
+        "plan_story",
+        lambda proxy, **kw: {
+            **tiny_plan(),
+            "summary": "s",
+            "cover_prompt": "",
+            "provider": "meta",
+            "usage": {"cost_usd": 0.001},
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        CampaignManager, "_meta_captions", lambda *a, **k: pytest.fail("the plan already holds Meta's transcript")
+    )
+    job = manager.create(
+        {
+            "paths": [str(tiny_clip)],
+            "goal": "Show the product",
+            "target_duration": 1,
+            "captions": True,
+            "provider": "meta",
+            "caption_provider": "local",
+        }
+    )
     assert job["request"]["caption_provider"] == "meta", "Meta mode always captions with Meta"
     manager.process(job["id"])
     planned = manager.get(job["id"])
     assert planned["status"] == "planned", planned["error"]
     analysis = planned["plan"]["analysis"]
     assert analysis["transcribed_by"] == "meta-voice-transcribe" and analysis["transcribed"] is True
-    assert [sentence["text"] for sentence in analysis["sentences"]] == ["Made by hand.", "Then oiled."], "a turn's sentences are split by punctuation"
-    assert "words" not in analysis, "turn-level timing gives no heard words, so nothing cuts audio at a guessed word time"
-    assert len(heard) == 1 and heard[0]["seconds"] == pytest.approx(1.5, abs=0.05) and (heard[0]["channels"], heard[0]["rate"]) == (1, 16000)
+    assert [sentence["text"] for sentence in analysis["sentences"]] == ["Made by hand.", "Then oiled."], (
+        "a turn's sentences are split by punctuation"
+    )
+    assert "words" not in analysis, (
+        "turn-level timing gives no heard words, so nothing cuts audio at a guessed word time"
+    )
+    assert (
+        len(heard) == 1
+        and heard[0]["seconds"] == pytest.approx(1.5, abs=0.05)
+        and (heard[0]["channels"], heard[0]["rate"]) == (1, 16000)
+    )
     manager.render(job["id"], {"plan": tiny_plan()})
     manager.process(job["id"])
     complete = manager.get(job["id"])
@@ -587,24 +779,60 @@ def test_meta_mode_hears_the_source_once_and_captions_reuse_it(manager: Campaign
 
 
 @pytest.mark.render
-def test_a_failed_meta_transcript_never_falls_back_to_another_model(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_failed_meta_transcript_never_falls_back_to_another_model(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     meta_on(monkeypatch)
-    monkeypatch.setattr(meta, "transcribe_audio", lambda *a, **k: (_ for _ in ()).throw(meta.MetaError("Meta's rate limit was reached. Wait briefly, then retry.")))
-    monkeypatch.setattr(meta, "plan_story", lambda proxy, **kw: {**tiny_plan(), "summary": "s", "cover_prompt": "", "provider": "meta", "usage": {"cost_usd": 0.001}, "warnings": []})
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True, "provider": "meta"})
+    monkeypatch.setattr(
+        meta,
+        "transcribe_audio",
+        lambda *a, **k: (_ for _ in ()).throw(
+            meta.MetaError("Meta's rate limit was reached. Wait briefly, then retry.")
+        ),
+    )
+    monkeypatch.setattr(
+        meta,
+        "plan_story",
+        lambda proxy, **kw: {
+            **tiny_plan(),
+            "summary": "s",
+            "cover_prompt": "",
+            "provider": "meta",
+            "usage": {"cost_usd": 0.001},
+            "warnings": [],
+        },
+    )
+    job = manager.create(
+        {
+            "paths": [str(tiny_clip)],
+            "goal": "Show the product",
+            "target_duration": 1,
+            "captions": True,
+            "provider": "meta",
+        }
+    )
     manager.process(job["id"])
     planned = manager.get(job["id"])
     assert planned["status"] == "planned", planned["error"]
     assert planned["plan"]["analysis"]["transcript"] == [] and "transcribed_by" not in planned["plan"]["analysis"]
-    assert any("Meta Voice Transcribe did not finish" in warning and "rate limit" in warning for warning in planned["plan"]["warnings"])
+    assert any(
+        "Meta Voice Transcribe did not finish" in warning and "rate limit" in warning
+        for warning in planned["plan"]["warnings"]
+    )
 
 
 @pytest.mark.render
-def test_silence_is_not_listened_to_twice(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_silence_is_not_listened_to_twice(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A recognizer can invent words on silence, so a second listen could only burn a phantom."""
     measured(monkeypatch, [], [], listened=True)
-    monkeypatch.setattr("vedit.campaign.transcribe_speech", lambda *a, **k: pytest.fail("the plan already listened and heard nothing"))
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True})
+    monkeypatch.setattr(
+        "vedit.campaign.transcribe_speech", lambda *a, **k: pytest.fail("the plan already listened and heard nothing")
+    )
+    job = manager.create(
+        {"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True}
+    )
     manager.process(job["id"])
     manager.render(job["id"], {"plan": tiny_plan()})
     manager.process(job["id"])
@@ -614,11 +842,15 @@ def test_silence_is_not_listened_to_twice(manager: CampaignManager, tiny_clip: P
 
 
 @pytest.mark.render
-def test_a_campaign_delivers_the_translated_srt(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_campaign_delivers_the_translated_srt(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     meta_on(monkeypatch)
     measured(monkeypatch, HEARD, HEARD_WORDS)
     monkeypatch.setattr(meta, "_request", TranslationHttp("Hecho a mano."))
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True})
+    job = manager.create(
+        {"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True}
+    )
     manager.process(job["id"])
     manager.render(job["id"], {"plan": tiny_plan(captions={"language": "es"})})
     manager.process(job["id"])
@@ -631,20 +863,33 @@ def test_a_campaign_delivers_the_translated_srt(manager: CampaignManager, tiny_c
 
 
 @pytest.mark.render
-def test_a_campaign_refuses_translation_plainly_without_meta(manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_campaign_refuses_translation_plainly_without_meta(
+    manager: CampaignManager, tiny_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     measured(monkeypatch, HEARD, HEARD_WORDS)
-    job = manager.create({"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True})
+    job = manager.create(
+        {"paths": [str(tiny_clip)], "goal": "Show the product", "target_duration": 1, "captions": True}
+    )
     manager.process(job["id"])
     manager.render(job["id"], {"plan": tiny_plan(captions={"language": "es"})})
     manager.process(job["id"])
     failed = manager.get(job["id"])
-    assert failed["status"] == "failed" and "Translated captions use Meta" in failed["error"] and "caption language" in failed["error"]
-
+    assert (
+        failed["status"] == "failed"
+        and "Translated captions use Meta" in failed["error"]
+        and "caption language" in failed["error"]
+    )
 
 
 def test_meta_turns_become_sentence_lines_with_estimated_words() -> None:
-    turns = [{"start": 0.0, "end": 8.0, "text": "This is the finished oak bowl, oiled and ready for the table. It started as a rough blank."},
-             {"start": 9.0, "end": 9.5, "text": "[BLANK_AUDIO]"}]
+    turns = [
+        {
+            "start": 0.0,
+            "end": 8.0,
+            "text": "This is the finished oak bowl, oiled and ready for the table. It started as a rough blank.",
+        },
+        {"start": 9.0, "end": 9.5, "text": "[BLANK_AUDIO]"},
+    ]
     lines = heard_cues(turns)
     assert all(len(line.text) <= 42 and not line.words for line in lines)
     assert " ".join(line.text for line in lines) == turns[0]["text"]
@@ -653,7 +898,9 @@ def test_meta_turns_become_sentence_lines_with_estimated_words() -> None:
     assert lines[0].start == 0.0 and lines[-1].end == 8.0, "the turn's own edges are heard"
 
 
-def test_transcribe_sends_16k_mono_once_and_never_sends_silence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcribe_sends_16k_mono_once_and_never_sends_silence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from vedit.media import run_ffmpeg
 
     calls: list[dict] = []
@@ -667,10 +914,10 @@ def test_transcribe_sends_16k_mono_once_and_never_sends_silence(tmp_path: Path, 
     tone, quiet = tmp_path / "tone.wav", tmp_path / "quiet.wav"
     run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1", "-ac", "2", str(tone)])
     run_ffmpeg(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "1", str(quiet)])
-    cues = transcribe(tone, tmp_path / "work", language="es", budget_usd=.05, meta_dir=tmp_path / "ledger")
+    cues = transcribe(tone, tmp_path / "work", language="es", budget_usd=0.05, meta_dir=tmp_path / "ledger")
     assert [cue.text for cue in cues] == ["Hello there."]
     assert len(calls) == 1 and (calls[0]["rate"], calls[0]["channels"]) == (16000, 1) and calls[0]["language"] == "es"
-    assert calls[0]["work_dir"] == tmp_path / "ledger" and calls[0]["budget_usd"] == .05
+    assert calls[0]["work_dir"] == tmp_path / "ledger" and calls[0]["budget_usd"] == 0.05
     assert transcribe(quiet, tmp_path / "quiet-work") == [] and len(calls) == 1, "silence is not sent"
 
 
@@ -690,7 +937,19 @@ def test_a_long_recording_is_heard_in_pieces_cut_at_pauses(tmp_path: Path, monke
 
     long = tmp_path / "long.wav"
     # Tone, a pause from 3.0 to 3.6 s, tone again: the first piece ends inside that pause, not at 4 s.
-    run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000:duration=10", "-af", "volume=enable='between(t,3,3.6)':volume=0", "-ac", "1", str(long)])
+    run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000:duration=10",
+            "-af",
+            "volume=enable='between(t,3,3.6)':volume=0",
+            "-ac",
+            "1",
+            str(long),
+        ]
+    )
     cues = transcribe(long, tmp_path / "work")
     assert len(pieces) >= 3 and all(seconds <= 4.0 + 0.05 for seconds in pieces)
     assert 3.0 <= pieces[0] <= 3.6, "the first piece ends in the pause"

@@ -15,7 +15,7 @@ def load_document(path: str | Path) -> Any:
 
 def loads(text: str, *, source: str = "<string>") -> Any:
     stripped = text.lstrip()
-    if stripped.startswith("{") or stripped.startswith("["):
+    if stripped.startswith(("{", "[")):
         return json.loads(text)
     try:
         import yaml  # type: ignore
@@ -113,12 +113,11 @@ def _parse_list(lines: list[tuple[int, str]], i: int, indent: int) -> tuple[list
                 out.append(item)
             else:
                 out.append(_parse_scalar(rest))
+        elif i < len(lines) and lines[i][0] > indent:
+            child, i = _parse_block(lines, i, lines[i][0])
+            out.append(child)
         else:
-            if i < len(lines) and lines[i][0] > indent:
-                child, i = _parse_block(lines, i, lines[i][0])
-                out.append(child)
-            else:
-                out.append(None)
+            out.append(None)
     return out, i
 
 

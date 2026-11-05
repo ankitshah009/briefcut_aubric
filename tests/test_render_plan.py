@@ -15,9 +15,12 @@ CANVAS = Canvas(width=1080, height=1920)
 
 
 def _plan(*ranges: tuple[float, float], **edit) -> dict:
-    return {"title": "Bowl", "segments": [{"start": start, "end": end} for start, end in ranges],
-            "edit": validate_edit(merge_edit(default_edit(), edit), duration=100.0, assets=None),
-            "analysis": {"speech": [{"start": 0.0, "end": 1.0}, {"start": 3.0, "end": 8.0}]}}
+    return {
+        "title": "Bowl",
+        "segments": [{"start": start, "end": end} for start, end in ranges],
+        "edit": validate_edit(merge_edit(default_edit(), edit), duration=100.0, assets=None),
+        "analysis": {"speech": [{"start": 0.0, "end": 1.0}, {"start": 3.0, "end": 8.0}]},
+    }
 
 
 def _context(plan: dict, tmp_path: Path, **extra):
@@ -46,26 +49,67 @@ def test_a_plain_plan_keeps_the_fused_center_crop(tmp_path) -> None:
 
 
 def test_every_stage_runs_in_the_contract_order(tmp_path) -> None:
-    assets = {"a" * 8: _asset(tmp_path, "bed.wav", "audio"), "b" * 8: _asset(tmp_path, "logo.png", "image"),
-              "c" * 8: _asset(tmp_path, "over.png", "image"), "d" * 8: _asset(tmp_path, "back.png", "image")}
-    plan = _plan((0.0, 4.0), (5.0, 9.0),
-                 look={"preset": "warm"}, transition={"type": "fade", "seconds": 0.3}, stabilize=True, denoise_picture=True,
-                 audio={"enhance_voice": True}, zoom={"mode": "slow"}, texts=[{"text": "Hi", "start": 0, "duration": 1}],
-                 logo={"asset": "b" * 8}, overlays=[{"asset": "c" * 8, "start": 1, "duration": 1}],
-                 fade={"in": 0.2, "out": 0.3}, music={"asset": "a" * 8},
-                 cutout={"mode": "image", "subject": "bowl", "asset": "d" * 8})
+    assets = {
+        "a" * 8: _asset(tmp_path, "bed.wav", "audio"),
+        "b" * 8: _asset(tmp_path, "logo.png", "image"),
+        "c" * 8: _asset(tmp_path, "over.png", "image"),
+        "d" * 8: _asset(tmp_path, "back.png", "image"),
+    }
+    plan = _plan(
+        (0.0, 4.0),
+        (5.0, 9.0),
+        look={"preset": "warm"},
+        transition={"type": "fade", "seconds": 0.3},
+        stabilize=True,
+        denoise_picture=True,
+        audio={"enhance_voice": True},
+        zoom={"mode": "slow"},
+        texts=[{"text": "Hi", "start": 0, "duration": 1}],
+        logo={"asset": "b" * 8},
+        overlays=[{"asset": "c" * 8, "start": 1, "duration": 1}],
+        fade={"in": 0.2, "out": 0.3},
+        music={"asset": "a" * 8},
+        cutout={"mode": "image", "subject": "bowl", "asset": "d" * 8},
+    )
     subtitle, matte = tmp_path / "captions.ass", tmp_path / "matte.mkv"
-    ctx = _context(plan, tmp_path, assets=assets, subtitle=subtitle, matte=matte, tracking=[{"time": 0, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2}],
-                   effect={"preset": "float", "intensity": 0.5, "start": 0, "duration": 2})
+    ctx = _context(
+        plan,
+        tmp_path,
+        assets=assets,
+        subtitle=subtitle,
+        matte=matte,
+        tracking=[{"time": 0, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2}],
+        effect={"preset": "float", "intensity": 0.5, "start": 0, "duration": 2},
+    )
     ops = build_ops(ctx)
     assert _names(ops) == [
-        "select_ranges", "cutout", "track_reframe", "stabilize", "denoise", "zoom", "spatial_effect", "look", "voice",
-        "text", "logo", "overlay", "captions", "fade_in", "fade_out", "music", "loudnorm", "thumbnail", "export",
+        "select_ranges",
+        "cutout",
+        "track_reframe",
+        "stabilize",
+        "denoise",
+        "zoom",
+        "spatial_effect",
+        "look",
+        "voice",
+        "text",
+        "logo",
+        "overlay",
+        "captions",
+        "fade_in",
+        "fade_out",
+        "music",
+        "loudnorm",
+        "thumbnail",
+        "export",
     ]
     assert ctx.warnings == []
     assert brief_sources(ctx, tmp_path / "source.mp4") == {
-        "footage": str(tmp_path / "source.mp4"), "a" * 8: assets["a" * 8]["path"], "b" * 8: assets["b" * 8]["path"],
-        "c" * 8: assets["c" * 8]["path"], "d" * 8: assets["d" * 8]["path"],
+        "footage": str(tmp_path / "source.mp4"),
+        "a" * 8: assets["a" * 8]["path"],
+        "b" * 8: assets["b" * 8]["path"],
+        "c" * 8: assets["c" * 8]["path"],
+        "d" * 8: assets["d" * 8]["path"],
     }
 
 
@@ -102,7 +146,12 @@ def test_mute_source_silences_every_range_and_skips_loudness_without_music(tmp_p
 
 def test_no_audio_means_no_audio_stages(tmp_path) -> None:
     plan = _plan((0.0, 4.0), audio={"enhance_voice": True, "denoise": True})
-    assert _names(build_ops(_context(plan, tmp_path, has_audio=False))) == ["reframe", "select_ranges", "thumbnail", "export"]
+    assert _names(build_ops(_context(plan, tmp_path, has_audio=False))) == [
+        "reframe",
+        "select_ranges",
+        "thumbnail",
+        "export",
+    ]
 
 
 def test_keep_loudness_skips_normalization(tmp_path) -> None:
@@ -110,8 +159,17 @@ def test_keep_loudness_skips_normalization(tmp_path) -> None:
 
 
 def test_zoom_moves_land_on_the_output_clock(tmp_path) -> None:
-    plan = _plan((0.0, 4.0), (5.0, 7.0), (8.0, 10.0), zoom={"mode": "punch", "strength": 0.5}, transition={"type": "fade", "seconds": 0.5})
-    plan["segments"][2]["motion"] = {"from": {"scale": 1.2, "x": 0.3, "y": 0.4}, "to": {"scale": 1.0, "x": 0.5, "y": 0.5}}
+    plan = _plan(
+        (0.0, 4.0),
+        (5.0, 7.0),
+        (8.0, 10.0),
+        zoom={"mode": "punch", "strength": 0.5},
+        transition={"type": "fade", "seconds": 0.5},
+    )
+    plan["segments"][2]["motion"] = {
+        "from": {"scale": 1.2, "x": 0.3, "y": 0.4},
+        "to": {"scale": 1.0, "x": 0.5, "y": 0.5},
+    }
     ops = build_ops(_context(plan, tmp_path))
     moves = next(op for op in ops if op["op"] == "zoom")["moves"]
     assert [(move["start"], move["end"]) for move in moves] == [(3.5, 5.5), (5.0, 7.0)]
@@ -132,7 +190,12 @@ def test_a_look_at_its_defaults_adds_nothing(tmp_path) -> None:
 
 
 def test_a_missing_asset_file_warns_instead_of_failing(tmp_path) -> None:
-    plan = _plan((0.0, 4.0), music={"asset": "a" * 8}, logo={"asset": "b" * 8}, overlays=[{"asset": "c" * 8, "start": 0, "duration": 1}])
+    plan = _plan(
+        (0.0, 4.0),
+        music={"asset": "a" * 8},
+        logo={"asset": "b" * 8},
+        overlays=[{"asset": "c" * 8, "start": 0, "duration": 1}],
+    )
     ctx = _context(plan, tmp_path, assets={"a" * 8: {"kind": "audio", "path": str(tmp_path / "gone.wav")}})
     assert _names(build_ops(ctx)) == ["reframe", "select_ranges", "loudnorm", "thumbnail", "export"]
     assert len(ctx.warnings) == 3
@@ -142,7 +205,14 @@ def test_music_gives_a_silent_clip_sound_and_loudness(tmp_path) -> None:
     plan = _plan((0.0, 4.0), music={"asset": "a" * 8})
     assets = {"a" * 8: _asset(tmp_path, "bed.wav", "audio")}
     ctx = _context(plan, tmp_path, has_audio=False, assets=assets)
-    assert has_sound(ctx) and _names(build_ops(ctx)) == ["reframe", "select_ranges", "music", "loudnorm", "thumbnail", "export"]
+    assert has_sound(ctx) and _names(build_ops(ctx)) == [
+        "reframe",
+        "select_ranges",
+        "music",
+        "loudnorm",
+        "thumbnail",
+        "export",
+    ]
     gone = _context(plan, tmp_path, has_audio=False)
     assert not has_sound(gone) and "loudnorm" not in _names(build_ops(gone))
 
@@ -156,7 +226,9 @@ def test_a_muted_clip_keeps_only_its_music_bed(tmp_path) -> None:
 
 def test_delivery_reads_the_export_choice() -> None:
     untouched = delivery_preset("shorts_9x16", default_edit())
-    assert untouched.name == "export_1080x1920_source_mp4" and untouched.canvas.fps == 0  # 0: the compiler sets the source's rate
+    assert (
+        untouched.name == "export_1080x1920_source_mp4" and untouched.canvas.fps == 0
+    )  # 0: the compiler sets the source's rate
     chosen = delivery_preset("shorts_9x16", merge_edit(default_edit(), {"export": {"quality": "4k", "fps": 60}}))
     assert (chosen.canvas.width, chosen.canvas.height, chosen.canvas.fps) == (2160, 3840, 60)
 
@@ -174,6 +246,32 @@ def test_the_same_assembly_serves_renders_and_tracking(tmp_path) -> None:
 
 def test_stages_cover_every_step_of_the_contract() -> None:
     names = [stage.__name__ for stage in render_plan.STAGES]
-    for name in ("assembly", "cutout", "stabilize", "denoise", "zoom", "spatial_effect", "look", "voice", "texts", "logo", "overlays", "captions", "fades", "music", "loudness", "thumbnail", "export"):
+    for name in (
+        "assembly",
+        "cutout",
+        "stabilize",
+        "denoise",
+        "zoom",
+        "spatial_effect",
+        "look",
+        "voice",
+        "texts",
+        "logo",
+        "overlays",
+        "captions",
+        "fades",
+        "music",
+        "loudness",
+        "thumbnail",
+        "export",
+    ):
         assert name in names
-    assert names.index("assembly") < names.index("cutout") < names.index("zoom") < names.index("look") < names.index("captions") < names.index("fades") < names.index("music")
+    assert (
+        names.index("assembly")
+        < names.index("cutout")
+        < names.index("zoom")
+        < names.index("look")
+        < names.index("captions")
+        < names.index("fades")
+        < names.index("music")
+    )

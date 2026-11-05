@@ -19,8 +19,8 @@ from urllib.request import ProxyHandler, build_opener
 from vedit import __version__
 from vedit.agent.loop import _session_dir, load_session, run_session
 from vedit.agent.tools import session_failure
-from vedit.media import plain_failure, trace
 from vedit.errors import BriefError, VeditError
+from vedit.media import plain_failure, trace
 from vedit.project_media import MAX_SOURCE_BYTES, MediaProblem, inspect_media
 from vedit.studio import product
 
@@ -30,13 +30,36 @@ _MAX_UPLOAD = MAX_SOURCE_BYTES
 # /api/upload streams to disk and can take the full size.
 _MAX_FORM_UPLOAD = 200_000_000
 _UPLOAD_MARGIN = 64 * 1024 * 1024
-_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts", ".ts", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ogv"}
+_VIDEO_SUFFIXES = {
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".mts",
+    ".m2ts",
+    ".ts",
+    ".mpg",
+    ".mpeg",
+    ".wmv",
+    ".flv",
+    ".3gp",
+    ".ogv",
+}
 _UPLOAD_CHUNK = 256 * 1024
 _UPLOAD_TIMEOUT = 30
 _LOCAL_HOSTS = ("127.0.0.1", "localhost")
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off", ""}
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+_CAMPAIGN_ROUTE = re.compile(
+    r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact|timeline|find|find-thumbnail|hero-word|motion-card|shorts|assets|background|filmstrip|waveform|meta-calls))?)?"
+)
+_GET_ONLY_ACTIONS = frozenset({"artifact", "filmstrip", "waveform", "meta-calls", "find-thumbnail"})
+_ARTIFACT_NAMES = frozenset({"source", "video", "cover", "bundle", "brief", "report"})
+_INLINE_ARTIFACTS = frozenset({"source", "video", "cover"})
+_REVISION = re.compile(r"[1-9][0-9]{0,8}")
 
 
 def _static_root() -> Path:
@@ -183,7 +206,12 @@ def _confined_paths(raw: list[str]) -> list[str]:
             relative = path.relative_to(sessions)
         except (OSError, ValueError) as exc:
             raise BriefError("Use a clip uploaded through Studio.") from exc
-        if len(relative.parts) != 3 or relative.parts[1] != "inbox" or relative.parts[0] == "campaigns" or path.name.startswith("."):
+        if (
+            len(relative.parts) != 3
+            or relative.parts[1] != "inbox"
+            or relative.parts[0] == "campaigns"
+            or path.name.startswith(".")
+        ):
             raise BriefError("Use a clip uploaded through Studio.")
         if not path.is_file():
             raise BriefError("This clip is no longer in the workspace. Upload it again.")
@@ -233,12 +261,12 @@ def _session_root(query: str) -> Path:
     return _confined_root(values[0])
 
 
-
 def _attachment(name: str) -> str:
     """A download header that keeps a unicode file name: an ASCII fallback plus RFC 5987 ``filename*``."""
     from urllib.parse import quote
 
-    return f'attachment; filename="{_safe_filename(name)}"; filename*=UTF-8\'\'{quote(name, safe="")}'
+    return f"attachment; filename=\"{_safe_filename(name)}\"; filename*=UTF-8''{quote(name, safe='')}"
+
 
 def _safe_filename(raw: str) -> str:
     """A plain ASCII name that keeps its extension, so 写真.jpg stays a .jpg."""
@@ -277,30 +305,34 @@ def _boundary(content_type: str) -> bytes:
     raise BriefError("multipart boundary missing")
 
 
+def _without_line_break(data: bytes, *, leading: bool) -> bytes:
+    """``data`` less the one CRLF or LF that multipart puts before or after a part."""
+    for mark in (b"\r\n", b"\n"):
+        if leading and data.startswith(mark):
+            return data[len(mark) :]
+        if not leading and data.endswith(mark):
+            return data[: -len(mark)]
+    return data
+
+
 def _multipart_parts(body: bytes, boundary: bytes) -> list[tuple[str, str | None, bytes]]:
     marker = b"--" + boundary
     found: list[tuple[str, str | None, bytes]] = []
     for chunk in body.split(marker):
         if chunk.startswith(b"--"):
             break
-        if chunk.startswith(b"\r\n"):
-            chunk = chunk[2:]
-        elif chunk.startswith(b"\n"):
-            chunk = chunk[1:]
-        if not chunk.strip(b"\r\n"):
+        part = _without_line_break(chunk, leading=True)
+        if not part.strip(b"\r\n"):
             continue
-        sep = chunk.find(b"\r\n\r\n")
+        sep = part.find(b"\r\n\r\n")
         if sep < 0:
-            sep = chunk.find(b"\n\n")
+            sep = part.find(b"\n\n")
             if sep < 0:
                 continue
-            header_raw, payload = chunk[:sep], chunk[sep + 2 :]
+            header_raw, payload = part[:sep], part[sep + 2 :]
         else:
-            header_raw, payload = chunk[:sep], chunk[sep + 4 :]
-        if payload.endswith(b"\r\n"):
-            payload = payload[:-2]
-        elif payload.endswith(b"\n"):
-            payload = payload[:-1]
+            header_raw, payload = part[:sep], part[sep + 4 :]
+        payload = _without_line_break(payload, leading=False)
         header = BytesParser().parsebytes(header_raw + b"\r\n\r\n")
         disposition = header.get("Content-Disposition", "")
         name = header.get_param("name", header="content-disposition")
@@ -329,6 +361,33 @@ def _output_file(root: Path) -> Path:
     if not resolved.is_file():
         raise FileNotFoundError(resolved)
     return resolved
+
+
+def _check_free_space(root: Path, size: int) -> None:
+    """Refuse an upload the drive cannot hold with room to spare, before any of it is written."""
+    if shutil.disk_usage(root).free < size + _UPLOAD_MARGIN:
+        raise BriefError("There is not enough free disk space for this file. Free some space, then try again.")
+
+
+def _hero_word_options(payload: dict[str, Any]) -> dict[str, Any]:
+    """The hero word request's text fields, checked. ``subject`` is always passed so a None reads as "use the project's"."""
+    from vedit.campaign import CampaignError
+
+    for name in ("subject", "font", "color"):
+        if payload.get(name) is not None and not isinstance(payload[name], str):
+            raise CampaignError(f"The hero word {name} must be text.")
+    options = {name: payload[name] for name in ("font", "color") if payload.get(name) is not None}
+    return {"subject": payload.get("subject"), **options}
+
+
+def _motion_card_options(payload: dict[str, Any]) -> dict[str, Any]:
+    from vedit.campaign import CampaignError
+
+    if payload.get("kind") is not None and not isinstance(payload["kind"], str):
+        raise CampaignError("The motion card kind must be text.")
+    if payload.get("backdrop") is not None and not isinstance(payload["backdrop"], bool):
+        raise CampaignError("backdrop must be true or false.")
+    return {name: payload[name] for name in ("kind", "backdrop") if payload.get(name) is not None}
 
 
 def _parse_range(header: str, size: int) -> tuple[int, int] | None:
@@ -361,7 +420,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         if product.owns("GET", path):
             product.handle(self, "GET", path, split.query)
             return
-        if path == "/api/capabilities" or path == "/api/campaigns" or path.startswith("/api/campaigns/"):
+        if path in {"/api/capabilities", "/api/campaigns"} or path.startswith("/api/campaigns/"):
             self._handle_campaign(path, split.query, mutation=False)
             return
         if path == "/":
@@ -457,7 +516,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 and not parsed.path
                 and not parsed.query
                 and not parsed.fragment
-                and port == self.server.server_address[1]
+                and port == self._bound_port()
             )
         except ValueError:
             pass
@@ -471,159 +530,210 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json(403, {"ok": False, "error": "Open this editor on its local address to continue."})
         return allowed
 
-    def _handle_campaign(
-        self, path: str, query: str, *, mutation: bool, send_body: bool = True
-    ) -> None:
+    def _bound_port(self) -> int | None:
+        """The TCP port this server listens on; None for a socket family without one."""
+        address = self.server.server_address
+        return address[1] if isinstance(address, tuple) and len(address) >= 2 else None
+
+    def _handle_campaign(self, path: str, query: str, *, mutation: bool, send_body: bool = True) -> None:
+        """Answer a campaign route. Every failure becomes a JSON error the page can show."""
         if not self._campaign_origin_allowed(mutation=mutation):
             return
         # Lazy import keeps the existing session API independent of job storage.
-        from vedit.campaign import CampaignError, capabilities, get_manager, product_request
+        from vedit.campaign import CampaignError
 
         try:
-            if path == "/api/capabilities" and not mutation:
-                self._send_json(200, {"ok": True, **capabilities()})
-                return
-            match = re.fullmatch(r"/api/campaigns(?:/([A-Za-z0-9_-]+)(?:/(render|revise|retry|cancel|artifact|timeline|find|find-thumbnail|hero-word|motion-card|shorts|assets|background|filmstrip|waveform|meta-calls))?)?", path)
-            if match is None and path != "/api/script":
-                self._send_json(404, {"ok": False, "error": "Campaign route not found."})
-                return
-            job_id, action = match.groups() if match else (None, None)
-            manager = get_manager()
-            if not mutation:
-                if job_id is None:
-                    self._send_json(200, {"ok": True, "jobs": manager.list()})
-                elif action is None:
-                    self._send_json(200, {"ok": True, "job": manager.get(job_id)})
-                elif action == "artifact":
-                    parameters = parse_qs(query, keep_blank_values=True)
-                    names = parameters.get("name", [])
-                    if len(names) != 1 or names[0] not in {"source", "video", "cover", "bundle", "brief", "report"}:
-                        raise CampaignError("Choose source, video, cover, bundle, brief, or report.")
-                    versions = parameters.get("v", [])
-                    if versions and (len(versions) != 1 or not re.fullmatch(r"[1-9][0-9]{0,8}", versions[0])):
-                        raise CampaignError("Choose one positive verified revision.")
-                    revision = int(versions[0]) if versions else None
-                    target = manager.artifact(job_id, names[0], revision=revision)
-                    attachment = names[0] not in {"source", "video", "cover"}
-                    ctype = _media_type(target)
-                    if names[0] == "cover" and not _displays_inline(ctype):
-                        ctype, attachment = "application/octet-stream", True
-                    if names[0] in {"source", "video"} and not ctype.startswith("video/"):
-                        # Probe validates contents, not extensions. An uploaded
-                        # video named .html must never execute as an HTML page.
-                        ctype, attachment = "application/octet-stream", True
-                    self._serve_path(target, send_body=send_body, attachment=attachment, content_type=ctype)
-                elif action == "filmstrip":
-                    self._serve_path(manager.filmstrip(job_id), send_body=send_body, content_type="image/jpeg")
-                elif action == "find-thumbnail":
-                    # SAM's picture of a found moment: one JPEG from this project's own folder, by name only.
-                    names = parse_qs(query, keep_blank_values=True).get("name", [])
-                    if len(names) != 1:
-                        raise CampaignError("Choose one thumbnail.")
-                    self._serve_path(manager.found_thumbnail(job_id, names[0]), send_body=send_body, content_type="image/jpeg")
-                elif action == "assets":
-                    ids = parse_qs(query).get("id", [])
-                    if len(ids) != 1:
-                        raise CampaignError("Choose one asset.")
-                    target = manager.asset_file(job_id, ids[0])
-                    ctype = _media_type(target)
-                    # Same rule as the source: only plain pictures and sound display in place.
-                    plain = _displays_inline(ctype)
-                    self._serve_path(target, send_body=send_body, attachment=not plain, content_type=ctype if plain else "application/octet-stream")
-                elif action == "waveform":
-                    self._send_json(200, {"ok": True, **manager.waveform(job_id)})
-                elif action == "meta-calls":
-                    # The project's Meta call log: purposes, models, sizes and costs only.
-                    from vedit import meta
-
-                    job = manager.get(job_id)
-                    budget = (job.get("request") or {}).get("budget_usd")
-                    report = meta.call_log(manager.root / job["id"], budget_usd=budget if isinstance(budget, (int, float)) and not isinstance(budget, bool) else None)
-                    self._send_json(200, {"ok": True, "status": job.get("status"), **report})
-                else:
-                    self._send_json(405, {"ok": False, "error": "This action requires POST."})
-                return
-            if action in {"artifact", "filmstrip", "waveform", "meta-calls", "find-thumbnail"} or (job_id is not None and action is None):
-                self._send_json(405, {"ok": False, "error": "This resource requires GET."})
-                return
-            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
-                self.close_connection = True
-                self._send_json(415, {"ok": False, "error": "Send an application/json body."})
-                return
-            old_timeout = self.connection.gettimeout()
-            try:
-                self.connection.settimeout(_UPLOAD_TIMEOUT)
-                ok, payload = self._read_json()
-            except TimeoutError:
-                self.close_connection = True
-                self._send_json(408, {"ok": False, "error": "The request timed out. Try again."})
-                return
-            finally:
-                self.connection.settimeout(old_timeout)
-            if not ok:
-                return
-            if not isinstance(payload, dict):
-                raise CampaignError("Send a JSON object.")
-            if action == "assets":
-                self._send_json(201, {"ok": True, "asset": manager.add_asset(job_id, payload)})
-                return
-            if action == "background":
-                self._send_json(201, {"ok": True, "asset": manager.generate_background(job_id, payload)})
-                return
-            if action == "timeline":
-                self._send_json(200, {"ok": True, "timeline": manager.timeline(job_id, payload)})
-                return
-            if action == "find":
-                self._send_json(200, {"ok": True, **manager.find(job_id, payload)})
-                return
-            if action == "hero-word":
-                # A suggestion only: the client renders with the returned edit.hero_word.
-                for name in ("subject", "font", "color"):
-                    if payload.get(name) is not None and not isinstance(payload[name], str):
-                        raise CampaignError(f"The hero word {name} must be text.")
-                options = {name: payload[name] for name in ("font", "color") if payload.get(name) is not None}
-                self._send_json(200, {"ok": True, **manager.suggest_hero_word(job_id, subject=payload.get("subject"), **options)})
-                return
-            if action == "motion-card":
-                # A suggestion only: the client renders with the returned edit.motion_card.
-                if payload.get("kind") is not None and not isinstance(payload["kind"], str):
-                    raise CampaignError("The motion card kind must be text.")
-                if payload.get("backdrop") is not None and not isinstance(payload["backdrop"], bool):
-                    raise CampaignError("backdrop must be true or false.")
-                options = {name: payload[name] for name in ("kind", "backdrop") if payload.get(name) is not None}
-                self._send_json(200, {"ok": True, **manager.suggest_motion_card(job_id, **options)})
-                return
-            if action == "shorts":
-                self._send_json(202, {"ok": True, "jobs": manager.shorts(job_id, payload)})
-                return
-            if path == "/api/script":
-                self._send_json(202, {"ok": True, "job": manager.create_script(product_request(payload))})
-                return
-            if job_id is None:
-                # Every Studio project runs on Meta. The manager never sees a local request from here.
-                job = manager.create(product_request(payload))
-            elif action == "render":
-                job = manager.render(job_id, payload)
-            elif action == "revise":
-                job = manager.revise(job_id, payload)
-            elif action == "retry":
-                job = manager.retry(job_id)
-            elif action == "cancel":
-                job = manager.cancel(job_id)
-            else:
-                raise CampaignError("Campaign route not found.", status=404)
-            self._send_json(202, {"ok": True, "job": job})
+            self._route_campaign(path, query, mutation=mutation, send_body=send_body)
         except CampaignError as exc:
             self._send_json(exc.status, {"ok": False, "error": str(exc)})
         except UnicodeDecodeError:
             self._send_json(400, {"ok": False, "error": "Send JSON encoded as UTF-8."})
         except (FileNotFoundError, NotADirectoryError):
-            self._send_json(404, {"ok": False, "error": "This artifact is no longer available. Render the campaign again."})
-        except Exception as exc:
-            # Provider responses and filesystem exceptions may contain credentials
-            # or private filenames. Never forward these to an HTTP client.
+            self._send_json(
+                404, {"ok": False, "error": "This artifact is no longer available. Render the campaign again."}
+            )
+        except Exception as exc:  # noqa: BLE001  provider replies and OS errors can hold keys or private paths
+            # Logged by type only; the client sees a fixed sentence and never the message.
             self.log_error("campaign request failed (%s)", type(exc).__name__)
-            self._send_json(500, {"ok": False, "error": "The campaign service could not finish this request. Restart the editor and try again."})
+            self._send_json(
+                500,
+                {
+                    "ok": False,
+                    "error": "The campaign service could not finish this request. Restart the editor and try again.",
+                },
+            )
+
+    def _route_campaign(self, path: str, query: str, *, mutation: bool, send_body: bool) -> None:
+        from vedit.campaign import capabilities, get_manager
+
+        if path == "/api/capabilities" and not mutation:
+            self._send_json(200, {"ok": True, **capabilities()})
+            return
+        match = _CAMPAIGN_ROUTE.fullmatch(path)
+        if match is None and path != "/api/script":
+            self._send_json(404, {"ok": False, "error": "Campaign route not found."})
+            return
+        job_id, action = match.groups() if match else (None, None)
+        manager = get_manager()
+        if not mutation:
+            self._campaign_read(manager, job_id, action, query, send_body=send_body)
+            return
+        if action in _GET_ONLY_ACTIONS or (job_id is not None and action is None):
+            self._send_json(405, {"ok": False, "error": "This resource requires GET."})
+            return
+        payload = self._campaign_body()
+        if payload is None:
+            return
+        if job_id is None:
+            self._campaign_create(manager, path, payload)
+        else:
+            self._campaign_act(manager, job_id, action, payload)
+
+    def _campaign_read(
+        self, manager: Any, job_id: str | None, action: str | None, query: str, *, send_body: bool
+    ) -> None:
+        """GET: the job list, one job, or one of its files."""
+        if job_id is None:
+            self._send_json(200, {"ok": True, "jobs": manager.list()})
+        elif action is None:
+            self._send_json(200, {"ok": True, "job": manager.get(job_id)})
+        elif action == "artifact":
+            self._serve_artifact(manager, job_id, query, send_body=send_body)
+        elif action == "filmstrip":
+            self._serve_path(manager.filmstrip(job_id), send_body=send_body, content_type="image/jpeg")
+        elif action == "find-thumbnail":
+            self._serve_found_thumbnail(manager, job_id, query, send_body=send_body)
+        elif action == "assets":
+            self._serve_asset(manager, job_id, query, send_body=send_body)
+        elif action == "waveform":
+            self._send_json(200, {"ok": True, **manager.waveform(job_id)})
+        elif action == "meta-calls":
+            self._send_meta_calls(manager, job_id)
+        else:
+            self._send_json(405, {"ok": False, "error": "This action requires POST."})
+
+    def _serve_artifact(self, manager: Any, job_id: str, query: str, *, send_body: bool) -> None:
+        from vedit.campaign import CampaignError
+
+        parameters = parse_qs(query, keep_blank_values=True)
+        names = parameters.get("name", [])
+        if len(names) != 1 or names[0] not in _ARTIFACT_NAMES:
+            raise CampaignError("Choose source, video, cover, bundle, brief, or report.")
+        name = names[0]
+        versions = parameters.get("v", [])
+        if versions and (len(versions) != 1 or not _REVISION.fullmatch(versions[0])):
+            raise CampaignError("Choose one positive verified revision.")
+        revision = int(versions[0]) if versions else None
+        target = manager.artifact(job_id, name, revision=revision)
+        attachment = name not in _INLINE_ARTIFACTS
+        ctype = _media_type(target)
+        if name == "cover" and not _displays_inline(ctype):
+            ctype, attachment = "application/octet-stream", True
+        if name in {"source", "video"} and not ctype.startswith("video/"):
+            # Probe validates contents, not extensions. An uploaded
+            # video named .html must never execute as an HTML page.
+            ctype, attachment = "application/octet-stream", True
+        self._serve_path(target, send_body=send_body, attachment=attachment, content_type=ctype)
+
+    def _serve_found_thumbnail(self, manager: Any, job_id: str, query: str, *, send_body: bool) -> None:
+        """SAM's picture of a found moment: one JPEG from this project's own folder, by name only."""
+        from vedit.campaign import CampaignError
+
+        names = parse_qs(query, keep_blank_values=True).get("name", [])
+        if len(names) != 1:
+            raise CampaignError("Choose one thumbnail.")
+        self._serve_path(manager.found_thumbnail(job_id, names[0]), send_body=send_body, content_type="image/jpeg")
+
+    def _serve_asset(self, manager: Any, job_id: str, query: str, *, send_body: bool) -> None:
+        from vedit.campaign import CampaignError
+
+        ids = parse_qs(query).get("id", [])
+        if len(ids) != 1:
+            raise CampaignError("Choose one asset.")
+        target = manager.asset_file(job_id, ids[0])
+        ctype = _media_type(target)
+        # Same rule as the source: only plain pictures and sound display in place.
+        plain = _displays_inline(ctype)
+        self._serve_path(
+            target,
+            send_body=send_body,
+            attachment=not plain,
+            content_type=ctype if plain else "application/octet-stream",
+        )
+
+    def _send_meta_calls(self, manager: Any, job_id: str) -> None:
+        """The project's Meta call log: purposes, models, sizes and costs only."""
+        from vedit import meta
+
+        job = manager.get(job_id)
+        budget = (job.get("request") or {}).get("budget_usd")
+        if not isinstance(budget, (int, float)) or isinstance(budget, bool):
+            budget = None
+        report = meta.call_log(manager.root / job["id"], budget_usd=budget)
+        self._send_json(200, {"ok": True, "status": job.get("status"), **report})
+
+    def _campaign_body(self) -> dict[str, Any] | None:
+        """The JSON object a mutation sent, or None once the client has been told what was wrong."""
+        from vedit.campaign import CampaignError
+
+        if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+            self.close_connection = True
+            self._send_json(415, {"ok": False, "error": "Send an application/json body."})
+            return None
+        old_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(_UPLOAD_TIMEOUT)
+            ok, payload = self._read_json()
+        except TimeoutError:
+            self.close_connection = True
+            self._send_json(408, {"ok": False, "error": "The request timed out. Try again."})
+            return None
+        finally:
+            self.connection.settimeout(old_timeout)
+        if not ok:
+            return None
+        if not isinstance(payload, dict):
+            raise CampaignError("Send a JSON object.")
+        return payload
+
+    def _campaign_create(self, manager: Any, path: str, payload: dict[str, Any]) -> None:
+        """POST /api/campaigns or /api/script: a new project. Every Studio project runs on Meta."""
+        from vedit.campaign import product_request
+
+        checked = product_request(payload)  # the manager never sees a local request from here
+        job = manager.create_script(checked) if path == "/api/script" else manager.create(checked)
+        self._send_json(202, {"ok": True, "job": job})
+
+    def _campaign_act(self, manager: Any, job_id: str, action: str | None, payload: dict[str, Any]) -> None:
+        """POST on one job: a suggestion, a dry run, an asset, or a change to the job itself."""
+        from vedit.campaign import CampaignError
+
+        if action == "assets":
+            self._send_json(201, {"ok": True, "asset": manager.add_asset(job_id, payload)})
+        elif action == "background":
+            self._send_json(201, {"ok": True, "asset": manager.generate_background(job_id, payload)})
+        elif action == "timeline":
+            self._send_json(200, {"ok": True, "timeline": manager.timeline(job_id, payload)})
+        elif action == "find":
+            self._send_json(200, {"ok": True, **manager.find(job_id, payload)})
+        elif action == "hero-word":
+            # A suggestion only: the client renders with the returned edit.hero_word.
+            options = _hero_word_options(payload)
+            self._send_json(200, {"ok": True, **manager.suggest_hero_word(job_id, **options)})
+        elif action == "motion-card":
+            # A suggestion only: the client renders with the returned edit.motion_card.
+            options = _motion_card_options(payload)
+            self._send_json(200, {"ok": True, **manager.suggest_motion_card(job_id, **options)})
+        elif action == "shorts":
+            self._send_json(202, {"ok": True, "jobs": manager.shorts(job_id, payload)})
+        elif action in {"render", "revise"}:
+            job = manager.render(job_id, payload) if action == "render" else manager.revise(job_id, payload)
+            self._send_json(202, {"ok": True, "job": job})
+        elif action in {"retry", "cancel"}:
+            job = manager.retry(job_id) if action == "retry" else manager.cancel(job_id)
+            self._send_json(202, {"ok": True, "job": job})
+        else:
+            raise CampaignError("Campaign route not found.", status=404)
 
     def _serve_index(self) -> None:
         root = _static_root().resolve()
@@ -759,21 +869,13 @@ class StudioHandler(BaseHTTPRequestHandler):
         old_timeout = self.connection.gettimeout()
         try:
             root = _session_dir(None, "source")
-            if shutil.disk_usage(root).free < size + _UPLOAD_MARGIN:
-                raise BriefError("There is not enough free disk space for this file. Free some space, then try again.")
+            _check_free_space(root, size)
             inbox = root / "inbox"
             inbox.mkdir()
             dest = inbox / _safe_filename(filename)
             pending = inbox / ".upload.part"
             self.connection.settimeout(_UPLOAD_TIMEOUT)
-            remaining = size
-            with pending.open("xb") as handle:
-                while remaining:
-                    chunk = self.rfile.read(min(_UPLOAD_CHUNK, remaining))
-                    if not chunk:
-                        raise BriefError("Clip transfer was interrupted. Try again.")
-                    handle.write(chunk)
-                    remaining -= len(chunk)
+            self._receive_upload(pending, size)
             pending.replace(dest)
         except (OSError, BriefError) as exc:
             with suppress(OSError):
@@ -803,6 +905,17 @@ class StudioHandler(BaseHTTPRequestHandler):
         except VeditError:
             pass  # With no ffprobe here, the file is judged when it is used.
         self._send_json(201, {"ok": True, "paths": [str(dest)], "bytes": size, "kind": kind})
+
+    def _receive_upload(self, pending: Path, size: int) -> None:
+        """Stream exactly ``size`` bytes of the body into ``pending``, a chunk at a time."""
+        remaining = size
+        with pending.open("xb") as handle:
+            while remaining:
+                chunk = self.rfile.read(min(_UPLOAD_CHUNK, remaining))
+                if not chunk:
+                    raise BriefError("Clip transfer was interrupted. Try again.")
+                handle.write(chunk)
+                remaining -= len(chunk)
 
     def _handle_run(self, *, force_render: bool | None) -> None:
         content_type = self.headers.get("Content-Type", "")
@@ -835,9 +948,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"ok": True, "session": payload})
 
-    def _read_multipart(
-        self, force_render: bool | None
-    ) -> tuple[str, list[str], bool, bool, Path | None] | None:
+    def _read_multipart(self, force_render: bool | None) -> tuple[str, list[str], bool, bool, Path | None] | None:
         raw = self._read_body(_MAX_FORM_UPLOAD, label="upload")
         if raw is None:
             return None
@@ -855,10 +966,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             raise BriefError("Write what you want done.")
         do_render = _form_bool(fields.get("render"), False) if force_render is None else force_render
         analyze = _form_bool(fields.get("analyze"), False)
-        if fields.get("root", "").strip():
-            root = _confined_root(fields["root"])
-        else:
-            root = _session_dir(None, goal)
+        root = _confined_root(fields["root"]) if fields.get("root", "").strip() else _session_dir(None, goal)
         chosen = files.get("clip") or files.get("file")
         paths: list[str] = []
         if chosen is not None and chosen[1]:

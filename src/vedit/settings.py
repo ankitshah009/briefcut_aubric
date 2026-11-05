@@ -37,7 +37,16 @@ _KEY = re.compile(r"^[!#-&(-\[\]-~]{8,512}$")
 _KEYCHAIN_SERVICE = "ai.aubric.briefcut.meta-api-key"
 _KEYCHAIN_ACCOUNT = "briefcut"
 _KEYCHAIN_TIMEOUT = 10
-_FIELDS = {"meta_api_key", "clear_meta_api_key", "meta_enabled", "meta_mode", "default_budget_usd", "default_language", "workspace", "private_model"}
+_FIELDS = {
+    "meta_api_key",
+    "clear_meta_api_key",
+    "meta_enabled",
+    "meta_mode",
+    "default_budget_usd",
+    "default_language",
+    "workspace",
+    "private_model",
+}
 # "" keeps every model call on the Meta Model API. "glimmer" runs text-only steps on Muse Glimmer 30B on this computer.
 _PRIVATE_MODELS = {"", "glimmer"}
 _ENV_LOCAL_KEYS = {"MODEL_API_KEY", "VEDIT_META_ENABLED", "VEDIT_META_MODE"}
@@ -87,16 +96,18 @@ def _write(data: dict[str, Any]) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(name, 0o600)
-        os.replace(name, path)
+        Path(name).chmod(0o600)
+        Path(name).replace(path)
     except BaseException:
         with suppress(OSError):
-            os.unlink(name)
+            Path(name).unlink()
         raise
 
 
 def keychain_available() -> bool:
-    return sys.platform == "darwin" and os.environ.get("VEDIT_NO_KEYCHAIN") != "1" and shutil.which("security") is not None
+    return (
+        sys.platform == "darwin" and os.environ.get("VEDIT_NO_KEYCHAIN") != "1" and shutil.which("security") is not None
+    )
 
 
 def _keychain_target() -> list[str]:
@@ -107,7 +118,14 @@ def _keychain_target() -> list[str]:
 
 def _security(arguments: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(["security", *arguments], input=stdin, capture_output=True, text=True, timeout=_KEYCHAIN_TIMEOUT, check=False)
+        return subprocess.run(
+            ["security", *arguments],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=_KEYCHAIN_TIMEOUT,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -127,7 +145,9 @@ def _keychain_read() -> str:
     cached = _keychain_cache.get("value")
     if cached:
         return cached
-    result = _security(["find-generic-password", "-a", _KEYCHAIN_ACCOUNT, "-s", _KEYCHAIN_SERVICE, "-w", *_keychain_target()])
+    result = _security(
+        ["find-generic-password", "-a", _KEYCHAIN_ACCOUNT, "-s", _KEYCHAIN_SERVICE, "-w", *_keychain_target()]
+    )
     if result is None or result.returncode != 0:
         return ""
     value = (result.stdout or "").strip()
@@ -190,7 +210,12 @@ def meta_mode() -> str:
 
 def default_budget() -> float:
     saved = load().get("default_budget_usd")
-    if isinstance(saved, (int, float)) and not isinstance(saved, bool) and math.isfinite(saved) and BUDGET_MIN <= saved <= BUDGET_MAX:
+    if (
+        isinstance(saved, (int, float))
+        and not isinstance(saved, bool)
+        and math.isfinite(saved)
+        and BUDGET_MIN <= saved <= BUDGET_MAX
+    ):
         return float(saved)
     return DEFAULT_BUDGET
 
@@ -236,7 +261,10 @@ def enter_workspace(default: Path | None = None) -> Path:
         target.mkdir(parents=True, exist_ok=True)
         os.chdir(target)
     except OSError:
-        print("Briefcut could not open its project folder. Check Settings or VEDIT_WORKSPACE. Staying in the current folder.", file=sys.stderr)
+        print(
+            "Briefcut could not open its project folder. Check Settings or VEDIT_WORKSPACE. Staying in the current folder.",
+            file=sys.stderr,
+        )
     return Path.cwd()
 
 
@@ -250,7 +278,7 @@ def _env_value(raw: str) -> str:
         return ""  # "KEY= # paste your key here": the shell reads an empty value and a comment
     if raw[:1] in ("'", '"'):
         close = raw.find(raw[0], 1)
-        rest = raw[close + 1:].strip() if close > 0 else ""
+        rest = raw[close + 1 :].strip() if close > 0 else ""
         if close > 0 and (not rest or rest.startswith("#")):
             return raw[1:close]
         return raw
@@ -270,8 +298,8 @@ def load_env_file(path: Path) -> list[str]:
     except (OSError, UnicodeDecodeError):
         return []
     applied = []
-    for line in text.splitlines():
-        line = line.strip()
+    for raw in text.splitlines():
+        line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, value = line.removeprefix("export ").split("=", 1)
@@ -291,7 +319,7 @@ def load_checkout_env() -> list[str]:
 def _display_path(path: Path) -> str:
     text = str(path)
     home = str(Path.home())
-    return "~" + text[len(home):] if text == home or text.startswith(home + "/") else text
+    return "~" + text[len(home) :] if text == home or text.startswith(home + "/") else text
 
 
 def public() -> dict[str, Any]:
@@ -317,7 +345,9 @@ def public() -> dict[str, Any]:
             "restart_required": chosen is not None and _resolved(chosen) != _resolved(current),
         },
         # A damaged config (a list, a number) must not stop Studio opening; only a known name counts.
-        "private_model": data.get("private_model") if isinstance(data.get("private_model"), str) and data.get("private_model") in _PRIVATE_MODELS else "",
+        "private_model": data.get("private_model")
+        if isinstance(data.get("private_model"), str) and data.get("private_model") in _PRIVATE_MODELS
+        else "",
         "private_model_source": "environment" if os.environ.get("VEDIT_PRIVATE_MODEL", "").strip() else "settings",
         "keychain_available": keychain_available(),
         "config_path": _display_path(config_path()),
@@ -368,19 +398,20 @@ def _checked_workspace(value: Any) -> str:
     return str(path.resolve())
 
 
-def update(payload: Any) -> dict[str, Any]:
-    """Validate everything first, then save, so one bad field changes nothing."""
-    if not isinstance(payload, dict):
-        raise SettingsError("Send a JSON object.")
-    if set(payload) - _FIELDS:
-        raise SettingsError("One of those settings is not recognised.")
-    changes: dict[str, Any] = {}
+def _checked_key_request(payload: dict[str, Any]) -> tuple[str | None, bool]:
+    """The key to save, if any, and whether to remove the saved one. Never both."""
     key = _checked_key(payload["meta_api_key"]) if payload.get("meta_api_key") else None
     clear = payload.get("clear_meta_api_key", False)
     if not isinstance(clear, bool):
         raise SettingsError("clear_meta_api_key must be true or false.")
     if key and clear:
         raise SettingsError("Choose either to save a key or to remove it.")
+    return key, clear
+
+
+def _checked_changes(payload: dict[str, Any]) -> dict[str, Any]:
+    """Every plain setting in the payload, validated. The first bad one stops everything."""
+    changes: dict[str, Any] = {}
     if "meta_enabled" in payload:
         if not isinstance(payload["meta_enabled"], bool):
             raise SettingsError("meta_enabled must be true or false.")
@@ -402,25 +433,45 @@ def update(payload: Any) -> dict[str, Any]:
         if not isinstance(payload["private_model"], str) or payload["private_model"] not in _PRIVATE_MODELS:
             raise SettingsError("Private mode is either off or glimmer.")
         changes["private_model"] = payload["private_model"]
+    return changes
+
+
+def _forget_key(data: dict[str, Any]) -> None:
+    if data.get("meta_key_store") == "keychain" and keychain_available():
+        _keychain_delete()
+    for name in ("meta_api_key", "meta_key_store", "meta_key_last4"):
+        data.pop(name, None)
+
+
+def _store_key(data: dict[str, Any], key: str) -> None:
+    """Keychain when it takes the key, else the 0600 config file. The file keeps only the last four either way."""
+    if keychain_available() and _keychain_store(key):
+        data.pop("meta_api_key", None)
+        data["meta_key_store"] = "keychain"
+    else:
+        data["meta_api_key"] = key
+        data["meta_key_store"] = "file"
+    data["meta_key_last4"] = _last4(key)
+
+
+def update(payload: Any) -> dict[str, Any]:
+    """Validate everything first, then save, so one bad field changes nothing."""
+    if not isinstance(payload, dict):
+        raise SettingsError("Send a JSON object.")
+    if set(payload) - _FIELDS:
+        raise SettingsError("One of those settings is not recognised.")
+    key, clear = _checked_key_request(payload)
+    changes = _checked_changes(payload)
     with _LOCK:
         data = load()
         if clear:
-            if data.get("meta_key_store") == "keychain" and keychain_available():
-                _keychain_delete()
-            for name in ("meta_api_key", "meta_key_store", "meta_key_last4"):
-                data.pop(name, None)
+            _forget_key(data)
         if key:
-            if keychain_available() and _keychain_store(key):
-                data.pop("meta_api_key", None)
-                data["meta_key_store"] = "keychain"
-            else:
-                data["meta_api_key"] = key
-                data["meta_key_store"] = "file"
-            data["meta_key_last4"] = _last4(key)
+            _store_key(data, key)
         data.update(changes)
-        if data.get("workspace") == "":
-            data.pop("workspace")
-        if data.get("private_model") == "":
-            data.pop("private_model")
+        # An empty workspace or private model means "back to the default", not a saved empty string.
+        for name in ("workspace", "private_model"):
+            if data.get(name) == "":
+                data.pop(name)
         _write(data)
     return public()

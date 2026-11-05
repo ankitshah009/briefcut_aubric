@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from vedit.agent.model import Decision, Intent, Inventory
 from vedit.agent.policy import contract_for
@@ -23,7 +24,7 @@ def explain_decisions(
 ) -> dict[str, object]:
     """Decisions a noob can read and a pro can check, plus the ordered program."""
     contract = contract_for(intent.platform)
-    ops = [dict(op) if isinstance(op, dict) else {"op": str(op)} for op in decision.brief.ops]
+    ops: list[dict[str, Any]] = [dict(op) if isinstance(op, dict) else {"op": str(op)} for op in decision.brief.ops]
     pauses = "cut" if _has_op(ops, "cut_silence") else "kept"
     pauses_sentence = "Pauses will be cut." if pauses == "cut" else "Pauses will be kept."
     shape = _shape(contract.width, contract.height, contract.reframe)
@@ -69,7 +70,7 @@ def transcriber_ready() -> bool:
     return bool(status.get("available") and (status.get("features") or {}).get("transcribe"))
 
 
-def _has_op(ops: list[dict[str, object]], name: str) -> bool:
+def _has_op(ops: list[dict[str, Any]], name: str) -> bool:
     return any(op.get("op") == name for op in ops)
 
 
@@ -99,7 +100,7 @@ def _shape_sentence(shape: str, width: int, height: int, platform: str) -> str:
     return f"Landscape 16:9, {width}×{height}, for {audience}."
 
 
-def _caption_style(intent: Intent, ops: list[dict[str, object]]) -> str:
+def _caption_style(intent: Intent, ops: list[dict[str, Any]]) -> str:
     for op in ops:
         if op.get("op") != "captions":
             continue

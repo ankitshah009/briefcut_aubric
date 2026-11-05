@@ -93,17 +93,46 @@ def test_an_ascii_retry_after_still_counts() -> None:
 # --- meta.patch_plan, private mode: a patch whose op is not text escaped as a TypeError ---
 
 
-PLAN = {"duration": 7.0, "source_duration": 40.0,
-        "segments": [{"label": "Opener", "start": 0.5, "end": 4.5}, {"label": "Reveal", "start": 20.0, "end": 23.0}]}
+PLAN = {
+    "duration": 7.0,
+    "source_duration": 40.0,
+    "segments": [{"label": "Opener", "start": 0.5, "end": 4.5}, {"label": "Reveal", "start": 20.0, "end": 23.0}],
+}
 
 
-def test_a_glimmer_patch_with_a_list_for_its_op_is_refused_in_words(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_glimmer_patch_with_a_list_for_its_op_is_refused_in_words(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("VEDIT_PRIVATE_MODEL", "glimmer")
     answers = [
-        {"patches": [{"op": ["trim_end"], "segment": 2, "seconds": 23.5, "path": None, "value": None, "text": None, "reason": "x"}],
-         "summary": "Holds the reveal."},
-        {"patches": [{"op": "trim_end", "segment": 2, "seconds": 23.5, "path": None, "value": None, "text": None, "reason": "Hold it."}],
-         "summary": "Holds the reveal."},
+        {
+            "patches": [
+                {
+                    "op": ["trim_end"],
+                    "segment": 2,
+                    "seconds": 23.5,
+                    "path": None,
+                    "value": None,
+                    "text": None,
+                    "reason": "x",
+                }
+            ],
+            "summary": "Holds the reveal.",
+        },
+        {
+            "patches": [
+                {
+                    "op": "trim_end",
+                    "segment": 2,
+                    "seconds": 23.5,
+                    "path": None,
+                    "value": None,
+                    "text": None,
+                    "reason": "Hold it.",
+                }
+            ],
+            "summary": "Holds the reveal.",
+        },
     ]
     prompts: list[str] = []
 
@@ -112,8 +141,12 @@ def test_a_glimmer_patch_with_a_list_for_its_op_is_refused_in_words(monkeypatch:
         return dict(check(answers.pop(0)), provider="meta", usage={"cost_usd": 0.0})
 
     monkeypatch.setattr(open_weights, "structured", structured)
-    result = meta.patch_plan(goal="g", note="Hold the reveal longer.", plan=PLAN, sentences=None, work_dir=tmp_path / "work")
-    assert result["patches"] == [{"op": "trim_end", "segment": 2, "seconds": 23.5, "reason": "Hold it.", "source": "director"}]
+    result = meta.patch_plan(
+        goal="g", note="Hold the reveal longer.", plan=PLAN, sentences=None, work_dir=tmp_path / "work"
+    )
+    assert result["patches"] == [
+        {"op": "trim_end", "segment": 2, "seconds": 23.5, "reason": "Hold it.", "source": "director"}
+    ]
     assert "Patch 1 (?): " in prompts[1] and "op must be one of the listed operations" in prompts[1]
 
 
@@ -152,11 +185,23 @@ def test_an_empty_value_followed_by_a_comment_sets_nothing(tmp_path: Path, monke
 def test_a_damaged_call_log_never_breaks_the_meta_calls_panel(tmp_path: Path) -> None:
     work = tmp_path / "job" / "meta"
     work.mkdir(parents=True)
-    rows = [{"event": "start", "id": "a1", "at": 1.0, "operation": "story", "model": "muse-spark-1.3", "pid": 2 ** 70, "v": 1},
-            {"event": "start", "id": "b2", "at": 2.0, "operation": "find", "model": "muse-spark-1.3", "v": 1},
-            {"event": "end", "id": "b2", "status": ["done"], "v": 1}]
+    rows = [
+        {
+            "event": "start",
+            "id": "a1",
+            "at": 1.0,
+            "operation": "story",
+            "model": "muse-spark-1.3",
+            "pid": 2**70,
+            "v": 1,
+        },
+        {"event": "start", "id": "b2", "at": 2.0, "operation": "find", "model": "muse-spark-1.3", "v": 1},
+        {"event": "end", "id": "b2", "status": ["done"], "v": 1},
+    ]
     (work / "meta-calls.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-    (work / "meta-usage.json").write_text(json.dumps({"calls": [{"id": "c3", "status": {"x": 1}, "reserved_usd": 0.01}]}), encoding="utf-8")
+    (work / "meta-usage.json").write_text(
+        json.dumps({"calls": [{"id": "c3", "status": {"x": 1}, "reserved_usd": 0.01}]}), encoding="utf-8"
+    )
     log = meta.call_log(tmp_path)
     assert {row["id"]: row["status"] for row in log["calls"]} == {"a1": "running", "b2": "failed", "c3": "stopped"}
 
@@ -172,15 +217,24 @@ def test_heard_text_in_the_brief_captions_ass_is_literal(tmp_path: Path) -> None
     dialogue = next(line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("Dialogue:"))
     text = dialogue.split(",,0,0,0,,", 1)[1]
     assert not re.search(r"(?<!\\)[{}]", text), "a bare brace opens an override block, and libass hides what is inside"
-    assert "\\n" not in text and "\\N" not in text.replace("\\\u2060", ""), "a heard backslash must not become a line break"
+    assert "\\n" not in text and "\\N" not in text.replace("\\\u2060", ""), (
+        "a heard backslash must not become a line break"
+    )
 
 
 # --- Live bug 1: a finished call stayed reserved at its maximum, so Muse Wonder could review a $0.60 project once ---
 
 
 def _wonder_http(output_tokens: int) -> Any:
-    review = {"verdict": "Opens on the finished bowl.", "strengths": ["Clear"], "fixes": [], "caption_suggestion": "Oak to bowl.",
-              "hook_score": 4, "checks": [], "patches": []}
+    review = {
+        "verdict": "Opens on the finished bowl.",
+        "strengths": ["Clear"],
+        "fixes": [],
+        "caption_suggestion": "Oak to bowl.",
+        "hook_score": 4,
+        "checks": [],
+        "patches": [],
+    }
 
     def http(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         if method == "POST" and path == "/files":
@@ -190,9 +244,19 @@ def _wonder_http(output_tokens: int) -> Any:
         if path == "/responses/input_tokens":
             return {"object": "response.input_tokens", "input_tokens": 6000}
         if path == "/responses":
-            return {"id": "resp_wonder", "status": "completed", "model": kwargs["payload"]["model"],
-                    "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(review)}]}],
-                    "usage": {"input_tokens": 6000, "output_tokens": output_tokens, "total_tokens": 6000 + output_tokens}}
+            return {
+                "id": "resp_wonder",
+                "status": "completed",
+                "model": kwargs["payload"]["model"],
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": json.dumps(review)}],
+                    }
+                ],
+                "usage": {"input_tokens": 6000, "output_tokens": output_tokens, "total_tokens": 6000 + output_tokens},
+            }
         pytest.fail(f"unexpected {method} {path}")
 
     return http
@@ -202,21 +266,39 @@ def _wonder_http(output_tokens: int) -> Any:
 def meta_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MODEL_API_KEY", "test-secret-never-write-to-disk")
     monkeypatch.setenv("VEDIT_META_ENABLED", "1")
-    for name in ("VEDIT_META_DIRECTOR", "VEDIT_META_MODE", "VEDIT_META_REASONING", "VEDIT_META_BASE_URL", "VEDIT_META_TIMEOUT"):
+    for name in (
+        "VEDIT_META_DIRECTOR",
+        "VEDIT_META_MODE",
+        "VEDIT_META_REASONING",
+        "VEDIT_META_BASE_URL",
+        "VEDIT_META_TIMEOUT",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
-REVIEW_PLAN = {"duration": 7.0, "source_duration": 40.0,
-               "segments": [{"label": "Finished bowl", "start": 0.5, "end": 4.5}, {"label": "Raw oak", "start": 20.0, "end": 23.0}]}
+REVIEW_PLAN = {
+    "duration": 7.0,
+    "source_duration": 40.0,
+    "segments": [
+        {"label": "Finished bowl", "start": 0.5, "end": 4.5},
+        {"label": "Raw oak", "start": 20.0, "end": 23.0},
+    ],
+}
 
 
-def test_two_wonder_reviews_in_a_row_fit_a_sixty_cent_budget(meta_on: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(meta, "_request", _wonder_http(output_tokens=4000))  # 6000 in, 4000 out: $0.104 billed, ~$0.352 reserved
+def test_two_wonder_reviews_in_a_row_fit_a_sixty_cent_budget(
+    meta_on: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        meta, "_request", _wonder_http(output_tokens=4000)
+    )  # 6000 in, 4000 out: $0.104 billed, ~$0.352 reserved
     work = tmp_path / "work"
     for version in (1, 2):
         cut = tmp_path / f"v{version}.mp4"
         cut.write_bytes(f"version {version} of the cut".encode())
-        result = meta.review_cut(cut, goal="Show the bowl", plan=dict(REVIEW_PLAN), work_dir=work, director="wonder", budget_usd=0.60)
+        result = meta.review_cut(
+            cut, goal="Show the bowl", plan=dict(REVIEW_PLAN), work_dir=work, director="wonder", budget_usd=0.60
+        )
         assert result["usage"]["cost_usd"] == pytest.approx(0.104)
     calls = json.loads((work / "meta-usage.json").read_text())["calls"]
     assert [call["status"] for call in calls] == ["completed", "completed"]
@@ -236,15 +318,27 @@ def test_a_call_still_running_or_uncertain_holds_its_reservation() -> None:
     assert meta.held_usd({"reserved_usd": 0, "released": True, "status": "failed_or_incomplete"}) == 0
 
 
-def test_a_wonder_refusal_in_contributor_mode_names_the_standard_rate(meta_on: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_wonder_refusal_in_contributor_mode_names_the_standard_rate(
+    meta_on: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("VEDIT_META_MODE", "contributor")
     monkeypatch.setattr(meta, "_request", _wonder_http(output_tokens=4000))
     cut = tmp_path / "v1.mp4"
     cut.write_bytes(b"cut")
     with pytest.raises(meta.MetaError) as refused:
-        meta.review_cut(cut, goal="Show the bowl", plan=dict(REVIEW_PLAN), work_dir=tmp_path / "work", director="wonder", budget_usd=0.25)
+        meta.review_cut(
+            cut,
+            goal="Show the bowl",
+            plan=dict(REVIEW_PLAN),
+            work_dir=tmp_path / "work",
+            director="wonder",
+            budget_usd=0.25,
+        )
     assert "Standard mode only" not in str(refused.value)
-    assert "Muse Wonder has no contributor price, so it is billed at the standard rate even in contributor mode." in str(refused.value)
+    assert (
+        "Muse Wonder has no contributor price, so it is billed at the standard rate even in contributor mode."
+        in str(refused.value)
+    )
 
 
 # --- Live bug 3: find put SAM's verdict and thumbnail on a moment SAM never looked at ---
@@ -254,12 +348,24 @@ def test_a_whole_clip_moment_does_not_swallow_a_short_hit_or_lend_it_sams_verdic
     from vedit import director
 
     said = {"start": 0.383, "end": 3.58, "reason": "Said here.", "source": "transcript", "score": 0.75}
-    seen = {"start": 0.0, "end": 40.021, "reason": "The bowl is on the lathe throughout.", "source": "meta", "score": 0.9,
-            "verified": True, "coverage": 0.8, "thumbnail": "/x/the-wooden-bowl-18511.jpg", "flagged": False,
-            "evidence": {"by": "sam-3.1", "window": [18.511, 21.511]}, "verification": "SAM masked it."}
+    seen = {
+        "start": 0.0,
+        "end": 40.021,
+        "reason": "The bowl is on the lathe throughout.",
+        "source": "meta",
+        "score": 0.9,
+        "verified": True,
+        "coverage": 0.8,
+        "thumbnail": "/x/the-wooden-bowl-18511.jpg",
+        "flagged": False,
+        "evidence": {"by": "sam-3.1", "window": [18.511, 21.511]},
+        "verification": "SAM masked it.",
+    }
     merged = director.merge_moments([said], [seen])
     hit = next(moment for moment in merged if moment["start"] == 0.383)
-    assert hit["source"] == "transcript" and "verified" not in hit and "thumbnail" not in hit and "verification" not in hit
+    assert (
+        hit["source"] == "transcript" and "verified" not in hit and "thumbnail" not in hit and "verification" not in hit
+    )
     whole = next(moment for moment in merged if moment["start"] == 0.0)
     assert whole["verified"] is True and whole["thumbnail"] == "/x/the-wooden-bowl-18511.jpg"
 
@@ -268,8 +374,18 @@ def test_sams_verdict_moves_only_when_its_window_lies_in_the_surviving_moment() 
     from vedit import director
 
     said = {"start": 10.0, "end": 14.0, "reason": "Said.", "source": "transcript", "score": 0.5}
-    elsewhere = {"start": 9.5, "end": 14.5, "reason": "Seen.", "source": "meta", "score": 0.9, "verified": True, "coverage": 0.7,
-                 "thumbnail": "/x/t.jpg", "evidence": {"by": "sam-3.1", "window": [14.2, 17.2]}, "verification": "SAM masked it."}
+    elsewhere = {
+        "start": 9.5,
+        "end": 14.5,
+        "reason": "Seen.",
+        "source": "meta",
+        "score": 0.9,
+        "verified": True,
+        "coverage": 0.7,
+        "thumbnail": "/x/t.jpg",
+        "evidence": {"by": "sam-3.1", "window": [14.2, 17.2]},
+        "verification": "SAM masked it.",
+    }
     [twin] = director.merge_moments([said], [elsewhere])
     assert twin["source"] == "both" and "verified" not in twin and "thumbnail" not in twin
     inside = dict(elsewhere, evidence={"by": "sam-3.1", "window": [10.5, 13.5]})
@@ -283,7 +399,10 @@ def test_sams_verdict_moves_only_when_its_window_lies_in_the_surviving_moment() 
 def test_thai_script_lines_keep_a_space_between_phrases() -> None:
     from vedit import director
 
-    assert director.split_script("สวัสดีครับ\nวันนี้อากาศดีมาก\n\nเราจะไปเที่ยวทะเลกัน") == ["สวัสดีครับ วันนี้อากาศดีมาก", "เราจะไปเที่ยวทะเลกัน"]
+    assert director.split_script("สวัสดีครับ\nวันนี้อากาศดีมาก\n\nเราจะไปเที่ยวทะเลกัน") == [
+        "สวัสดีครับ วันนี้อากาศดีมาก",
+        "เราจะไปเที่ยวทะเลกัน",
+    ]
     assert director.split_script("我们今天\n去公园。") == ["我们今天去公园。"], "Chinese lines still join with no space"
     assert director.split_script("Scene 1\nHello there\nfriend.") == ["Hello there friend."]
 

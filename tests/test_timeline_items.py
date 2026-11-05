@@ -27,4 +27,3 @@ const ordinary = {{ style: "title", start: 1, duration: 2 }};
 if (anchorEndCallout(ordinary, 10, 15) || ordinary.start !== 1 || ordinary.duration !== 2) process.exit(4);
 """
     subprocess.run([shutil.which("node") or "node", "-e", script], cwd=ROOT, check=True)
-

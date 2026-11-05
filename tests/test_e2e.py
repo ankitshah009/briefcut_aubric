@@ -69,14 +69,7 @@ def _have_font() -> bool:
 def test_trim_title_export(tmp_path: Path):
     src = _make_clip(tmp_path / "in.mp4", seconds=3.0)
     dest = tmp_path / "out.mp4"
-    result = (
-        Edit(src, name="e2e")
-        .work_dir(tmp_path / "work")
-        .trim(0.2, 2.2)
-        .title("VEDIT")
-        .fade_in(0.15)
-        .to(dest)
-    )
+    result = Edit(src, name="e2e").work_dir(tmp_path / "work").trim(0.2, 2.2).title("VEDIT").fade_in(0.15).to(dest)
     assert result.is_file()
     info = probe(result)
     assert info.has_video
@@ -94,9 +87,16 @@ def test_to_exports_the_named_file_each_time_and_leaves_the_tape_alone(tmp_path:
     second = edit.to(tmp_path / "two" / "second.mp4", preset="web_preview", dry_run=True)
     assert (first, second) == (tmp_path / "one" / "first.mp4", tmp_path / "two" / "second.mp4")
     assert edit._ops == ops and edit.brief().work_dir is None  # each export was its own call's
-    assert (tmp_path / "one" / ".vedit-twice" / "brief.yaml").is_file() and (tmp_path / "two" / ".vedit-twice" / "brief.yaml").is_file()
+    assert (tmp_path / "one" / ".vedit-twice" / "brief.yaml").is_file() and (
+        tmp_path / "two" / ".vedit-twice" / "brief.yaml"
+    ).is_file()
     # After export(), to() still answers with the file it was asked for, not the first preset's.
-    third = Edit(src, name="both").work_dir(tmp_path / "both").export("web_preview").to(tmp_path / "both" / "third.mp4", dry_run=True)
+    third = (
+        Edit(src, name="both")
+        .work_dir(tmp_path / "both")
+        .export("web_preview")
+        .to(tmp_path / "both" / "third.mp4", dry_run=True)
+    )
     assert third == tmp_path / "both" / "third.mp4"
 
 
@@ -154,7 +154,10 @@ def test_silence_cut_keeps_speech(tmp_path: Path):
     brief = Brief(
         name="sil",
         sources={"a": str(speech / "t1.mp4"), "b": str(speech / "sil.mp4"), "c": str(speech / "t2.mp4")},
-        ops=[{"op": "concat", "sources": ["a", "b", "c"]}, {"op": "export", "path": str(joined), "preset": "web_preview"}],
+        ops=[
+            {"op": "concat", "sources": ["a", "b", "c"]},
+            {"op": "export", "path": str(joined), "preset": "web_preview"},
+        ],
         canvas=Canvas(width=640, height=360),
         work_dir=str(tmp_path / "build_talk"),
     )
@@ -272,7 +275,7 @@ def test_youtube_style_plan_is_two_encodes(tmp_path: Path):
 
 
 def test_execute_resumes_existing_plan(tmp_path: Path):
-    from vedit.pipeline import execute, load_pipeline, write_codegen
+    from vedit.pipeline import execute, load_pipeline
 
     src = _make_clip(tmp_path / "in.mp4", seconds=1.0)
     dest_dir = tmp_path / "work"

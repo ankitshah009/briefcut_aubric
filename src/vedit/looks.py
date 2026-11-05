@@ -45,6 +45,7 @@ import json
 import math
 import subprocess
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -73,38 +74,67 @@ RECIPES: dict[str, dict[str, Any]] = {
     "none": {},
     "auto": {},
     "warm": {
-        "temperature": 0.32, "tint": 0.04,
-        "curve": [[0.0, 0.0], [0.25, 0.235], [0.55, 0.57], [0.85, 0.87], [1.0, 0.985]], "curve_mix": 0.5,
-        "vibrance": 0.12, "skin": 0.8,
-        "highlights": [0.018, 0.006, -0.02], "shadows": [0.006, 0.0, -0.008],
+        "temperature": 0.32,
+        "tint": 0.04,
+        "curve": [[0.0, 0.0], [0.25, 0.235], [0.55, 0.57], [0.85, 0.87], [1.0, 0.985]],
+        "curve_mix": 0.5,
+        "vibrance": 0.12,
+        "skin": 0.8,
+        "highlights": [0.018, 0.006, -0.02],
+        "shadows": [0.006, 0.0, -0.008],
         "bands": [[175.0, 34.0, -8.0, 1.06], [230.0, 40.0, -6.0, 0.96]],
     },
     "cool": {
-        "temperature": -0.28, "tint": -0.02,
-        "curve": [[0.0, 0.0], [0.22, 0.2], [0.5, 0.505], [0.8, 0.825], [1.0, 1.0]], "curve_mix": 0.5,
-        "saturation": -0.04, "vibrance": 0.08, "skin": 0.85,
-        "shadows": [-0.012, 0.0, 0.018], "highlights": [-0.004, 0.002, 0.008],
+        "temperature": -0.28,
+        "tint": -0.02,
+        "curve": [[0.0, 0.0], [0.22, 0.2], [0.5, 0.505], [0.8, 0.825], [1.0, 1.0]],
+        "curve_mix": 0.5,
+        "saturation": -0.04,
+        "vibrance": 0.08,
+        "skin": 0.85,
+        "shadows": [-0.012, 0.0, 0.018],
+        "highlights": [-0.004, 0.002, 0.008],
         "bands": [[175.0, 36.0, 0.0, 0.86], [350.0, 40.0, 0.0, 1.08]],
     },
     "vivid": {
-        "curve": [[0.0, 0.0], [0.2, 0.17], [0.5, 0.515], [0.8, 0.84], [1.0, 1.0]], "curve_mix": 0.65,
-        "saturation": 0.05, "vibrance": 0.34, "skin": 0.8,
+        "curve": [[0.0, 0.0], [0.2, 0.17], [0.5, 0.515], [0.8, 0.84], [1.0, 1.0]],
+        "curve_mix": 0.65,
+        "saturation": 0.05,
+        "vibrance": 0.34,
+        "skin": 0.8,
         "bands": [[230.0, 34.0, 0.0, 1.06], [340.0, 44.0, 0.0, 1.08]],
     },
     "cinematic": {
-        "curve": [[0.0, 0.018], [0.18, 0.135], [0.45, 0.455], [0.78, 0.8], [1.0, 0.965]], "curve_mix": 0.55,
-        "temperature": 0.05, "saturation": -0.05, "vibrance": 0.08, "skin": 0.9,
-        "shadows": [-0.03, 0.002, 0.024], "highlights": [0.024, 0.006, -0.026],
+        "curve": [[0.0, 0.018], [0.18, 0.135], [0.45, 0.455], [0.78, 0.8], [1.0, 0.965]],
+        "curve_mix": 0.55,
+        "temperature": 0.05,
+        "saturation": -0.05,
+        "vibrance": 0.08,
+        "skin": 0.9,
+        "shadows": [-0.03, 0.002, 0.024],
+        "highlights": [0.024, 0.006, -0.026],
         # Green walks towards teal, blue back towards it, yellow towards orange.
-        "bands": [[225.0, 42.0, 18.0, 0.74], [345.0, 42.0, -14.0, 0.9], [176.0, 30.0, -10.0, 0.96], [100.0, 22.0, 7.0, 0.95]],
-        "vignette": 0.26, "grain": 0.16,
+        "bands": [
+            [225.0, 42.0, 18.0, 0.74],
+            [345.0, 42.0, -14.0, 0.9],
+            [176.0, 30.0, -10.0, 0.96],
+            [100.0, 22.0, 7.0, 0.95],
+        ],
+        "vignette": 0.26,
+        "grain": 0.16,
     },
     "film": {
-        "curve": [[0.0, 0.052], [0.2, 0.2], [0.5, 0.5], [0.8, 0.79], [1.0, 0.94]], "curve_mix": 0.85,
-        "temperature": 0.07, "saturation": -0.08, "vibrance": 0.04, "skin": 0.7,
-        "shadows": [-0.012, 0.008, 0.006], "highlights": [0.012, 0.004, -0.014],
+        "curve": [[0.0, 0.052], [0.2, 0.2], [0.5, 0.5], [0.8, 0.79], [1.0, 0.94]],
+        "curve_mix": 0.85,
+        "temperature": 0.07,
+        "saturation": -0.08,
+        "vibrance": 0.04,
+        "skin": 0.7,
+        "shadows": [-0.012, 0.008, 0.006],
+        "highlights": [0.012, 0.004, -0.014],
         "bands": [[225.0, 40.0, 10.0, 0.86], [345.0, 42.0, -8.0, 0.92]],
-        "grain": 0.42, "vignette": 0.1,
+        "grain": 0.42,
+        "vignette": 0.1,
     },
     "mono": {
         "mono": [0.3, 0.58, 0.12],
@@ -113,20 +143,26 @@ RECIPES: dict[str, dict[str, Any]] = {
     "noir": {
         "mono": [0.42, 0.5, 0.08],
         "curve": [[0.0, 0.0], [0.14, 0.045], [0.42, 0.36], [0.72, 0.78], [0.92, 0.965], [1.0, 1.0]],
-        "vignette": 0.42, "grain": 0.3,
+        "vignette": 0.42,
+        "grain": 0.3,
     },
     "vintage": {
-        "curve": [[0.0, 0.07], [0.25, 0.25], [0.55, 0.57], [0.82, 0.81], [1.0, 0.925]], "curve_mix": 0.7,
-        "temperature": 0.16, "saturation": -0.2, "skin": 0.5,
-        "shadows": [0.022, 0.0, 0.006], "highlights": [0.026, 0.012, -0.03],
+        "curve": [[0.0, 0.07], [0.25, 0.25], [0.55, 0.57], [0.82, 0.81], [1.0, 0.925]],
+        "curve_mix": 0.7,
+        "temperature": 0.16,
+        "saturation": -0.2,
+        "skin": 0.5,
+        "shadows": [0.022, 0.0, 0.006],
+        "highlights": [0.026, 0.012, -0.03],
         "bands": [[225.0, 40.0, -10.0, 0.82], [345.0, 44.0, -18.0, 0.8], [176.0, 30.0, -6.0, 1.04]],
-        "grain": 0.26, "vignette": 0.2,
+        "grain": 0.26,
+        "vignette": 0.2,
     },
 }
 
 
 def _clip(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return low if value < low else high if value > high else value
+    return low if value < low else min(value, high)
 
 
 def _smooth(low: float, high: float, value: float) -> float:
@@ -139,7 +175,7 @@ def _monotone(points: list[list[float]]) -> list[float]:
     xs = [float(p[0]) for p in points]
     ys = [float(p[1]) for p in points]
     slopes = [(ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]) for i in range(len(xs) - 1)]
-    tangents = [slopes[0]] + [0.0 if a * b <= 0 else 2 * a * b / (a + b) for a, b in zip(slopes, slopes[1:])] + [slopes[-1]]
+    tangents = [slopes[0], *(0.0 if a * b <= 0 else 2 * a * b / (a + b) for a, b in pairwise(slopes)), slopes[-1]]
     table = []
     segment = 0
     for step in range(_CURVE_STEPS + 1):
@@ -149,8 +185,12 @@ def _monotone(points: list[list[float]]) -> list[float]:
         width = xs[segment + 1] - xs[segment]
         t = _clip((x - xs[segment]) / width)
         t2, t3 = t * t, t * t * t
-        table.append((2 * t3 - 3 * t2 + 1) * ys[segment] + (t3 - 2 * t2 + t) * width * tangents[segment]
-                     + (3 * t2 - 2 * t3) * ys[segment + 1] + (t3 - t2) * width * tangents[segment + 1])
+        table.append(
+            (2 * t3 - 3 * t2 + 1) * ys[segment]
+            + (t3 - 2 * t2 + t) * width * tangents[segment]
+            + (3 * t2 - 2 * t3) * ys[segment + 1]
+            + (t3 - t2) * width * tangents[segment + 1]
+        )
     return table
 
 
@@ -194,7 +234,7 @@ class _Prepared:
         black, white = recipe.get("levels") or (0.0, 1.0)
         exposure = float(recipe.get("exposure", 0.0))
         gamma = float(recipe.get("gamma", 1.0))
-        gain = _STOP ** exposure / (white - black)
+        gain = _STOP**exposure / (white - black)
         # Where the brightest input lands decides how much room the shoulder needs.
         peak = (1 - black) * gain
         bend = _shoulder_bend(peak) if peak > 1 else 0.0
@@ -225,9 +265,9 @@ class _Prepared:
         measured = recipe.get("gains")
         if not temperature and not tint and not measured:
             return None
-        r = (1 + 0.11 * temperature)
-        b = (1 - 0.16 * temperature)
-        g = (1 - 0.09 * tint)
+        r = 1 + 0.11 * temperature
+        b = 1 - 0.16 * temperature
+        g = 1 - 0.09 * tint
         if measured:
             r, g, b = r * measured[0], g * measured[1], b * measured[2]
         # White balance moves color, not brightness.
@@ -236,6 +276,36 @@ class _Prepared:
 
     def tone(self, value: float) -> float:
         return self.table[round(_clip(value) * _CURVE_STEPS)]
+
+
+def _hue_work(p: _Prepared, cb: float, cr: float) -> tuple[float, float, float, float]:
+    """Spare skin tones and move the hue bands: the new ``cb, cr, chroma`` and how much of this color is skin."""
+    chroma = math.hypot(cb, cr)
+    skin = 0.0
+    if chroma <= 1e-5 or not (p.skin or p.bands):
+        return cb, cr, chroma, skin
+    angle = math.degrees(math.atan2(cr, cb)) % 360
+    if p.skin:
+        away = abs((angle - SKIN_ANGLE + 180) % 360 - 180)
+        if away < SKIN_WIDTH:
+            near = 1 - (away / SKIN_WIDTH) ** 2
+            skin = p.skin * near * near * _smooth(0.012, 0.05, chroma) * (1 - _smooth(0.3, 0.46, chroma))
+    gain, turn = 1.0, 0.0
+    for center, width, rotate, band_gain in p.bands:
+        away = abs((angle - center + 180) % 360 - 180)
+        if away < width:
+            near = 1 - (away / width) ** 2
+            near *= near
+            turn += rotate * near
+            gain *= 1 + (band_gain - 1) * near
+    keep = 1 - skin
+    turn *= keep
+    gain = 1 + (gain - 1) * keep
+    if turn or gain != 1:
+        radians = math.radians(angle + turn)
+        chroma *= gain
+        cb, cr = chroma * math.cos(radians), chroma * math.sin(radians)
+    return cb, cr, chroma, skin
 
 
 def _graded(r: float, g: float, b: float, p: _Prepared) -> tuple[float, float, float]:
@@ -254,30 +324,7 @@ def _graded(r: float, g: float, b: float, p: _Prepared) -> tuple[float, float, f
 
     luma = _clip(_KR * r + _KG * g + _KB * b)
     cb, cr = (b - luma) / _CB_SCALE, (r - luma) / _CR_SCALE
-    chroma = math.hypot(cb, cr)
-    skin = 0.0
-    if chroma > 1e-5 and (p.skin or p.bands):
-        angle = math.degrees(math.atan2(cr, cb)) % 360
-        if p.skin:
-            away = abs((angle - SKIN_ANGLE + 180) % 360 - 180)
-            if away < SKIN_WIDTH:
-                near = 1 - (away / SKIN_WIDTH) ** 2
-                skin = p.skin * near * near * _smooth(0.012, 0.05, chroma) * (1 - _smooth(0.3, 0.46, chroma))
-        gain, turn = 1.0, 0.0
-        for center, width, rotate, band_gain in p.bands:
-            away = abs((angle - center + 180) % 360 - 180)
-            if away < width:
-                near = 1 - (away / width) ** 2
-                near *= near
-                turn += rotate * near
-                gain *= 1 + (band_gain - 1) * near
-        keep = 1 - skin
-        turn *= keep
-        gain = 1 + (gain - 1) * keep
-        if turn or gain != 1:
-            radians = math.radians(angle + turn)
-            chroma *= gain
-            cb, cr = chroma * math.cos(radians), chroma * math.sin(radians)
+    cb, cr, chroma, skin = _hue_work(p, cb, cr)
     wanted = p.saturation + p.vibrance * (1 - _clip(chroma / 0.32))
     if wanted:
         wanted *= 1 - skin
@@ -306,7 +353,9 @@ def _graded(r: float, g: float, b: float, p: _Prepared) -> tuple[float, float, f
     return _clip(luma + r * scale), _clip(luma + g * scale), _clip(luma + b * scale)
 
 
-def grade(r: float, g: float, b: float, recipe: dict[str, Any], *, intensity: float = 1.0) -> tuple[float, float, float]:
+def grade(
+    r: float, g: float, b: float, recipe: dict[str, Any], *, intensity: float = 1.0
+) -> tuple[float, float, float]:
     """One gamma-coded BT.709 color through a recipe. Pure, and what the LUT samples."""
     return _blend(r, g, b, _prepared(recipe), intensity)
 
@@ -416,9 +465,13 @@ def write_cube(path: str | Path, steps: list[tuple[dict[str, Any], float]], *, s
 def lut_filters(path: str | Path) -> list[str]:
     """The LUT between explicit BT.709 conversions in 16-bit RGB. Round trips to the same YUV."""
     quality = "flags=accurate_rnd+full_chroma_int"
-    return [f"scale=in_color_matrix=bt709:{quality}", "format=gbrp16le",
-            f"lut3d=file={filter_value(path)}:interp=tetrahedral",
-            f"scale=out_color_matrix=bt709:out_range=limited:{quality}", "format=yuv420p"]
+    return [
+        f"scale=in_color_matrix=bt709:{quality}",
+        "format=gbrp16le",
+        f"lut3d=file={filter_value(path)}:interp=tetrahedral",
+        f"scale=out_color_matrix=bt709:out_range=limited:{quality}",
+        "format=yuv420p",
+    ]
 
 
 def spatial_filters(amounts: dict[str, float], *, warn: Any = None) -> list[str]:
@@ -468,7 +521,9 @@ def fallback_filters(steps: list[tuple[dict[str, Any], float]]) -> list[str]:
         saturation *= 1 + (float(recipe.get("saturation", 0.0)) + 0.5 * float(recipe.get("vibrance", 0.0))) * strength
     if not has_filter("eq"):
         return []
-    return [f"eq=contrast={contrast:.3f}:brightness={_clip(mid - 0.5, -0.4, 0.4):.3f}:saturation={_clip(saturation, 0.0, 2.0):.3f}"]
+    return [
+        f"eq=contrast={contrast:.3f}:brightness={_clip(mid - 0.5, -0.4, 0.4):.3f}:saturation={_clip(saturation, 0.0, 2.0):.3f}"
+    ]
 
 
 def _percentile(histogram: list[int], total: int, fraction: float) -> float:
@@ -574,10 +629,27 @@ def measure(path: str | Path, *, samples: int = 16, width: int = 96) -> dict[str
     frames = max(1, round(info.duration * (info.fps or 30.0)))
     every = max(1, frames // samples)
     # The footage, not cover art or a proxy stream that happens to come first.
-    argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(source), "-map", f"0:v:{info.video_map}", "-an",
-            "-vf", f"select='not(mod(n\\,{every}))',scale={width}:-2:flags=area:in_color_matrix=bt709,format=rgb24",
-            "-fps_mode", "passthrough", "-frames:v", str(samples + 1), "-f", "rawvideo", "-"]
-    done = subprocess.run(argv, capture_output=True, timeout=600)
+    argv = [
+        resolve_ffmpeg(),
+        "-hide_banner",
+        "-v",
+        "error",
+        "-i",
+        str(source),
+        "-map",
+        f"0:v:{info.video_map}",
+        "-an",
+        "-vf",
+        f"select='not(mod(n\\,{every}))',scale={width}:-2:flags=area:in_color_matrix=bt709,format=rgb24",
+        "-fps_mode",
+        "passthrough",
+        "-frames:v",
+        str(samples + 1),
+        "-f",
+        "rawvideo",
+        "-",
+    ]
+    done = subprocess.run(argv, capture_output=True, timeout=600, check=False)
     if done.returncode != 0 or not done.stdout:
         raise ValueError(f"could not sample {source}: {done.stderr.decode('utf-8', 'replace')[-300:]}")
     return stats_from_pixels(done.stdout)
@@ -593,7 +665,9 @@ def main(argv: list[str] | None = None) -> int:
     measured = auto_recipe(measure(args.source))
     # Footage that needs nothing still has to leave a file for the next step to read.
     write_cube(args.out, color_recipes(look, measured) or [({}, 1.0)])
-    Path(args.out).with_suffix(".json").write_text(json.dumps({"measured": measured}, indent=2) + "\n", encoding="utf-8")
+    Path(args.out).with_suffix(".json").write_text(
+        json.dumps({"measured": measured}, indent=2) + "\n", encoding="utf-8"
+    )
     return 0
 
 

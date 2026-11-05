@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from vedit import settings
@@ -40,6 +40,42 @@ def silence_threshold_db(loudness_i: float | None) -> float:
     return float(min(-26.0, max(-50.0, round(loudness_i - SILENCE_BELOW_SPEECH_DB))))
 
 
+@dataclass(frozen=True)
+class _Choices:
+    """What one cut does, decided once from the intent, the platform and the primary shot.
+
+    The ops, the rationale and the risks all read the same record, so a sentence
+    in ``decisions.md`` can never disagree with the program it describes.
+    """
+
+    slideshow: bool
+    shorts: bool
+    preview: bool
+    aspect: str | None
+    matches: bool
+    reframe: bool
+    cut: bool
+    captions: bool
+    highpass: bool
+    denoise: bool
+    card: str | None
+    use_title: bool
+    has_music: bool
+    duck_music: bool
+    replace_music: bool
+    loud: bool
+    fade: bool
+    mark: bool
+
+    @property
+    def crf(self) -> int:
+        return 23 if self.preview else 18
+
+    @property
+    def style(self) -> str:
+        return "boxed" if self.shorts else "lower-third"
+
+
 def decide(intent: Intent, inventory: Inventory) -> Decision:
     shots = tuple(inventory.shots)
     if not shots:
@@ -53,83 +89,20 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
     sources = _sources(intent, shots, primary)
     images = tuple(shot for shot in shots if _kind(shot) == "image")
     videos = tuple(shot for shot in shots if _kind(shot) == "video")
-    slideshow = not videos and bool(images)
-    has_music = "music" in sources
-    has_logo = "logo" in sources
-    shorts = contract.name == "shorts"
-    preview = contract.name == "preview"
-    aspect = _requested_aspect(intent, contract)
-    native = _native_aspect(primary.width, primary.height)
-    matches = aspect is not None and native is not None and native == aspect
-    reframe = (not slideshow) and aspect is not None and primary.has_video and not matches
-    cut = (
-        (not slideshow)
-        and intent.cut_silence
-        and primary.has_audio
-        and (primary.silence_ratio is None or primary.silence_ratio > 0.08)
-    )
-    captions = (not slideshow) and intent.captions and primary.has_audio
-    highpass = (not slideshow) and intent.highpass and primary.has_audio
-    denoise = (not slideshow) and intent.denoise and primary.has_video
     title_text = _text(intent.title)
     cta_text = _text(intent.cta)
-    card = title_text or cta_text
-    use_title = (not slideshow) and bool(card)
-    loud = (not slideshow) and intent.loudnorm and (primary.has_audio or has_music)
-    fade = (not slideshow) and intent.fade
-    mark = (not slideshow) and has_logo
-    duck_music = (not slideshow) and has_music and primary.has_audio
-    replace_music = has_music and not duck_music
-    crf = 23 if preview else 18
+    choices = _choose(
+        intent,
+        contract,
+        primary,
+        sources,
+        slideshow=not videos and bool(images),
+        card=title_text or cta_text,
+    )
     presets = [str(item) for item in contract.presets]
-    style = "boxed" if shorts else "lower-third"
-
-    ops: list[dict[str, Any]] = []
-    if slideshow:
-        ops.append(
-            {
-                "op": "slideshow",
-                "images": [shot.name for shot in images],
-                "duration": 2.5,
-                "fade": 0.3,
-            }
-        )
-        if replace_music:
-            ops.append({"op": "replace_audio", "source": "music"})
-    else:
-        if cut:
-            if shorts:
-                ops.append(
-                    {"op": "cut_silence", "threshold_db": silence_threshold_db(primary.loudness_i), "min_silence": 0.28, "pad": 0.08}
-                )
-            else:
-                ops.append(
-                    {"op": "cut_silence", "threshold_db": silence_threshold_db(primary.loudness_i), "min_silence": 0.45, "pad": 0.12}
-                )
-        if highpass:
-            ops.append({"op": "highpass", "hz": 80})
-        if denoise:
-            ops.append({"op": "denoise"})
-        if reframe and aspect is not None:
-            ops.append({"op": "reframe", "aspect": aspect, "mode": "fill"})
-        if captions:
-            # The spoken language the user chose in Settings ("auto" lets Meta detect it), never a fixed "en".
-            ops.append({"op": "captions", "burn": True, "language": settings.default_language(), "style": style})
-        if use_title and card is not None:
-            ops.append({"op": "title", "text": card})
-        if duck_music:
-            ops.append({"op": "music", "source": "music", "duck": True, "volume_db": -18})
-        elif replace_music:
-            ops.append({"op": "replace_audio", "source": "music"})
-        if loud:
-            ops.append({"op": "loudnorm", "i": contract.target_lufs})
-        if fade:
-            ops.append({"op": "fade_in", "duration": 0.25})
-            ops.append({"op": "fade_out", "duration": 0.4})
-        if mark:
-            ops.append({"op": "watermark", "source": "logo"})
+    ops = _slideshow_ops(choices, images) if choices.slideshow else _cut_ops(choices, contract, primary)
     export: dict[str, Any] = {"op": "export", "presets": list(presets)}
-    if shorts:
+    if choices.shorts:
         export["reframe"] = "fill"
     ops.append(export)
 
@@ -141,7 +114,7 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         output_dir="out",
         presets=list(presets),
         hw=None,
-        crf=crf,
+        crf=choices.crf,
     )
     rationale = _rationale(
         intent=intent,
@@ -149,26 +122,26 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         primary=primary,
         canvas=canvas,
         images=images,
-        slideshow=slideshow,
-        shorts=shorts,
-        aspect=aspect,
-        matches=matches,
-        reframe=reframe,
-        cut=cut,
-        captions=captions,
-        style=style,
-        highpass=highpass,
-        denoise=denoise,
+        slideshow=choices.slideshow,
+        shorts=choices.shorts,
+        aspect=choices.aspect,
+        matches=choices.matches,
+        reframe=choices.reframe,
+        cut=choices.cut,
+        captions=choices.captions,
+        style=choices.style,
+        highpass=choices.highpass,
+        denoise=choices.denoise,
         title_text=title_text,
         cta_text=cta_text,
-        use_title=use_title,
-        has_music=has_music,
-        duck_music=duck_music,
-        replace_music=replace_music,
-        loud=loud,
-        fade=fade,
-        mark=mark,
-        crf=crf,
+        use_title=choices.use_title,
+        has_music=choices.has_music,
+        duck_music=choices.duck_music,
+        replace_music=choices.replace_music,
+        loud=choices.loud,
+        fade=choices.fade,
+        mark=choices.mark,
+        crf=choices.crf,
         presets=presets,
     )
     risks = _risks(
@@ -176,13 +149,104 @@ def decide(intent: Intent, inventory: Inventory) -> Decision:
         contract=contract,
         primary=primary,
         images=images,
-        slideshow=slideshow,
-        cut=cut,
-        has_music=has_music,
+        slideshow=choices.slideshow,
+        cut=choices.cut,
+        has_music=choices.has_music,
         canvas=canvas,
-        unused=_unused_inputs(shots, primary, sources, slideshow=slideshow),
+        unused=_unused_inputs(shots, primary, sources, slideshow=choices.slideshow),
     )
     return Decision(rationale=rationale, risks=risks, brief=brief)
+
+
+def _choose(
+    intent: Intent,
+    contract: PlatformContract,
+    primary: SourceShot,
+    sources: dict[str, str],
+    *,
+    slideshow: bool,
+    card: str | None,
+) -> _Choices:
+    """Every yes or no the program depends on. A slideshow of stills turns the speech work off."""
+    has_music = "music" in sources
+    aspect = _requested_aspect(intent, contract)
+    native = _native_aspect(primary.width, primary.height)
+    matches = aspect is not None and native is not None and native == aspect
+    duck_music = (not slideshow) and has_music and primary.has_audio
+    return _Choices(
+        slideshow=slideshow,
+        shorts=contract.name == "shorts",
+        preview=contract.name == "preview",
+        aspect=aspect,
+        matches=matches,
+        reframe=(not slideshow) and aspect is not None and primary.has_video and not matches,
+        cut=(
+            (not slideshow)
+            and intent.cut_silence
+            and primary.has_audio
+            and (primary.silence_ratio is None or primary.silence_ratio > 0.08)
+        ),
+        captions=(not slideshow) and intent.captions and primary.has_audio,
+        highpass=(not slideshow) and intent.highpass and primary.has_audio,
+        denoise=(not slideshow) and intent.denoise and primary.has_video,
+        card=card,
+        use_title=(not slideshow) and bool(card),
+        has_music=has_music,
+        duck_music=duck_music,
+        replace_music=has_music and not duck_music,
+        loud=(not slideshow) and intent.loudnorm and (primary.has_audio or has_music),
+        fade=(not slideshow) and intent.fade,
+        mark=(not slideshow) and "logo" in sources,
+    )
+
+
+def _slideshow_ops(choices: _Choices, images: tuple[SourceShot, ...]) -> list[dict[str, Any]]:
+    """Stills become the tape; a music bed, when there is one, is its only sound."""
+    ops: list[dict[str, Any]] = [
+        {"op": "slideshow", "images": [shot.name for shot in images], "duration": 2.5, "fade": 0.3}
+    ]
+    if choices.replace_music:
+        ops.append({"op": "replace_audio", "source": "music"})
+    return ops
+
+
+def _cut_ops(choices: _Choices, contract: PlatformContract, primary: SourceShot) -> list[dict[str, Any]]:
+    """The program for a video primary, in render order: timing, sound, picture, text, music, level, fades, mark."""
+    ops: list[dict[str, Any]] = []
+    if choices.cut:
+        # Shorts cut tighter: a pause that reads as a breath on YouTube is dead air at 9:16.
+        min_silence, pad = (0.28, 0.08) if choices.shorts else (0.45, 0.12)
+        ops.append(
+            {
+                "op": "cut_silence",
+                "threshold_db": silence_threshold_db(primary.loudness_i),
+                "min_silence": min_silence,
+                "pad": pad,
+            }
+        )
+    if choices.highpass:
+        ops.append({"op": "highpass", "hz": 80})
+    if choices.denoise:
+        ops.append({"op": "denoise"})
+    if choices.reframe and choices.aspect is not None:
+        ops.append({"op": "reframe", "aspect": choices.aspect, "mode": "fill"})
+    if choices.captions:
+        # The spoken language the user chose in Settings ("auto" lets Meta detect it), never a fixed "en".
+        ops.append({"op": "captions", "burn": True, "language": settings.default_language(), "style": choices.style})
+    if choices.use_title and choices.card is not None:
+        ops.append({"op": "title", "text": choices.card})
+    if choices.duck_music:
+        ops.append({"op": "music", "source": "music", "duck": True, "volume_db": -18})
+    elif choices.replace_music:
+        ops.append({"op": "replace_audio", "source": "music"})
+    if choices.loud:
+        ops.append({"op": "loudnorm", "i": contract.target_lufs})
+    if choices.fade:
+        ops.append({"op": "fade_in", "duration": 0.25})
+        ops.append({"op": "fade_out", "duration": 0.4})
+    if choices.mark:
+        ops.append({"op": "watermark", "source": "logo"})
+    return ops
 
 
 def _unused_inputs(
@@ -371,9 +435,7 @@ def _rationale(
             f'Title card text is "{title_text}" because both title and CTA are set; '
             f'CTA "{cta_text}" stays off the {canvas.width}x{canvas.height} card.'
         )
-    must.append(
-        f"Export uses {', '.join(presets)} at CRF {crf} for the {platform} delivery of this {dur} source."
-    )
+    must.append(f"Export uses {', '.join(presets)} at CRF {crf} for the {platform} delivery of this {dur} source.")
 
     optional: list[str] = [
         _caption_line(
@@ -401,17 +463,14 @@ def _rationale(
         )
     elif not slideshow:
         optional.append(
-            f"Loudnorm stays off on the {dur} {platform} cut "
-            f"(intent loudnorm is {str(intent.loudnorm).lower()})."
+            f"Loudnorm stays off on the {dur} {platform} cut (intent loudnorm is {str(intent.loudnorm).lower()})."
         )
     if use_title and _one_card(title_text, cta_text):
         shown = title_text or cta_text or ""
         if title_text and not cta_text:
             optional.append(f'Title card uses "{shown}" on the {canvas.width}x{canvas.height} {platform} frame.')
         else:
-            optional.append(
-                f'Title card uses the CTA "{shown}" because no title was set for this {platform} edit.'
-            )
+            optional.append(f'Title card uses the CTA "{shown}" because no title was set for this {platform} edit.')
     if highpass:
         optional.append(f"Highpass at 80 Hz is on because the {dur} primary has audio.")
     if mark:
@@ -463,19 +522,13 @@ def _silence_line(
             f"so the {contract.name} pass uses threshold {threshold:g} dB, {window}."
         )
     if not primary.has_audio:
-        return (
-            f"Cut silence stays off because {primary.name} has no audio; "
-            f"duration is {dur} on {contract.name}."
-        )
+        return f"Cut silence stays off because {primary.name} has no audio; duration is {dur} on {contract.name}."
     if not asked:
         return (
             f"Cut silence stays off because the intent set it false; "
             f"silence ratio is {ratio} on a {dur} {contract.name} source."
         )
-    return (
-        f"Cut silence stays off because silence ratio {ratio} is not above 0.08 "
-        f"on the {dur} {contract.name} source."
-    )
+    return f"Cut silence stays off because silence ratio {ratio} is not above 0.08 on the {dur} {contract.name} source."
 
 
 def _structure_line(
@@ -503,14 +556,8 @@ def _structure_line(
     if matches and aspect is not None:
         return f"Reframe is skipped because {frame} already reads as {aspect} on {contract.name}."
     if not primary.has_video:
-        return (
-            f"Reframe is skipped because {primary.name} has no video frame "
-            f"({frame}) on {contract.name}."
-        )
-    return (
-        f"Reframe is skipped because {contract.name} does not ask for a new aspect "
-        f"on this {frame} frame."
-    )
+        return f"Reframe is skipped because {primary.name} has no video frame ({frame}) on {contract.name}."
+    return f"Reframe is skipped because {contract.name} does not ask for a new aspect on this {frame} frame."
 
 
 def _caption_line(
@@ -530,10 +577,7 @@ def _caption_line(
             f"and captions were requested for {contract.name}."
         )
     if slideshow:
-        return (
-            f"Captions are skipped because the slideshow has no speech track "
-            f"on {contract.name}."
-        )
+        return f"Captions are skipped because the slideshow has no speech track on {contract.name}."
     if not has_audio:
         return f"Captions are skipped because the {dur} primary has no audio on {contract.name}."
     return f"Captions stay off because the intent set captions false for this {dur} {contract.name} edit."
@@ -550,10 +594,7 @@ def _music_line(
     dur: str,
 ) -> str:
     if duck_music:
-        return (
-            f"Music from source music ducks to -18 dB under speech "
-            f"on the {dur} {contract.name} cut."
-        )
+        return f"Music from source music ducks to -18 dB under speech on the {dur} {contract.name} cut."
     if replace_music and slideshow:
         return (
             f"Music replaces the silent slideshow track from source music "
@@ -567,8 +608,7 @@ def _music_line(
     if slideshow:
         return f"No music source is available, so the slideshow of {len(images)} stills exports without a bed."
     return (
-        f"No music bed is added because {contract.name} has no music path "
-        f"and no audio shot besides the {dur} primary."
+        f"No music bed is added because {contract.name} has no music path and no audio shot besides the {dur} primary."
     )
 
 

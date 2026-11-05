@@ -22,10 +22,16 @@ def pipeline_to_otio(
     steps: list[str],
     meta: dict[str, Any],
 ) -> dict[str, Any]:
-    canvas = meta.get("canvas") if isinstance(meta.get("canvas"), dict) else {}
+    canvas = meta.get("canvas")
+    if not isinstance(canvas, dict):
+        canvas = {}
     rate = float(canvas.get("fps") or 30.0)
-    sources = meta.get("sources") if isinstance(meta.get("sources"), dict) else {}
-    ops = meta.get("ops") if isinstance(meta.get("ops"), list) else []
+    sources = meta.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+    ops = meta.get("ops")
+    if not isinstance(ops, list):
+        ops = []
     clips: list[dict[str, Any]] = []
     for src_name, path in sources.items():
         clips.append(

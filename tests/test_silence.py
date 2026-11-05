@@ -1,17 +1,23 @@
+import pytest
+
 from vedit.analyze import Range, keep_ranges, select_expression
 from vedit.compile import atempo_chain
-import pytest
 
 
 def test_keep_ranges_inverts_and_pads():
+    """Speech keeps a pad on each side of a cut; a silence that runs to the end of the file leaves no sliver."""
     silences = [Range(1.0, 3.0), Range(8.0, 10.0)]
     keeps = keep_ranges(10.0, silences, pad=0.2, min_keep=0.05)
-    assert keeps[0].start == 0.0
-    assert keeps[0].end == pytest.approx(1.2)
-    assert keeps[1].start == pytest.approx(2.8)
-    assert keeps[1].end == pytest.approx(8.2)
-    assert keeps[2].start == pytest.approx(9.8)
-    assert keeps[2].end == pytest.approx(10.0)
+    assert [(k.start, k.end) for k in keeps] == [
+        (0.0, pytest.approx(1.2)),
+        (pytest.approx(2.8), pytest.approx(8.2)),
+    ]
+
+
+def test_a_silence_at_the_start_of_the_file_keeps_no_sliver_either():
+    keeps = keep_ranges(10.0, [Range(0.0, 2.0)], pad=0.2, min_keep=0.05)
+    # Speech still gets its lead-in pad; only the silent edge itself stays unpadded.
+    assert [(k.start, k.end) for k in keeps] == [(pytest.approx(1.8), 10.0)]
 
 
 def test_keep_ranges_all_speech():

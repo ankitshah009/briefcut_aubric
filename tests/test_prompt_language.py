@@ -46,22 +46,35 @@ def clip(tmp_path: Path) -> Path:
     return path
 
 
-PLAN = {"duration": 7.0, "source_duration": 40.0,
-        "segments": [{"label": "Opener", "start": 0.5, "end": 4.5}, {"label": "Reveal", "start": 20.0, "end": 23.0}]}
+PLAN = {
+    "duration": 7.0,
+    "source_duration": 40.0,
+    "segments": [{"label": "Opener", "start": 0.5, "end": 4.5}, {"label": "Reveal", "start": 20.0, "end": 23.0}],
+}
 
 
 def _calls(clip: Path, work: Path, language: str) -> dict[str, Any]:
     return {
-        "story": lambda: meta.plan_story(clip, goal="Haz un video corto", duration=40.0, target_duration=20.0, work_dir=work, language=language),
+        "story": lambda: meta.plan_story(
+            clip, goal="Haz un video corto", duration=40.0, target_duration=20.0, work_dir=work, language=language
+        ),
         "find": lambda: meta.find_moments(clip, query="el perro", duration=40.0, work_dir=work, language=language),
-        "shorts": lambda: meta.plan_shorts(clip, goal="Tres cortos", duration=40.0, count=2, target_duration=10.0, work_dir=work, language=language),
-        "script": lambda: meta.script_prompts(["Una mañana en el mercado."], aspect="9:16", work_dir=work, language=language),
-        "patch": lambda: meta.patch_plan(goal="g", note="Más corto", plan=PLAN, sentences=None, work_dir=work, language=language),
+        "shorts": lambda: meta.plan_shorts(
+            clip, goal="Tres cortos", duration=40.0, count=2, target_duration=10.0, work_dir=work, language=language
+        ),
+        "script": lambda: meta.script_prompts(
+            ["Una mañana en el mercado."], aspect="9:16", work_dir=work, language=language
+        ),
+        "patch": lambda: meta.patch_plan(
+            goal="g", note="Más corto", plan=PLAN, sentences=None, work_dir=work, language=language
+        ),
     }
 
 
 @pytest.mark.parametrize("operation", ["story", "find", "shorts", "script", "patch"])
-def test_auto_language_never_reaches_a_prompt_as_a_word(operation: str, prompts: list[str], clip: Path, tmp_path: Path) -> None:
+def test_auto_language_never_reaches_a_prompt_as_a_word(
+    operation: str, prompts: list[str], clip: Path, tmp_path: Path
+) -> None:
     with pytest.raises(_Stop):
         _calls(clip, tmp_path / "work", "auto")[operation]()
     prompt = prompts[-1]
@@ -70,7 +83,9 @@ def test_auto_language_never_reaches_a_prompt_as_a_word(operation: str, prompts:
 
 
 @pytest.mark.parametrize("operation", ["story", "find", "shorts", "script", "patch"])
-def test_a_language_code_reaches_the_prompt_as_its_name(operation: str, prompts: list[str], clip: Path, tmp_path: Path) -> None:
+def test_a_language_code_reaches_the_prompt_as_its_name(
+    operation: str, prompts: list[str], clip: Path, tmp_path: Path
+) -> None:
     with pytest.raises(_Stop):
         _calls(clip, tmp_path / "work", "pt-BR")[operation]()
     prompt = prompts[-1]

@@ -31,6 +31,9 @@ _VOICE_GATE_MARGIN = 16.0
 # Where the expander opens, as a share of the way from the cleaned room up to the voice.
 # At the 16 dB margin this is about 10 dB under the voice, where quiet syllables still sit.
 _GATE_SHARE = 0.62
+# No threshold goes under this (-60 dB). A near-silent tape would otherwise round a level to 0,
+# which acompressor refuses and which the gate's volume scale would divide by.
+_LEVEL_FLOOR = 0.001
 # The sidechain sees speech normalized to this level, whatever the recording's own.
 _KEY_LEVEL = -20.0
 # A bed is normalized here before ``volume_db``, so that number means the same for any track.
@@ -55,8 +58,10 @@ BUNDLED_MUSIC = (
 def bundled_music() -> list[dict[str, Any]]:
     """The music beds that ship with Briefcut and exist on this install."""
     folder = Path(__file__).with_name("assets") / "music"
-    beds = [{"id": ident, "name": name, "description": description, "bpm": bpm, "path": str(folder / f"{ident}.m4a")}
-            for ident, name, description, bpm in BUNDLED_MUSIC]
+    beds = [
+        {"id": ident, "name": name, "description": description, "bpm": bpm, "path": str(folder / f"{ident}.m4a")}
+        for ident, name, description, bpm in BUNDLED_MUSIC
+    ]
     return [bed for bed in beds if Path(bed["path"]).is_file()]
 
 
@@ -72,12 +77,12 @@ def level_stats(samples: array.array) -> dict[str, float]:
     """
     windows = []
     for start in range(0, len(samples) - _WINDOW, _WINDOW):
-        chunk = samples[start:start + _WINDOW]
+        chunk = samples[start : start + _WINDOW]
         windows.append(sum(value * value for value in chunk) / _WINDOW)
     if len(windows) < 10:
         raise ValueError("too little audio to measure")
     windows.sort()
-    floor = 32768.0 ** 2
+    floor = 32768.0**2
 
     def db(fraction: float) -> float:
         return 10 * math.log10(max(windows[round(fraction * (len(windows) - 1))], 1e-3) / floor)
@@ -101,8 +106,8 @@ def voice_settings(stats: dict[str, float]) -> dict[str, float]:
     settings = {
         "noise_floor": max(-80.0, min(-20.0, noise_floor)),
         # A noisy room leaves no gap to find, so the expander stays out of the way.
-        "gate": 10 ** (gate_db / 20) if margin >= _VOICE_GATE_MARGIN else 0.001,
-        "compress": min(1.0, 10 ** ((speech - 4 * press) / 20)) if press else 1.0,
+        "gate": max(_LEVEL_FLOOR, 10 ** (gate_db / 20)) if margin >= _VOICE_GATE_MARGIN else _LEVEL_FLOOR,
+        "compress": max(_LEVEL_FLOOR, min(1.0, 10 ** ((speech - 4 * press) / 20))) if press else 1.0,
         "makeup": 1 + 0.85 * press,
     }
     return {key: round(value, 5) for key, value in settings.items()}
@@ -124,37 +129,47 @@ def voice_commands(settings: dict[str, float], *, denoise: bool, enhance: bool) 
     return ";\n".join(lines) + ";\n" if lines else ""
 
 
-def voice_filters(*, denoise: bool, enhance: bool, commands: str | Path | None, rate: int = 48_000, warn: Any = None) -> list[str]:
+def voice_filters(
+    *, denoise: bool, enhance: bool, commands: str | Path | None, rate: int = 48_000, warn: Any = None
+) -> list[str]:
     """The speech chain, in signal order. Length and sync match the input exactly."""
     note = warn or (lambda message: None)
     chain: list[str] = []
     settings = _DEFAULTS
-    live = commands is not None and has_filter("asendcmd")
-    if commands is not None and not live:
-        note("This FFmpeg cannot apply measured speech settings, so typical ones were used.")
-    if live:
-        chain.append(f"asendcmd=f={filter_value(commands)}")
+    if commands is not None:
+        if has_filter("asendcmd"):
+            chain.append(f"asendcmd=f={filter_value(commands)}")
+        else:
+            note("This FFmpeg cannot apply measured speech settings, so typical ones were used.")
     chain.append("highpass=f=80")
     if denoise:
         if has_filter("afftdn"):
             # Pad, filter, then drop the latency: nothing is lost at either end,
             # and speech stays on the same frame as the lips.
             late = round(DENOISE_LATENCY * rate)
-            chain += [f"apad=pad_len={late}", f"afftdn@voice=nr=20:nf={settings['noise_floor']}",
-                      f"atrim=start_sample={late}", "asetpts=N/SR/TB"]
+            chain += [
+                f"apad=pad_len={late}",
+                f"afftdn@voice=nr=20:nf={settings['noise_floor']}",
+                f"atrim=start_sample={late}",
+                "asetpts=N/SR/TB",
+            ]
         else:
             note("This FFmpeg has no afftdn filter, so background noise was not reduced.")
         if has_filter("agate"):
             scale = _GATE_THRESHOLD / settings["gate"]
-            chain += [f"volume@voice_in=volume={scale:.5f}",
-                      f"agate=threshold={_GATE_THRESHOLD}:ratio=2.5:range=0.2:attack=6:release=200:knee=4",
-                      f"volume@voice_out=volume={1 / scale:.5f}"]
+            chain += [
+                f"volume@voice_in=volume={scale:.5f}",
+                f"agate=threshold={_GATE_THRESHOLD}:ratio=2.5:range=0.2:attack=6:release=200:knee=4",
+                f"volume@voice_out=volume={1 / scale:.5f}",
+            ]
     if enhance:
         # Take out the room boom, restore the consonants that denoising dulls.
         chain += ["equalizer=f=250:t=q:w=1.2:g=-2", "equalizer=f=3200:t=q:w=1:g=3", "highshelf=f=7000:g=1.5"]
         if has_filter("deesser"):
             chain.append("deesser=i=0.25")
-        chain.append(f"acompressor@voice=threshold={settings['compress']}:ratio=2.5:attack=8:release=160:makeup={settings['makeup']}:knee=3")
+        chain.append(
+            f"acompressor@voice=threshold={settings['compress']}:ratio=2.5:attack=8:release=160:makeup={settings['makeup']}:knee=3"
+        )
     return chain
 
 
@@ -175,8 +190,9 @@ def music_commands(bed: dict[str, float], voice: dict[str, float] | None) -> str
     return ";\n".join(lines) + ";\n"
 
 
-def decode_mono(path: str | Path, *, rate: int = _RATE, seconds: float | None = None, start: float = 0.0,
-                track: int | None = None) -> array.array:
+def decode_mono(
+    path: str | Path, *, rate: int = _RATE, seconds: float | None = None, start: float = 0.0, track: int | None = None
+) -> array.array:
     """16-bit mono samples of a file's sound, from ``start`` for ``seconds``.
 
     ``track`` is the position among the audio streams. By default it is the
@@ -195,11 +211,11 @@ def decode_mono(path: str | Path, *, rate: int = _RATE, seconds: float | None = 
     if seconds is not None:
         argv += ["-t", f"{seconds:.3f}"]
     argv += ["-ac", "1", "-ar", str(rate), "-f", "s16le", "-"]
-    done = subprocess.run(argv, capture_output=True, timeout=600)
+    done = subprocess.run(argv, capture_output=True, timeout=600, check=False)
     if done.returncode != 0:
         raise ValueError(f"could not decode audio from {path}: {done.stderr.decode('utf-8', 'replace')[-300:]}")
     samples = array.array("h")
-    samples.frombytes(done.stdout[:len(done.stdout) // 2 * 2])
+    samples.frombytes(done.stdout[: len(done.stdout) // 2 * 2])
     return samples
 
 

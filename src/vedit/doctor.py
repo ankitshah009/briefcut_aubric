@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from vedit.errors import VeditError
 from vedit.media import (
     FULL_FFMPEG,
     has_encoder,
@@ -18,7 +19,6 @@ from vedit.media import (
     version_line,
     which_optional,
 )
-
 
 # Where a person creates the one key Briefcut needs.
 META_KEY_URL = "https://dev.meta.ai"
@@ -54,7 +54,12 @@ def ffmpeg_install() -> dict[str, Any]:
     manager = package_manager()
     if sys.platform == "darwin":
         steps = [] if manager == "brew" else [_HOMEBREW]
-        steps.append({"label": "Install FFmpeg with titles and captions. Homebrew's plain ffmpeg has neither.", "command": "brew install ffmpeg-full"})
+        steps.append(
+            {
+                "label": "Install FFmpeg with titles and captions. Homebrew's plain ffmpeg has neither.",
+                "command": "brew install ffmpeg-full",
+            }
+        )
         return {"steps": steps, "note": ""}
     commands = {
         "apt": "sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-noto-core fonts-noto-cjk",
@@ -64,8 +69,14 @@ def ffmpeg_install() -> dict[str, Any]:
     if manager in commands:
         return {"steps": [{"label": "Install FFmpeg.", "command": commands[manager]}], "note": ""}
     if manager == "dnf":
-        return {"steps": [{"label": "Install FFmpeg.", "command": "sudo dnf install ffmpeg"}], "note": "On Fedora this package comes from RPM Fusion; enable that repository first."}
-    return {"steps": [], "note": "Install FFmpeg with your system's package manager. It needs libx264, drawtext, and subtitles."}
+        return {
+            "steps": [{"label": "Install FFmpeg.", "command": "sudo dnf install ffmpeg"}],
+            "note": "On Fedora this package comes from RPM Fusion; enable that repository first.",
+        }
+    return {
+        "steps": [],
+        "note": "Install FFmpeg with your system's package manager. It needs libx264, drawtext, and subtitles.",
+    }
 
 
 def _ffmpeg_hint() -> str:
@@ -87,13 +98,13 @@ def run_doctor() -> list[Check]:
     try:
         ffmpeg = resolve_ffmpeg()
         checks.append(Check("ffmpeg", True, f"{version_line()} @ {ffmpeg}", required=True))
-    except Exception as exc:
+    except (VeditError, OSError) as exc:
         checks.append(Check("ffmpeg", False, str(exc), required=True))
         return checks
     try:
         probe = resolve_ffprobe()
         checks.append(Check("ffprobe", True, probe, required=True))
-    except Exception as exc:
+    except (VeditError, OSError) as exc:
         checks.append(Check("ffprobe", False, str(exc), required=True))
 
     full = FULL_FFMPEG.is_file()
@@ -102,7 +113,11 @@ def run_doctor() -> list[Check]:
         Check(
             "ffmpeg-full",
             full or titles,
-            str(FULL_FFMPEG) if full else "this build has drawtext and subtitles" if titles else f"no drawtext/subtitles here — {_ffmpeg_hint()}",
+            str(FULL_FFMPEG)
+            if full
+            else "this build has drawtext and subtitles"
+            if titles
+            else f"no drawtext/subtitles here — {_ffmpeg_hint()}",
         )
     )
     for filt, why in (
@@ -129,7 +144,9 @@ def run_doctor() -> list[Check]:
             Check(
                 "encoder:h264_videotoolbox",
                 vt,
-                "Apple Silicon HW encode (auto on Darwin; --no-hw to force libx264)" if vt else "not available, so software libx264 is used",
+                "Apple Silicon HW encode (auto on Darwin; --no-hw to force libx264)"
+                if vt
+                else "not available, so software libx264 is used",
             )
         )
     checks.append(Check("encoder:aac", has_encoder("aac") or has_encoder("aac_at"), "AAC audio"))
@@ -137,7 +154,7 @@ def run_doctor() -> list[Check]:
     try:
         font = resolve_font()
         checks.append(Check("font", True, str(font)))
-    except Exception as exc:
+    except (VeditError, OSError) as exc:
         checks.append(Check("font", False, str(exc)))
 
     checks.append(meta_check())
@@ -150,7 +167,7 @@ def run_doctor() -> list[Check]:
         from vedit import blender_cards
 
         checks.append(Check(**blender_cards.doctor_check()))
-    except Exception:  # an optional renderer must never hide the other checks
+    except (VeditError, OSError):  # an optional renderer must never hide the other checks
         checks.append(Check("blender", False, "Blender could not be checked, so 3D motion cards are hidden."))
     if sys.platform == "darwin":
         checks.append(Check("ffmpeg-full preferred", full, "VEDIT_FFMPEG can point at any build"))
@@ -163,16 +180,31 @@ def meta_check() -> Check:
         from vedit import meta
 
         status = meta.capabilities()
-    except Exception:  # an unreadable config must not hide the other checks
-        return Check("meta", False, "Meta settings could not be read. Open Settings in Studio and save your key again.", required=True)
+    except (VeditError, OSError, ValueError):  # an unreadable config must not hide the other checks
+        return Check(
+            "meta",
+            False,
+            "Meta settings could not be read. Open Settings in Studio and save your key again.",
+            required=True,
+        )
     if status.get("available") and status.get("last_problem"):
         # The key is set, but Meta refused the last call with it (401, 402, a certificate). Settings alone are not proof.
         return Check("meta", False, str(status.get("reason") or status["last_problem"]), required=True)
     if status.get("available"):
         return Check("meta", True, f"key configured, Meta calls allowed, mode {status.get('mode')}", required=True)
     if not status.get("configured"):
-        return Check("meta", False, f"no Meta API key. Create one at {META_KEY_URL}, then paste it in Studio Settings or set MODEL_API_KEY", required=True)
-    return Check("meta", False, str(status.get("reason") or "Meta calls are not allowed. Turn them on in Settings."), required=True)
+        return Check(
+            "meta",
+            False,
+            f"no Meta API key. Create one at {META_KEY_URL}, then paste it in Studio Settings or set MODEL_API_KEY",
+            required=True,
+        )
+    return Check(
+        "meta",
+        False,
+        str(status.get("reason") or "Meta calls are not allowed. Turn them on in Settings."),
+        required=True,
+    )
 
 
 def doctor_dict() -> dict[str, Any]:

@@ -8,19 +8,30 @@ means the file itself decodes at the promised shape, not that a command ran.
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
 from vedit.campaign import CampaignError, CampaignManager
-from vedit.errors import BinaryMissing, BriefError, CaptionError, CompileError, ProbeError, RenderError
 from vedit.captions import strip_annotations
-from vedit.media import MediaInfo, StreamInfo, export_problem, has_encoder, has_filter, plain_failure, probe, resolve_ffmpeg, resolve_ffprobe, source_notes
+from vedit.errors import BinaryMissing, BriefError, CaptionError, CompileError, ProbeError, RenderError
+from vedit.media import (
+    MediaInfo,
+    StreamInfo,
+    export_problem,
+    has_encoder,
+    has_filter,
+    plain_failure,
+    probe,
+    resolve_ffmpeg,
+    resolve_ffprobe,
+    source_notes,
+)
 from vedit.studio.server import _client_error
 
 pytestmark = pytest.mark.render
@@ -58,7 +69,23 @@ def timecode_track(path: Path) -> None:
 
 def two_video_streams(path: Path) -> None:
     """A small still proxy first, the real picture second, as some cameras write."""
-    ffmpeg("-f", "lavfi", "-i", "color=c=green:s=160x90:r=30:d=2", *picture("1280x720"), *tone(), "-map", "0:v", "-map", "1:v", "-map", "2:a", *H264, *AAC, str(path))
+    ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=green:s=160x90:r=30:d=2",
+        *picture("1280x720"),
+        *tone(),
+        "-map",
+        "0:v",
+        "-map",
+        "1:v",
+        "-map",
+        "2:a",
+        *H264,
+        *AAC,
+        str(path),
+    )
 
 
 def two_video_streams_and_data(path: Path) -> None:
@@ -72,7 +99,27 @@ def cover_art_mp4(path: Path) -> None:
     ffmpeg("-f", "lavfi", "-i", f"color=c=red:s={SD}:d=1", "-frames:v", "1", str(cover))
     source = path.with_name("plain.mp4")
     plain(source)
-    ffmpeg("-i", str(source), "-i", str(cover), "-map", "0:v", "-map", "0:a", "-map", "1:v", "-c:v:0", "copy", "-c:a", "copy", "-c:v:1", "mjpeg", "-disposition:v:1", "attached_pic", str(path))
+    ffmpeg(
+        "-i",
+        str(source),
+        "-i",
+        str(cover),
+        "-map",
+        "0:v",
+        "-map",
+        "0:a",
+        "-map",
+        "1:v",
+        "-c:v:0",
+        "copy",
+        "-c:a",
+        "copy",
+        "-c:v:1",
+        "mjpeg",
+        "-disposition:v:1",
+        "attached_pic",
+        str(path),
+    )
 
 
 def cover_stream_first_mkv(path: Path) -> None:
@@ -81,7 +128,25 @@ def cover_stream_first_mkv(path: Path) -> None:
     ffmpeg("-f", "lavfi", "-i", "color=c=red:s=1920x1080:d=1", "-frames:v", "1", str(cover))
     source = path.with_name("plain.mp4")
     plain(source)
-    ffmpeg("-i", str(cover), "-i", str(source), "-map", "0:v", "-map", "1:v", "-map", "1:a", "-c:v:0", "png", "-c:v:1", "copy", "-c:a", "copy", str(path))
+    ffmpeg(
+        "-i",
+        str(cover),
+        "-i",
+        str(source),
+        "-map",
+        "0:v",
+        "-map",
+        "1:v",
+        "-map",
+        "1:a",
+        "-c:v:0",
+        "png",
+        "-c:v:1",
+        "copy",
+        "-c:a",
+        "copy",
+        str(path),
+    )
 
 
 def rotated(degrees: int) -> Callable[[Path], None]:
@@ -102,17 +167,62 @@ def mpeg_ts(path: Path) -> None:
 
 
 def vp9_opus(path: Path) -> None:
-    ffmpeg(*picture(), *tone(), "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus", str(path))
+    ffmpeg(
+        *picture(),
+        *tone(),
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-c:a",
+        "libopus",
+        str(path),
+    )
 
 
 def hevc(path: Path) -> None:
-    ffmpeg(*picture(), *tone(), "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1", *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        *tone(),
+        "-c:v",
+        "libx265",
+        "-preset",
+        "ultrafast",
+        "-x265-params",
+        "log-level=error",
+        "-tag:v",
+        "hvc1",
+        *AAC,
+        str(path),
+    )
 
 
 def hevc_10bit_hdr(path: Path) -> None:
     """The shape of an iPhone HDR clip: 10-bit HEVC tagged BT.2020 HLG."""
-    ffmpeg(*picture(), *tone(), "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1",
-           "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc", *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        *tone(),
+        "-vf",
+        "format=yuv420p10le",
+        "-c:v",
+        "libx265",
+        "-preset",
+        "ultrafast",
+        "-x265-params",
+        "log-level=error",
+        "-tag:v",
+        "hvc1",
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        "arib-std-b67",
+        "-colorspace",
+        "bt2020nc",
+        *AAC,
+        str(path),
+    )
 
 
 def av1(path: Path) -> None:
@@ -128,11 +238,27 @@ def mjpeg_avi(path: Path) -> None:
 
 
 def odd_dimensions(path: Path) -> None:
-    ffmpeg(*picture("853x481"), *tone(), "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv420p", "-c:a", "libopus", str(path))
+    ffmpeg(
+        *picture("853x481"),
+        *tone(),
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "libopus",
+        str(path),
+    )
 
 
 def odd_dimensions_444(path: Path) -> None:
-    ffmpeg(*picture("853x481"), *tone(), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv444p", *AAC, str(path))
+    ffmpeg(
+        *picture("853x481"), *tone(), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv444p", *AAC, str(path)
+    )
 
 
 def no_audio(path: Path) -> None:
@@ -156,11 +282,37 @@ def audio_format(*audio: str, rate: int = 48000) -> Callable[[Path], None]:
 
 def clipped_master(path: Path) -> None:
     """A full-scale square wave measures above 0 LUFS, past what loudnorm accepts."""
-    ffmpeg(*picture(), "-f", "lavfi", "-i", "aevalsrc='if(lt(mod(t*100,1),0.5),1,-1)|if(lt(mod(t*100,1),0.5),1,-1)':s=48000:d=2", *H264, *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        "-f",
+        "lavfi",
+        "-i",
+        "aevalsrc='if(lt(mod(t*100,1),0.5),1,-1)|if(lt(mod(t*100,1),0.5),1,-1)':s=48000:d=2",
+        *H264,
+        *AAC,
+        str(path),
+    )
 
 
 def two_audio_tracks(path: Path) -> None:
-    ffmpeg(*picture(), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo:d=2", *tone(), "-map", "0:v", "-map", "2:a", "-map", "1:a", "-shortest", *H264, *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=48000:cl=stereo:d=2",
+        *tone(),
+        "-map",
+        "0:v",
+        "-map",
+        "2:a",
+        "-map",
+        "1:a",
+        "-shortest",
+        *H264,
+        *AAC,
+        str(path),
+    )
 
 
 def undecodable_audio_track_first(path: Path) -> None:
@@ -173,11 +325,40 @@ def undecodable_audio_track_first(path: Path) -> None:
 def subtitle_track(path: Path) -> None:
     subtitles = path.with_name("words.srt")
     subtitles.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
-    ffmpeg(*picture(), *tone(), "-i", str(subtitles), "-map", "0:v", "-map", "1:a", "-map", "2:s", *H264, *AAC, "-c:s", "srt", str(path))
+    ffmpeg(
+        *picture(),
+        *tone(),
+        "-i",
+        str(subtitles),
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-map",
+        "2:s",
+        *H264,
+        *AAC,
+        "-c:s",
+        "srt",
+        str(path),
+    )
 
 
 def interlaced(path: Path) -> None:
-    ffmpeg(*picture("1920x1080", rate=50), *tone(), "-vf", "tinterlace=mode=interleave_top,format=yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-flags", "+ildct+ilme", *AAC, str(path))
+    ffmpeg(
+        *picture("1920x1080", rate=50),
+        *tone(),
+        "-vf",
+        "tinterlace=mode=interleave_top,format=yuv420p",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-flags",
+        "+ildct+ilme",
+        *AAC,
+        str(path),
+    )
 
 
 def legacy(video: str, audio: str) -> Callable[[Path], None]:
@@ -188,7 +369,18 @@ def legacy(video: str, audio: str) -> Callable[[Path], None]:
 
 
 def surround(path: Path) -> None:
-    ffmpeg(*picture(), "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-af", "aformat=channel_layouts=5.1", *H264, *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=2",
+        "-af",
+        "aformat=channel_layouts=5.1",
+        *H264,
+        *AAC,
+        str(path),
+    )
 
 
 def audio_shorter(path: Path) -> None:
@@ -210,7 +402,21 @@ def stream_offset(late: str) -> Callable[[Path], None]:
         source = path.with_name("plain.mp4")
         plain(source)
         first, second = ("0:v", "1:a") if late == "video" else ("0:a", "1:v")
-        ffmpeg("-itsoffset", "0.7", "-i", str(source), "-i", str(source), "-map", first, "-map", second, "-c", "copy", str(path))
+        ffmpeg(
+            "-itsoffset",
+            "0.7",
+            "-i",
+            str(source),
+            "-i",
+            str(source),
+            "-map",
+            first,
+            "-map",
+            second,
+            "-c",
+            "copy",
+            str(path),
+        )
 
     return build
 
@@ -218,7 +424,25 @@ def stream_offset(late: str) -> Callable[[Path], None]:
 def webm_without_duration(path: Path) -> None:
     """A browser's MediaRecorder writes to a stream, so the header never learns the length."""
     data = subprocess.run(
-        [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", *picture(), *tone(), "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus", "-f", "webm", "pipe:1"],
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            *picture(),
+            *tone(),
+            "-c:v",
+            "libvpx-vp9",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "8",
+            "-c:a",
+            "libopus",
+            "-f",
+            "webm",
+            "pipe:1",
+        ],
         check=True,
         capture_output=True,
     ).stdout
@@ -234,7 +458,20 @@ def anamorphic(path: Path) -> None:
 
 
 def full_range(path: Path) -> None:
-    ffmpeg(*picture(), *tone(), "-vf", "scale=out_range=full,format=yuvj420p", "-c:v", "libx264", "-preset", "ultrafast", "-color_range", "pc", *AAC, str(path))
+    ffmpeg(
+        *picture(),
+        *tone(),
+        "-vf",
+        "scale=out_range=full,format=yuvj420p",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-color_range",
+        "pc",
+        *AAC,
+        str(path),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +554,7 @@ CASES = [
     Case("ogg_theora", legacy("libtheora", "libvorbis"), suffix=".ogv", encoder="libtheora"),
     Case("tiny_32x32", lambda p: plain(p, size="32x32")),
     Case("extreme_shape_160x1600", lambda p: plain(p, size="160x1600")),
-    Case("awkward_name", plain, suffix=" it's \"my\" [best] clip: été 日本語 100%.mp4"),
+    Case("awkward_name", plain, suffix=' it\'s "my" [best] clip: été 日本語 100%.mp4'),
 ]
 
 
@@ -353,11 +590,26 @@ def hears(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], Pa
     def transcribe_audio(wav: Path, **kwargs: Any) -> dict[str, Any]:
         with log.open("a", encoding="utf-8") as handle:
             handle.write("called\n")
-        return {"cues": [{"start": 0.0, "end": 1.0, "text": heard["text"]}], "provider": "meta", "usage": {"cost_usd": 0.0}}
+        return {
+            "cues": [{"start": 0.0, "end": 1.0, "text": heard["text"]}],
+            "provider": "meta",
+            "usage": {"cost_usd": 0.0},
+        }
 
     def plan_story(proxy: Path, **kwargs: Any) -> dict[str, Any]:
-        return {"title": "A cut", "summary": "s", "caption": "", "cover_prompt": "", "hashtags": [], "provider": "meta", "usage": {"cost_usd": 0.0}, "warnings": [],
-                "segments": [{"start": 0.0, "end": min(float(kwargs["duration"]), 2.0), "label": "Opening", "reason": "Chosen."}]}
+        return {
+            "title": "A cut",
+            "summary": "s",
+            "caption": "",
+            "cover_prompt": "",
+            "hashtags": [],
+            "provider": "meta",
+            "usage": {"cost_usd": 0.0},
+            "warnings": [],
+            "segments": [
+                {"start": 0.0, "end": min(float(kwargs["duration"]), 2.0), "label": "Opening", "reason": "Chosen."}
+            ],
+        }
 
     monkeypatch.setattr(meta, "transcribe_audio", transcribe_audio)
     monkeypatch.setattr(meta, "plan_story", plan_story)
@@ -377,12 +629,16 @@ def inbox(tmp_path: Path) -> Path:
 
 
 def plan_campaign(manager: CampaignManager, clip: Path, **request: Any) -> dict[str, Any]:
-    job = manager.create({"paths": [str(clip)], "goal": "Show the footage clearly", "target_duration": 30, "captions": False, **request})
+    job = manager.create(
+        {"paths": [str(clip)], "goal": "Show the footage clearly", "target_duration": 30, "captions": False, **request}
+    )
     manager.process(job["id"])
     return manager.get(job["id"])
 
 
-def render_campaign(manager: CampaignManager, clip: Path, *, plan: dict[str, Any] | None = None, **request: Any) -> dict[str, Any]:
+def render_campaign(
+    manager: CampaignManager, clip: Path, *, plan: dict[str, Any] | None = None, **request: Any
+) -> dict[str, Any]:
     planned = plan_campaign(manager, clip, **request)
     assert planned["status"] == "planned", planned["error"]
     manager.render(planned["id"], {"plan": plan} if plan else {})
@@ -393,7 +649,24 @@ def render_campaign(manager: CampaignManager, clip: Path, *, plan: dict[str, Any
 def frame(video: Path, at: float, *, size: str = "18x32", pixels: str = "rgb24") -> bytes:
     """One decoded frame, shrunk, so a test can look at the picture and not the header."""
     return subprocess.run(
-        [resolve_ffmpeg(), "-v", "error", "-ss", f"{at:.3f}", "-i", str(video), "-frames:v", "1", "-vf", f"scale={size}", "-f", "rawvideo", "-pix_fmt", pixels, "-"],
+        [
+            resolve_ffmpeg(),
+            "-v",
+            "error",
+            "-ss",
+            f"{at:.3f}",
+            "-i",
+            str(video),
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={size}",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            pixels,
+            "-",
+        ],
         check=True,
         capture_output=True,
     ).stdout
@@ -413,7 +686,19 @@ def render_campaign_again(manager: CampaignManager, planned: dict[str, Any], pla
 def decoded_frames(video: Path) -> int:
     """Count frames by decoding them: a header can promise what the file lacks."""
     result = subprocess.run(
-        [resolve_ffprobe(), "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(video)],
+        [
+            resolve_ffprobe(),
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "csv=p=0",
+            str(video),
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -421,7 +706,9 @@ def decoded_frames(video: Path) -> int:
     return int(result.stdout.strip().split(",")[0])
 
 
-def assert_delivered(manager: CampaignManager, done: dict[str, Any], *, aspect: str, audio: bool, moves: bool = True) -> Path:
+def assert_delivered(
+    manager: CampaignManager, done: dict[str, Any], *, aspect: str, audio: bool, moves: bool = True
+) -> Path:
     assert done["status"] == "complete", done["error"]
     video = manager.artifact(done["id"], "video")
     info = probe(video)
@@ -459,7 +746,6 @@ def test_campaign_delivers(manager: CampaignManager, inbox: Path, case: Case) ->
     assert abs(done["source"]["duration"] - case.seconds) <= 0.2, done["source"]
 
 
-
 @pytest.mark.parametrize("degrees", [90, 180, 270])
 def test_rotated_phone_clip_stays_upright(manager: CampaignManager, inbox: Path, degrees: int) -> None:
     clip = inbox / "phone.mp4"
@@ -473,8 +759,21 @@ def test_rotated_phone_clip_stays_upright(manager: CampaignManager, inbox: Path,
 def test_anamorphic_pixels_come_out_square(manager: CampaignManager, inbox: Path) -> None:
     """PAL 16:9 stores wide pixels: a 110x160 box in the file is a square on screen."""
     clip = inbox / "pal.mp4"
-    ffmpeg("-f", "lavfi", "-i", "color=c=black:s=720x576:r=25:d=1.5", *tone(seconds=1.5), "-vf", "drawbox=x=305:y=208:w=110:h=160:color=white:t=fill,setsar=16/11", *H264, *AAC, str(clip))
-    video = assert_delivered(manager, render_campaign(manager, clip, aspect="16:9"), aspect="16:9", audio=True, moves=False)
+    ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=720x576:r=25:d=1.5",
+        *tone(seconds=1.5),
+        "-vf",
+        "drawbox=x=305:y=208:w=110:h=160:color=white:t=fill,setsar=16/11",
+        *H264,
+        *AAC,
+        str(clip),
+    )
+    video = assert_delivered(
+        manager, render_campaign(manager, clip, aspect="16:9"), aspect="16:9", audio=True, moves=False
+    )
     gray = frame(video, 0.5, size="192x108", pixels="gray")
     rows = [gray[index : index + 192] for index in range(0, len(gray), 192)]
     wide = max(sum(1 for value in row if value > 128) for row in rows)
@@ -488,17 +787,37 @@ def test_late_sound_stays_in_sync(manager: CampaignManager, inbox: Path) -> None
     done = render_campaign(manager, clip)
     video = assert_delivered(manager, done, aspect="9:16", audio=True)
     # The file's first 0.7 s has no sound, so the finished video must not either.
-    log = subprocess.run([resolve_ffmpeg(), "-hide_banner", "-i", str(video), "-af", "silencedetect=noise=-40dB:d=0.3", "-vn", "-f", "null", "-"], capture_output=True, text=True).stderr
+    log = subprocess.run(
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-i",
+            str(video),
+            "-af",
+            "silencedetect=noise=-40dB:d=0.3",
+            "-vn",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stderr
     assert "silence_start: 0" in log, log[-400:]
     assert "silence_duration: 0.6" in log or "silence_duration: 0.7" in log, log[-400:]
-
 
 
 def test_interlaced_camcorder_footage_comes_out_progressive(manager: CampaignManager, inbox: Path) -> None:
     clip = inbox / "camcorder.mkv"
     interlaced(clip)
     video = assert_delivered(manager, render_campaign(manager, clip, aspect="16:9"), aspect="16:9", audio=True)
-    log = subprocess.run([resolve_ffmpeg(), "-hide_banner", "-nostats", "-i", str(video), "-vf", "idet", "-an", "-f", "null", "-"], capture_output=True, text=True).stderr
+    log = subprocess.run(
+        [resolve_ffmpeg(), "-hide_banner", "-nostats", "-i", str(video), "-vf", "idet", "-an", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stderr
     combed, progressive = re.findall(r"Multi frame detection: TFF:\s*(\d+) BFF:\s*\d+ Progressive:\s*(\d+)", log)[-1]
     assert int(progressive) > int(combed), log[-300:]
 
@@ -507,10 +826,31 @@ def test_late_sound_stays_in_sync_inside_a_moment(manager: CampaignManager, inbo
     clip = inbox / "late.mp4"
     stream_offset("audio")(clip)
     planned = plan_campaign(manager, clip, target_duration=1.3)
-    moment = {"start": 0.5, "end": 1.8, "label": "Across the start of the sound", "reason": "Starts before the sound does."}
+    moment = {
+        "start": 0.5,
+        "end": 1.8,
+        "label": "Across the start of the sound",
+        "reason": "Starts before the sound does.",
+    }
     done = render_campaign_again(manager, planned, {**planned["plan"], "segments": [moment]})
     video = assert_delivered(manager, done, aspect="9:16", audio=True)
-    log = subprocess.run([resolve_ffmpeg(), "-hide_banner", "-i", str(video), "-af", "silencedetect=noise=-40dB:d=0.1", "-vn", "-f", "null", "-"], capture_output=True, text=True).stderr
+    log = subprocess.run(
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-i",
+            str(video),
+            "-af",
+            "silencedetect=noise=-40dB:d=0.1",
+            "-vn",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stderr
     assert "silence_end: 0.1" in log or "silence_end: 0.2" in log, log[-400:]
 
 
@@ -527,9 +867,40 @@ def patch(*convert: str) -> list[str]:
 
 
 COLOR = {
-    "bt709": patch("-vf", "scale=out_color_matrix=bt709,format=yuv420p", *H264, "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"),
-    "full_range": patch("-vf", "scale=out_range=full:out_color_matrix=bt709,format=yuv420p,setparams=range=pc:colorspace=bt709", "-c:v", "libx264", "-preset", "ultrafast", "-color_range", "pc", "-colorspace", "bt709"),
-    "bt601": patch("-vf", "scale=out_color_matrix=bt601,format=yuv420p,setparams=colorspace=smpte170m", *H264, "-colorspace", "smpte170m", "-color_primaries", "smpte170m", "-color_trc", "smpte170m"),
+    "bt709": patch(
+        "-vf",
+        "scale=out_color_matrix=bt709,format=yuv420p",
+        *H264,
+        "-colorspace",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+    ),
+    "full_range": patch(
+        "-vf",
+        "scale=out_range=full:out_color_matrix=bt709,format=yuv420p,setparams=range=pc:colorspace=bt709",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-color_range",
+        "pc",
+        "-colorspace",
+        "bt709",
+    ),
+    "bt601": patch(
+        "-vf",
+        "scale=out_color_matrix=bt601,format=yuv420p,setparams=colorspace=smpte170m",
+        *H264,
+        "-colorspace",
+        "smpte170m",
+        "-color_primaries",
+        "smpte170m",
+        "-color_trc",
+        "smpte170m",
+    ),
     "rgb_screen_capture": patch("-c:v", "libx264rgb", "-preset", "ultrafast", "-qp", "0"),
 }
 HDR = {
@@ -544,7 +915,9 @@ def average_color(video: Path, at: float = 0.7) -> tuple[int, int, int]:
 
 
 def assert_color(manager: CampaignManager, clip: Path) -> None:
-    video = assert_delivered(manager, render_campaign(manager, clip, aspect="16:9"), aspect="16:9", audio=True, moves=False)
+    video = assert_delivered(
+        manager, render_campaign(manager, clip, aspect="16:9"), aspect="16:9", audio=True, moves=False
+    )
     color = average_color(video)
     assert all(abs(got - want) <= 12 for got, want in zip(color, PATCH_RGB)), f"{color} delivered for {PATCH_RGB}"
 
@@ -562,11 +935,32 @@ def test_hdr_is_tone_mapped(manager: CampaignManager, inbox: Path, name: str) ->
         pytest.skip("HDR needs libx265, zscale, and tonemap in this FFmpeg build")
     clip = inbox / "phone.mov"
     transfer = HDR[name]
-    ffmpeg("-f", "lavfi", "-i", f"color=c={PATCH}:s=1280x720:r=30:d=1.5", *tone(seconds=1.5), *AAC,
-           # BT.2408: SDR white sits at HDR reference white, 203 nits, as phones and graders place it.
-           "-vf", f"format=yuv444p,zscale=tin=bt709:pin=bt709:min=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=203,format=yuv420p10le",
-           "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1",
-           "-color_primaries", "bt2020", "-color_trc", transfer, "-colorspace", "bt2020nc", str(clip))
+    ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c={PATCH}:s=1280x720:r=30:d=1.5",
+        *tone(seconds=1.5),
+        *AAC,
+        # BT.2408: SDR white sits at HDR reference white, 203 nits, as phones and graders place it.
+        "-vf",
+        f"format=yuv444p,zscale=tin=bt709:pin=bt709:min=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=203,format=yuv420p10le",
+        "-c:v",
+        "libx265",
+        "-preset",
+        "ultrafast",
+        "-x265-params",
+        "log-level=error",
+        "-tag:v",
+        "hvc1",
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        transfer,
+        "-colorspace",
+        "bt2020nc",
+        str(clip),
+    )
     assert_color(manager, clip)
 
 
@@ -585,7 +979,9 @@ def check(done: dict[str, Any], name: str) -> dict[str, Any]:
     return next(item for item in done["result"]["checks"] if item["name"] == name)
 
 
-def test_silent_clip_gets_no_invented_caption(listening: CampaignManager, inbox: Path, hears: Callable[[str], Path]) -> None:
+def test_silent_clip_gets_no_invented_caption(
+    listening: CampaignManager, inbox: Path, hears: Callable[[str], Path]
+) -> None:
     """Recognizers write "You" on digital silence. Two real clips shipped with exactly that, so silence is never sent."""
     log = hears("You")
     clip = inbox / "quiet.mp4"
@@ -608,7 +1004,9 @@ def test_music_is_not_a_caption(listening: CampaignManager, inbox: Path, hears: 
     assert done["plan"]["analysis"]["speech"] == [], "a music bed is not speech"
 
 
-def test_voice_over_a_music_bed_is_graded_on_the_voice(listening: CampaignManager, inbox: Path, hears: Callable[[str], Path]) -> None:
+def test_voice_over_a_music_bed_is_graded_on_the_voice(
+    listening: CampaignManager, inbox: Path, hears: Callable[[str], Path]
+) -> None:
     """The real AdFlow failure: loud for 74 s, a voice for 6, so 11 percent looked like missing captions."""
     hears("Proven to reduce anxiety.")
     clip = inbox / "advert.mp4"
@@ -624,7 +1022,10 @@ def test_voice_over_a_music_bed_is_graded_on_the_voice(listening: CampaignManage
 def test_long_clip_without_a_transcript_is_not_graded_on_energy(tmp_path: Path) -> None:
     """Planning skips the transcript on long clips, so its speech bands are only loudness."""
     (tmp_path / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nHello there.\n", encoding="utf-8")
-    plan = {"segments": [{"start": 0.0, "end": 20.0}], "analysis": {"speech": [{"start": 0.0, "end": 20.0}], "transcript": []}}
+    plan = {
+        "segments": [{"start": 0.0, "end": 20.0}],
+        "analysis": {"speech": [{"start": 0.0, "end": 20.0}], "transcript": []},
+    }
     graded = CampaignManager._grade(plan, {"captions": True, "target_duration": 20}, 400.0, tmp_path, None)
     # With no transcript there is nothing to compare the captions with, so there is no caption check, not a pass.
     assert "auto: captions cover the speech" not in [item["name"] for item in graded["checks"]]
@@ -649,7 +1050,10 @@ def test_clip_shorter_than_the_target_passes_its_own_length(manager: CampaignMan
     plain(clip)
     done = render_campaign(manager, clip, target_duration=30)
     assert_delivered(manager, done, aspect="9:16", audio=True)
-    assert check(done, "auto: length fits the target (\u2264 " + f"{done['plan']['source_duration']:.1f}".removesuffix(".0") + " s)")["passed"]
+    assert check(
+        done,
+        "auto: length fits the target (\u2264 " + f"{done['plan']['source_duration']:.1f}".removesuffix(".0") + " s)",
+    )["passed"]
 
 
 def test_frame_counted_length_is_not_rounded_past_the_clip(manager: CampaignManager, inbox: Path) -> None:
@@ -689,7 +1093,22 @@ def sound_only(path: Path) -> None:
 def song_with_cover(path: Path) -> None:
     cover = path.with_name("cover.png")
     ffmpeg("-f", "lavfi", "-i", "color=c=red:s=300x300:d=1", "-frames:v", "1", str(cover))
-    ffmpeg(*tone(), "-i", str(cover), "-map", "0:a", "-map", "1:v", "-c:a", "libmp3lame", "-c:v", "mjpeg", "-disposition:v", "attached_pic", str(path))
+    ffmpeg(
+        *tone(),
+        "-i",
+        str(cover),
+        "-map",
+        "0:a",
+        "-map",
+        "1:v",
+        "-c:a",
+        "libmp3lame",
+        "-c:v",
+        "mjpeg",
+        "-disposition:v",
+        "attached_pic",
+        str(path),
+    )
 
 
 def unknown_codec(path: Path) -> None:
@@ -726,7 +1145,15 @@ def assert_plain(message: str, root: Path) -> None:
 
 
 @pytest.mark.parametrize("name,build,suffix,phrase", BROKEN, ids=[row[0] for row in BROKEN])
-def test_broken_file_says_what_is_wrong(manager: CampaignManager, inbox: Path, tmp_path: Path, name: str, build: Callable[[Path], None], suffix: str, phrase: str) -> None:
+def test_broken_file_says_what_is_wrong(
+    manager: CampaignManager,
+    inbox: Path,
+    tmp_path: Path,
+    name: str,
+    build: Callable[[Path], None],
+    suffix: str,
+    phrase: str,
+) -> None:
     clip = inbox / f"clip{suffix}"
     build(clip)
     failed = plan_campaign(manager, clip)
@@ -750,7 +1177,9 @@ def test_empty_file_is_refused_with_a_reason(manager: CampaignManager, inbox: Pa
         manager.create({"paths": [str(clip)], "goal": "Show it", "target_duration": 5})
 
 
-def test_clip_over_the_limit_says_how_long_it_is(manager: CampaignManager, inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clip_over_the_limit_says_how_long_it_is(
+    manager: CampaignManager, inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("vedit.campaign._MAX_SOURCE_SECONDS", 1)
     clip = inbox / "long.mp4"
     plain(clip)
@@ -778,17 +1207,41 @@ def test_source_removed_after_planning_says_upload_again(manager: CampaignManage
         (RenderError("x", step="select_ranges", detail="write failed: No space left on device"), "full"),
         (RenderError("x", step="export", detail="av_interleaved_write_frame(): Permission denied"), "permissions"),
         (RenderError("x", step="export", detail="Cannot allocate memory"), "memory"),
-        (RenderError("x", step="select_ranges", detail="[vist#0:0/none @ 0x75] Decoding requested, but no decoder found for: none"), "cannot decode"),
-        (RenderError("x", step="select_ranges", detail="[h264 @ 0x79] Invalid NAL unit size (7708 > 3047)."), "damaged"),
+        (
+            RenderError(
+                "x",
+                step="select_ranges",
+                detail="[vist#0:0/none @ 0x75] Decoding requested, but no decoder found for: none",
+            ),
+            "cannot decode",
+        ),
+        (
+            RenderError("x", step="select_ranges", detail="[h264 @ 0x79] Invalid NAL unit size (7708 > 3047)."),
+            "damaged",
+        ),
         (RenderError("x", step="export", detail="Unknown encoder 'libx264'"), "ffmpeg-full"),
-        (RenderError("x", step="select_ranges", detail="[out#0/mp4 @ 0x78] Nothing was written into output file"), "no picture or sound"),
+        (
+            RenderError("x", step="select_ranges", detail="[out#0/mp4 @ 0x78] Nothing was written into output file"),
+            "no picture or sound",
+        ),
         (RenderError("timed out after 3600s: /opt/ffmpeg -i /Users/me/clip.mp4"), "too long"),
-        (RenderError("step failed", step="export_shorts_9x16", detail="Error opening output files: Result too large"), "The export stopped: Result too large."),
-        (RenderError("step failed", step="thumbnail", detail="/Users/me/secret/clip.mp4: unknown failure at 0x7f"), "Making the cover frame stopped."),
+        (
+            RenderError(
+                "step failed", step="export_shorts_9x16", detail="Error opening output files: Result too large"
+            ),
+            "The export stopped: Result too large.",
+        ),
+        (
+            RenderError("step failed", step="thumbnail", detail="/Users/me/secret/clip.mp4: unknown failure at 0x7f"),
+            "Making the cover frame stopped.",
+        ),
         (ProbeError("ffprobe failed for /Users/me/clip.mp4: bad"), "could not be read"),
         (CaptionError("This ffmpeg build has no subtitles/ass filter.\n/Users/me/ffmpeg"), "turn captions off"),
         (BinaryMissing("executable not found: /opt/homebrew/bin/ffmpeg"), "vedit doctor"),
-        (CompileError("missing source file(s): footage=/Users/me/My Videos/clip.mp4"), "Missing source file(s): footage."),
+        (
+            CompileError("missing source file(s): footage=/Users/me/My Videos/clip.mp4"),
+            "Missing source file(s): footage.",
+        ),
         (OSError(28, "No space left on device"), "full"),
         (ValueError("boom at /Users/me/secret"), "could not finish"),
     ],
@@ -816,7 +1269,11 @@ def test_sound_tags_never_reach_a_caption(text: str, kept: str) -> None:
 
 
 def test_studio_routes_never_echo_a_command_or_a_path() -> None:
-    leaked = RenderError("ffmpeg failed (1):\n  ffmpeg -i /Users/me/clip.mp4 out.mp4", step="export_shorts_9x16", detail="Conversion failed!")
+    leaked = RenderError(
+        "ffmpeg failed (1):\n  ffmpeg -i /Users/me/clip.mp4 out.mp4",
+        step="export_shorts_9x16",
+        detail="Conversion failed!",
+    )
     message = _client_error(leaked)
     assert "/Users" not in message and "ffmpeg -i" not in message and message.startswith("The export stopped.")
     assert _client_error(BriefError("goal must be text")) == "goal must be text"
@@ -829,10 +1286,29 @@ def stream(index: int, kind: str, codec: str = "h264", **fields: Any) -> StreamI
 @pytest.mark.parametrize(
     "streams,duration,seconds,phrase",
     [
-        ((stream(0, "video", width=320, height=180), stream(1, "video", width=1280, height=720)), 2.0, 2.0, "uses the 1280x720 one"),
-        ((stream(0, "video", width=640, height=360), stream(1, "audio", "aac", default=True), stream(2, "audio", "aac")), 2.0, 2.0, "uses track 1"),
+        (
+            (stream(0, "video", width=320, height=180), stream(1, "video", width=1280, height=720)),
+            2.0,
+            2.0,
+            "uses the 1280x720 one",
+        ),
+        (
+            (
+                stream(0, "video", width=640, height=360),
+                stream(1, "audio", "aac", default=True),
+                stream(2, "audio", "aac"),
+            ),
+            2.0,
+            2.0,
+            "uses track 1",
+        ),
         ((stream(0, "video", width=640, height=360), stream(1, "audio", "unknown")), 2.0, 2.0, "will be silent"),
-        ((stream(0, "video", width=640, height=360), stream(1, "audio", "aac")), 1.0, 2.5, "sound after the last frame"),
+        (
+            (stream(0, "video", width=640, height=360), stream(1, "audio", "aac")),
+            1.0,
+            2.5,
+            "sound after the last frame",
+        ),
     ],
 )
 def test_plan_says_what_it_chose(streams: tuple[StreamInfo, ...], duration: float, seconds: float, phrase: str) -> None:
@@ -841,7 +1317,20 @@ def test_plan_says_what_it_chose(streams: tuple[StreamInfo, ...], duration: floa
 
 
 def test_clear_files_need_no_note() -> None:
-    assert source_notes(MediaInfo(Path("clip.mp4"), 2.0, "mov", 1, None, (stream(0, "video", width=640, height=360), stream(1, "audio", "aac")), 2.03)) == []
+    assert (
+        source_notes(
+            MediaInfo(
+                Path("clip.mp4"),
+                2.0,
+                "mov",
+                1,
+                None,
+                (stream(0, "video", width=640, height=360), stream(1, "audio", "aac")),
+                2.03,
+            )
+        )
+        == []
+    )
 
 
 def test_goal_naming_another_frame_shape_is_flagged(manager: CampaignManager, inbox: Path) -> None:
@@ -865,7 +1354,14 @@ def test_goal_naming_another_frame_shape_is_flagged(manager: CampaignManager, in
 )
 def test_undeliverable_export_says_exactly_why(fields: dict[str, Any], phrase: str) -> None:
     streams = fields.get("streams") or (
-        stream(0, "video", width=fields.get("width", 1080), height=1920, color_space=fields.get("space", "bt709"), color_range="tv"),
+        stream(
+            0,
+            "video",
+            width=fields.get("width", 1080),
+            height=1920,
+            color_space=fields.get("space", "bt709"),
+            color_range="tv",
+        ),
         *(() if fields.get("audio") is False else (stream(1, "audio", "aac"),)),
     )
     output = MediaInfo(Path("video.mp4"), fields.get("duration", 3.0), "mov", 1, None, streams)
@@ -875,5 +1371,18 @@ def test_undeliverable_export_says_exactly_why(fields: dict[str, Any], phrase: s
 
 
 def test_good_export_has_no_problem() -> None:
-    streams = (stream(0, "video", width=1080, height=1920, color_space="bt709", color_range="tv"), stream(1, "audio", "aac"))
-    assert export_problem(MediaInfo(Path("video.mp4"), 3.0, "mov", 1, None, streams), width=1080, height=1920, has_audio=True, seconds=3.0, tolerance=0.3) is None
+    streams = (
+        stream(0, "video", width=1080, height=1920, color_space="bt709", color_range="tv"),
+        stream(1, "audio", "aac"),
+    )
+    assert (
+        export_problem(
+            MediaInfo(Path("video.mp4"), 3.0, "mov", 1, None, streams),
+            width=1080,
+            height=1920,
+            has_audio=True,
+            seconds=3.0,
+            tolerance=0.3,
+        )
+        is None
+    )

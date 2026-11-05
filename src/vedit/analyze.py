@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from vedit.errors import AnalysisError, RenderError
+from vedit.errors import AnalysisError, RenderError, VeditError
 from vedit.media import run_ffmpeg
 
 
@@ -128,11 +128,13 @@ def _noise_peak_db(path: str | Path, track: int | None) -> float | None:
         samples = decode_mono(path, rate=_FLOOR_RATE, track=track)
     except ValueError:
         return None
-    levels = sorted(sum(map(mul, samples[at:at + _FLOOR_WINDOW], samples[at:at + _FLOOR_WINDOW])) / _FLOOR_WINDOW
-                    for at in range(0, len(samples) - _FLOOR_WINDOW + 1, _FLOOR_WINDOW))
+    levels = sorted(
+        sum(map(mul, samples[at : at + _FLOOR_WINDOW], samples[at : at + _FLOOR_WINDOW])) / _FLOOR_WINDOW
+        for at in range(0, len(samples) - _FLOOR_WINDOW + 1, _FLOOR_WINDOW)
+    )
     if len(levels) < 10:
         return None
-    return 10 * math.log10(max(levels[len(levels) // 10], 1.0) / 32768.0 ** 2) + _NOISE_CREST_DB
+    return 10 * math.log10(max(levels[len(levels) // 10], 1.0) / 32768.0**2) + _NOISE_CREST_DB
 
 
 def _silences(stderr: str) -> list[Range]:
@@ -162,8 +164,11 @@ def keep_ranges(
         raise AnalysisError("duration must be positive")
     shrunk: list[Range] = []
     for sil in silences:
-        start = sil.start + pad
-        end = sil.end - pad
+        # Padding hands speech its lead-in and tail. A silence that runs to an edge of
+        # the file borders no speech there, so that edge stays put: a silent file
+        # keeps nothing instead of two padded slivers of silence.
+        start = 0.0 if sil.start <= min_keep else sil.start + pad
+        end = duration if sil.end >= duration - min_keep else sil.end - pad
         if end > start:
             shrunk.append(Range(start, end))
     keeps: list[Range] = []
@@ -215,13 +220,29 @@ def audible(path: str | Path, *, track: int | None = None, start: float = 0.0, s
 
     ``start`` and ``seconds`` limit the listen to one stretch of the file.
     """
-    window = (["-ss", f"{start:.3f}"] if start > 0 else []) + ["-i", str(path)] + (["-t", f"{seconds:.3f}"] if seconds is not None else [])
-    result = run_ffmpeg([*window, *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]), "-af", "volumedetect", "-f", "null", "-"])
+    window = (
+        (["-ss", f"{start:.3f}"] if start > 0 else [])
+        + ["-i", str(path)]
+        + (["-t", f"{seconds:.3f}"] if seconds is not None else [])
+    )
+    result = run_ffmpeg(
+        [
+            *window,
+            *(["-map", f"0:a:{track}"] if track is not None else ["-vn"]),
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
+        ]
+    )
     peaks = _PEAK.findall(result.stderr)
     return not peaks or float(peaks[-1]) > _INAUDIBLE_PEAK_DB
 
 
-def measure_loudness(path: str | Path, *, af: str = "", i: float = -14.0, tp: float = -1.5, lra: float = 11.0) -> dict[str, float] | None:
+def measure_loudness(
+    path: str | Path, *, af: str = "", i: float = -14.0, tp: float = -1.5, lra: float = 11.0
+) -> dict[str, float] | None:
     """Two-pass loudnorm measurement. Returns the measured_* fields ffmpeg needs.
 
     None means there is nothing to normalize. BS.1770 gates out anything under
@@ -255,9 +276,11 @@ def measure_loudness(path: str | Path, *, af: str = "", i: float = -14.0, tp: fl
     )
     out: dict[str, float] = {}
     for key in keys:
-        if key not in blob:
+        value = blob.get(key)
+        # loudnorm prints its numbers as strings, "inf" and "-inf" among them.
+        if not isinstance(value, (str, int, float)):
             raise AnalysisError(f"loudnorm JSON missing {key}")
-        out[key] = float(blob[key])
+        out[key] = float(value)
     if not all(math.isfinite(value) for value in out.values()) or out["input_i"] < _QUIETEST_PROGRAMME_LUFS:
         return None
     return out
@@ -369,7 +392,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--in", dest="inp", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--keeps", required=True)
-    p.add_argument("--threshold-db", type=float, default=None, help="pause level in dBFS; measured from the recording when left out")
+    p.add_argument(
+        "--threshold-db",
+        type=float,
+        default=None,
+        help="pause level in dBFS; measured from the recording when left out",
+    )
     p.add_argument("--min-silence", type=float, default=0.45)
     p.add_argument("--pad", type=float, default=0.12)
     p.add_argument("--width", type=int, default=1920)
@@ -397,7 +425,9 @@ def main(argv: list[str] | None = None) -> int:
     hw.add_argument("--hw", dest="hw_flag", action="store_const", const=True)
     hw.add_argument("--no-hw", dest="hw_flag", action="store_const", const=False)
     p.set_defaults(hw_flag=None)
-    p.add_argument("--crf", type=int, default=None, help="override the preset's CRF; left out, the preset's own applies")
+    p.add_argument(
+        "--crf", type=int, default=None, help="override the preset's CRF; left out, the preset's own applies"
+    )
     p.add_argument("--video", action="store_true")
     p.add_argument("--audio", action="store_true")
     p.add_argument("--fade-out", type=float, default=0.0)
@@ -408,8 +438,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--width", type=int, default=None, help="expected picture width")
     p.add_argument("--height", type=int, default=None, help="expected picture height")
     sound = p.add_mutually_exclusive_group()
-    sound.add_argument("--audio", dest="expect_audio", action="store_const", const=True, default=None, help="the file must carry sound")
-    sound.add_argument("--no-audio", dest="expect_audio", action="store_const", const=False, help="the file must carry no sound")
+    sound.add_argument(
+        "--audio", dest="expect_audio", action="store_const", const=True, default=None, help="the file must carry sound"
+    )
+    sound.add_argument(
+        "--no-audio", dest="expect_audio", action="store_const", const=False, help="the file must carry no sound"
+    )
     p.add_argument("--seconds", type=float, default=None, help="expected duration")
     p.add_argument("--tolerance", type=float, default=0.5, help="allowed duration error in seconds")
     p.add_argument("--no-color", dest="color", action="store_false", help="skip the BT.709 limited-range check")
@@ -458,15 +492,25 @@ def main(argv: list[str] | None = None) -> int:
             fade_out=float(args.fade_out),
         )
     elif args.cmd == "verify":
-        apply_verify(Path(args.inp), Path(args.out), ref=Path(args.ref) if args.ref else None,
-                     width=args.width, height=args.height, has_audio=args.expect_audio,
-                     seconds=args.seconds, tolerance=args.tolerance, color=args.color)
+        apply_verify(
+            Path(args.inp),
+            Path(args.out),
+            ref=Path(args.ref) if args.ref else None,
+            width=args.width,
+            height=args.height,
+            has_audio=args.expect_audio,
+            seconds=args.seconds,
+            tolerance=args.tolerance,
+            color=args.color,
+        )
     elif args.cmd == "scenes":
         apply_scenes(Path(args.inp), Path(args.out), threshold=float(args.threshold))
     return 0
 
 
-def loudnorm_filter(measured: dict[str, float] | None = None, *, i: float = -14.0, tp: float = -1.5, lra: float = 11.0) -> str:
+def loudnorm_filter(
+    measured: dict[str, float] | None = None, *, i: float = -14.0, tp: float = -1.5, lra: float = 11.0
+) -> str:
     base = f"loudnorm=I={i}:TP={tp}:LRA={lra}"
     if not measured:
         return base
@@ -521,8 +565,10 @@ def apply_scenes(src: Path, dest: Path, *, threshold: float = 0.35) -> list[floa
 
 # Ordered dither repeats from frame to frame, which GIF's frame differencing can
 # compress. On real footage it halves the file, with no visible loss at this size.
-GIF_PALETTE = ("split[gif_in][gif_stats];[gif_stats]palettegen=max_colors=128:stats_mode=diff[gif_palette];"
-               "[gif_in][gif_palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle")
+GIF_PALETTE = (
+    "split[gif_in][gif_stats];[gif_stats]palettegen=max_colors=128:stats_mode=diff[gif_palette];"
+    "[gif_in][gif_palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+)
 
 
 def apply_encode(
@@ -626,7 +672,14 @@ def apply_verify(
     from vedit.media import export_problem, has_filter, probe
 
     info = probe(src)
-    expected = {"width": width, "height": height, "has_audio": has_audio, "seconds": seconds, "tolerance": tolerance, "color": color}
+    expected = {
+        "width": width,
+        "height": height,
+        "has_audio": has_audio,
+        "seconds": seconds,
+        "tolerance": tolerance,
+        "color": color,
+    }
     payload: dict[str, object] = {
         "path": str(src),
         "duration": info.duration,
@@ -642,13 +695,22 @@ def apply_verify(
     if info.duration <= 0.04:
         raise AnalysisError(f"verify failed: duration {info.duration}s in {src}")
     if width and height:
-        problem = export_problem(info, width=width, height=height, has_audio=bool(has_audio),
-                                 seconds=info.duration if seconds is None else seconds, tolerance=tolerance, color=color)
+        problem = export_problem(
+            info,
+            width=width,
+            height=height,
+            has_audio=bool(has_audio),
+            seconds=info.duration if seconds is None else seconds,
+            tolerance=tolerance,
+            color=color,
+        )
         if problem:
             raise AnalysisError(f"verify failed for {src}: {problem}")
     else:
         if has_audio is not None and info.has_audio != has_audio:
-            raise AnalysisError(f"verify failed: {src} {'lost its sound' if has_audio else 'carries sound it should not'}")
+            raise AnalysisError(
+                f"verify failed: {src} {'lost its sound' if has_audio else 'carries sound it should not'}"
+            )
         if seconds is not None and abs(info.duration - seconds) > tolerance:
             raise AnalysisError(f"verify failed: {src} runs {info.duration:.3f}s, not the expected {seconds:.3f}s")
     payload["expected"] = expected
@@ -687,8 +749,10 @@ def apply_verify(
             )
             if vmaf_log.is_file():
                 payload["vmaf_log"] = str(vmaf_log)
-        except Exception:
+        except (VeditError, OSError) as exc:
+            # VMAF is extra evidence, not a verdict: the verify still stands on the stream checks above.
             payload["vmaf"] = None
+            payload["vmaf_error"] = str(exc)[-300:]
     dest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
 

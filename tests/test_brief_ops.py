@@ -6,7 +6,12 @@ from vedit.brief_ops import MAX_ITEM_CHARS, MAX_ITEMS, bounded_strings, brief_ed
 from vedit.edit_spec import default_edit, merge_edit, validate_edit
 
 SPEECH = [{"start": 0.0, "end": 10.0}, {"start": 12.0, "end": 25.0}]
-PLAN = {"title": "The Oak Bowl", "duration": 25.0, "segments": [{"start": 0.0, "end": 25.0}], "analysis": {"speech": SPEECH}}
+PLAN = {
+    "title": "The Oak Bowl",
+    "duration": 25.0,
+    "segments": [{"start": 0.0, "end": 25.0}],
+    "analysis": {"speech": SPEECH},
+}
 
 
 def _texts(result: dict) -> list[dict]:
@@ -76,8 +81,18 @@ def test_denoise_hook_and_cta_use_timed_text() -> None:
     result = brief_edit("denoise. hook: Watch this bowl appear, cta: Order yours today", plan=PLAN, has_audio=True)
     assert result["edit"]["denoise_picture"] is True
     hook, cta = _texts(result)
-    assert hook["text"] == "Watch this bowl appear" and hook["start"] == 0 and hook["duration"] == 3.0 and hook["position"] == "top"
-    assert cta["text"] == "Order yours today" and cta["start"] == 22.0 and cta["duration"] == 3.0 and cta["position"] == "bottom"
+    assert (
+        hook["text"] == "Watch this bowl appear"
+        and hook["start"] == 0
+        and hook["duration"] == 3.0
+        and hook["position"] == "top"
+    )
+    assert (
+        cta["text"] == "Order yours today"
+        and cta["start"] == 22.0
+        and cta["duration"] == 3.0
+        and cta["position"] == "bottom"
+    )
     assert result["decisions"][0] == "Reduced picture noise"
     assert result["decisions"][1].startswith("Hook ‘Watch this bowl appear’")
     assert result["decisions"][2].startswith("Call to action ‘Order yours today’")
@@ -87,13 +102,18 @@ def test_denoise_hook_and_cta_use_timed_text() -> None:
 
 
 def test_cta_is_timed_from_the_real_end_of_the_story() -> None:
-    plan = dict(PLAN, segments=[{"start": 0.0, "end": 10.0}, {"start": 20.0, "end": 30.0}],
-                analysis={"speech": [{"start": 0.0, "end": 2.0}, {"start": 8.0, "end": 10.0}, {"start": 20.0, "end": 30.0}]})
+    plan = dict(
+        PLAN,
+        segments=[{"start": 0.0, "end": 10.0}, {"start": 20.0, "end": 30.0}],
+        analysis={"speech": [{"start": 0.0, "end": 2.0}, {"start": 8.0, "end": 10.0}, {"start": 20.0, "end": 30.0}]},
+    )
     # Trimming the 6 s pause shortens the 20 s story; the card follows the real end.
     trimmed = brief_edit("trim the pauses, cta: Learn more", plan=plan, has_audio=True)
     assert _texts(trimmed)[0]["start"] < 17.0
     # A template's transition also moves the end.
-    overlapped = brief_edit("cta: Learn more", plan=plan, has_audio=True, alongside={"transition": {"type": "fade", "seconds": 1.0}})
+    overlapped = brief_edit(
+        "cta: Learn more", plan=plan, has_audio=True, alongside={"transition": {"type": "fade", "seconds": 1.0}}
+    )
     assert _texts(overlapped)[0]["start"] == 16.0
     short = brief_edit("cta: Learn more", plan=dict(plan, segments=[{"start": 0.0, "end": 2.0}]), has_audio=True)
     assert _texts(short)[0]["start"] == 0 and _texts(short)[0]["duration"] == 2.0
@@ -107,10 +127,27 @@ def test_the_final_edit_decides_what_the_receipts_claim() -> None:
     assert len(asked["decisions"]) == 7 and asked["ignored"] == []
     approved = merge_edit(default_edit(), asked["edit"])
     assert brief_edit(goal, plan=PLAN, has_audio=True, final=approved)["decisions"] == asked["decisions"]
-    changed = merge_edit(approved, {"trim_pauses": False, "denoise_picture": False, "fade": {"out": 0}, "texts": [], "audio": {"keep_loudness": False}})
+    changed = merge_edit(
+        approved,
+        {
+            "trim_pauses": False,
+            "denoise_picture": False,
+            "fade": {"out": 0},
+            "texts": [],
+            "audio": {"keep_loudness": False},
+        },
+    )
     result = brief_edit(goal, plan=PLAN, has_audio=True, final=changed)
     assert result["decisions"] == []
-    assert [line.split(":")[0] for line in result["ignored"]] == ["Pause trimming", "Picture noise reduction", "Title card", "Hook", "Call to action", "Fade out", "Original loudness"]
+    assert [line.split(":")[0] for line in result["ignored"]] == [
+        "Pause trimming",
+        "Picture noise reduction",
+        "Title card",
+        "Hook",
+        "Call to action",
+        "Fade out",
+        "Original loudness",
+    ]
     assert all(line.endswith("changed in the editor") for line in result["ignored"])
 
 
@@ -119,7 +156,11 @@ def test_unsupported_requests_are_listed_and_unknown_words_ignored() -> None:
     assert result["edit"] == {}
     assert len(result["ignored"]) == 2
     assert result["ignored"][0].startswith("Watermark") and result["ignored"][1].startswith("Music bed")
-    assert brief_edit("Show the product clearly", plan=PLAN, has_audio=True) == {"edit": {}, "decisions": [], "ignored": []}
+    assert brief_edit("Show the product clearly", plan=PLAN, has_audio=True) == {
+        "edit": {},
+        "decisions": [],
+        "ignored": [],
+    }
 
 
 def test_title_text_is_bounded_and_unescaped() -> None:
@@ -130,7 +171,9 @@ def test_title_text_is_bounded_and_unescaped() -> None:
     raw = brief_edit("add a title card", plan={"title": "Bowl: 100% oak 'n' ash"}, has_audio=True)
     assert _texts(raw)[0]["text"] == "Bowl: 100% oak 'n' ash"  # the compile layer escapes
     empty = brief_edit("add a title card", plan={"title": ""}, has_audio=True)
-    assert "texts" not in empty["edit"] and empty["ignored"] == ["Title card: the brief and the plan give no title text"]
+    assert "texts" not in empty["edit"] and empty["ignored"] == [
+        "Title card: the brief and the plan give no title text"
+    ]
     for sentence in result["decisions"]:
         assert len(sentence) <= MAX_ITEM_CHARS
 

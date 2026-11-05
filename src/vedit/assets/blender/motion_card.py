@@ -45,42 +45,51 @@ DISTANCE = 12.0  # camera to text, in metres
 FOCAL = 50.0
 
 
-def _hex(value, fallback):
+def _hex(value: object, fallback: str) -> tuple[float, ...]:
+    """An ``#RRGGBB`` string as linear RGBA; anything else is the fallback colour."""
     text = value if isinstance(value, str) else fallback
     if len(text) != 7 or text[0] != "#":
         text = fallback
     try:
-        channels = [int(text[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        channels = [int(text[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     except ValueError:
-        channels = [int(fallback[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        channels = [int(fallback[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     # sRGB to the scene's linear space.
-    return tuple(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels) + (1.0,)
+    return (*(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels), 1.0)
 
 
-def _number(value, low, high, fallback):
+def _number(value: object, low: float, high: float, fallback: float) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return fallback
     return min(high, max(low, float(value)))
 
 
-def _string(value, limit):
+def _string(value: object, limit: int) -> str:
     if not isinstance(value, str):
         return ""
     return "".join(ch for ch in value if ch == "\n" or ord(ch) >= 32)[:limit]
 
 
-def read_spec(path):
-    with open(path, "r", encoding="utf-8") as handle:
+def _file(value: object) -> str | None:
+    """A path the spec names, when it is a string naming a file that exists; else None."""
+    return value if isinstance(value, str) and os.path.isfile(value) else None
+
+
+def read_spec(path: str) -> dict:
+    """The spec as this template understands it: every choice looked up in a table, every number clamped."""
+    with open(path, encoding="utf-8") as handle:
         raw = json.load(handle)
     if not isinstance(raw, dict):
         raise SystemExit("motion card spec must be a JSON object")
-    colors = raw.get("colors") if isinstance(raw.get("colors"), dict) else {}
-    lines = raw.get("lines") if isinstance(raw.get("lines"), list) else [raw.get("text")]
-    lines = [_string(line, 40) for line in lines[:3] if _string(line, 40).strip()]
-    fonts = raw.get("fonts") if isinstance(raw.get("fonts"), dict) else {}
-    spec = {
+    colors = raw.get("colors")
+    colors = colors if isinstance(colors, dict) else {}
+    given = raw.get("lines")
+    lines = [_string(line, 40) for line in (given if isinstance(given, list) else [raw.get("text")])[:3]]
+    fonts = raw.get("fonts")
+    fonts = fonts if isinstance(fonts, dict) else {}
+    return {
         "kind": raw.get("kind") if raw.get("kind") in KINDS else "intro_title",
-        "lines": lines or ["Briefcut"],
+        "lines": [line for line in lines if line.strip()] or ["Briefcut"],
         "subtitle": _string(raw.get("subtitle"), 60).strip(),
         "style": raw.get("style") if raw.get("style") in STYLES else "brushed_metal",
         "camera": raw.get("camera") if raw.get("camera") in CAMERAS else "dolly_in",
@@ -90,48 +99,68 @@ def read_spec(path):
         "height": int(_number(raw.get("height"), 64, 3840, 1920)) // 2 * 2,
         "samples": int(_number(raw.get("samples"), 1, 128, 32)),
         "colors": {key: _hex(colors.get(key), DEFAULT_COLORS[key]) for key in DEFAULT_COLORS},
-        "fonts": {key: fonts.get(key) if isinstance(fonts.get(key), str) and os.path.isfile(fonts.get(key)) else None
-                  for key in ("title", "subtitle")},
-        "backdrop": raw.get("backdrop") if isinstance(raw.get("backdrop"), str) and os.path.isfile(raw.get("backdrop")) else None,
+        "fonts": {key: _file(fonts.get(key)) for key in ("title", "subtitle")},
+        "backdrop": _file(raw.get("backdrop")),
     }
-    return spec
 
 
 # --- Scene ---
 
 
 def clear_scene():
-    for collection in (bpy.data.objects, bpy.data.meshes, bpy.data.curves, bpy.data.lights, bpy.data.cameras, bpy.data.materials):
+    for collection in (
+        bpy.data.objects,
+        bpy.data.meshes,
+        bpy.data.curves,
+        bpy.data.lights,
+        bpy.data.cameras,
+        bpy.data.materials,
+    ):
         for block in list(collection):
             collection.remove(block)
 
 
-def eevee_engine(scene):
+def eevee_engine(scene) -> str:
     """The EEVEE engine id this Blender offers: ``BLENDER_EEVEE`` from 5.0, ``BLENDER_EEVEE_NEXT`` in 4.2 to 4.5."""
     try:
         offered = {item.identifier for item in scene.render.bl_rna.properties["engine"].enum_items}
     except (AttributeError, KeyError, TypeError):
         offered = set()
-    return "BLENDER_EEVEE" if "BLENDER_EEVEE" in offered or "BLENDER_EEVEE_NEXT" not in offered else "BLENDER_EEVEE_NEXT"
+    return (
+        "BLENDER_EEVEE" if "BLENDER_EEVEE" in offered or "BLENDER_EEVEE_NEXT" not in offered else "BLENDER_EEVEE_NEXT"
+    )
 
 
 def node_tree(block):
     """The node tree of a material or world, switched on first where Blender 4.x leaves it off."""
-    if block.node_tree is None:  # node trees are always on from Blender 5
+    tree = block.node_tree
+    if tree is None:  # node trees are always on from Blender 5
         block.use_nodes = True
-    return block.node_tree
+        tree = block.node_tree
+    return tree
 
 
-def setup_render(scene, spec, out_dir):
+def _assign(target, name: str, value: object) -> bool:
+    """Set a render setting this Blender may lack or refuse. False when it did not take."""
+    if not hasattr(target, name):
+        return False
+    try:
+        setattr(target, name, value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def setup_render(scene, spec: dict, out_dir: str) -> None:
     scene.render.engine = eevee_engine(scene)
     scene.render.resolution_x = spec["width"]
     scene.render.resolution_y = spec["height"]
     scene.render.resolution_percentage = 100
     fps = spec["fps"]
-    scene.render.fps = int(round(fps))
+    scene.render.fps = round(fps)
     scene.render.fps_base = scene.render.fps / fps
     scene.frame_start = 1
-    scene.frame_end = max(2, int(round(spec["duration"] * fps)))
+    scene.frame_end = max(2, round(spec["duration"] * fps))
     scene.render.film_transparent = True
     scene.render.use_persistent_data = True
     settings = scene.render.image_settings
@@ -142,13 +171,17 @@ def setup_render(scene, spec, out_dir):
     scene.render.filepath = os.path.join(out_dir, "frame_")
     eevee = scene.eevee
     eevee.taa_render_samples = spec["samples"]
-    for name, value in (("use_raytracing", True), ("use_shadows", True), ("shadow_ray_count", 2), ("shadow_step_count", 8),
-                        ("use_fast_gi", True), ("bokeh_max_size", 48.0)):
-        if hasattr(eevee, name):
-            try:
-                setattr(eevee, name, value)
-            except (TypeError, ValueError):
-                pass
+    wanted = (
+        ("use_raytracing", True),
+        ("use_shadows", True),
+        ("shadow_ray_count", 2),
+        ("shadow_step_count", 8),
+        ("use_fast_gi", True),
+        ("bokeh_max_size", 48.0),
+    )
+    missing = [name for name, value in wanted if not _assign(eevee, name, value)]
+    if missing:
+        print("motion card: this Blender's EEVEE has no " + ", ".join(missing) + "; rendering without")
     # Standard keeps the palette's colours and a backdrop plate as they were chosen.
     try:
         scene.view_settings.view_transform = "Standard"
@@ -157,7 +190,7 @@ def setup_render(scene, spec, out_dir):
         pass
 
 
-def world(scene, spec):
+def world(scene, spec: dict) -> None:
     """A dark studio sky with a bright horizon band, so metal and glass have something to reflect."""
     sky = bpy.data.worlds.new("studio")
     scene.world = sky
@@ -187,7 +220,7 @@ def world(scene, spec):
 # --- Materials ---
 
 
-def _principled(name):
+def _principled(name: str):
     material = bpy.data.materials.new(name)
     nodes = node_tree(material).nodes
     bsdf = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
@@ -197,16 +230,28 @@ def _principled(name):
 
 
 def _set(bsdf, **values):
-    names = {"base": "Base Color", "metallic": "Metallic", "roughness": "Roughness", "coat": "Coat Weight", "coat_roughness": "Coat Roughness",
-             "subsurface": "Subsurface Weight", "sheen": "Sheen Weight", "transmission": "Transmission Weight", "ior": "IOR",
-             "emission": "Emission Color", "emission_strength": "Emission Strength", "anisotropic": "Anisotropic", "specular": "Specular IOR Level"}
+    names = {
+        "base": "Base Color",
+        "metallic": "Metallic",
+        "roughness": "Roughness",
+        "coat": "Coat Weight",
+        "coat_roughness": "Coat Roughness",
+        "subsurface": "Subsurface Weight",
+        "sheen": "Sheen Weight",
+        "transmission": "Transmission Weight",
+        "ior": "IOR",
+        "emission": "Emission Color",
+        "emission_strength": "Emission Strength",
+        "anisotropic": "Anisotropic",
+        "specular": "Specular IOR Level",
+    }
     for key, value in values.items():
         socket = bsdf.inputs.get(names[key])
         if socket is not None:
             socket.default_value = value
 
 
-def _bump(material, bsdf, *, scale, strength, kind="noise", detail=6.0):
+def _bump(material, bsdf, *, scale: float, strength: float, kind: str = "noise", detail: float = 6.0):
     nodes, links = material.node_tree.nodes, material.node_tree.links
     coords = nodes.new("ShaderNodeTexCoord")
     texture = nodes.new("ShaderNodeTexNoise" if kind == "noise" else "ShaderNodeTexWave")
@@ -221,7 +266,7 @@ def _bump(material, bsdf, *, scale, strength, kind="noise", detail=6.0):
     return texture
 
 
-def material_for(style, colors, role):
+def material_for(style: str, colors: dict, role: str):
     """The face and side materials for one style. ``role`` is title, subtitle or a paper layer index."""
     primary, accent, shadow = colors["primary"], colors["accent"], colors["shadow"]
     material, bsdf = _principled(f"{style}-{role}")
@@ -257,7 +302,7 @@ def material_for(style, colors, role):
         wave.inputs["Detail Scale"].default_value = 1.2
         wave.inputs["Detail Roughness"].default_value = 0.6
         ramp = nodes.new("ShaderNodeValToRGB")
-        dark = tuple(c * 0.55 for c in primary[:3]) + (1.0,)
+        dark = (*(c * 0.55 for c in primary[:3]), 1.0)
         ramp.color_ramp.elements[0].color = dark
         ramp.color_ramp.elements[1].color = primary
         ramp.color_ramp.elements[0].position = 0.05
@@ -275,11 +320,13 @@ def material_for(style, colors, role):
             links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
             _set(bsdf, roughness=0.38, coat=0.45, coat_roughness=0.14, specular=0.6)
     elif style == "soft_clay":
-        _set(bsdf, base=primary if role == "title" else accent, roughness=0.62, subsurface=0.25, sheen=0.3, specular=0.35)
+        _set(
+            bsdf, base=primary if role == "title" else accent, roughness=0.62, subsurface=0.25, sheen=0.3, specular=0.35
+        )
         _bump(material, bsdf, scale=45.0, strength=0.06)
     elif style == "neon_glass":
         if role == "title":
-            smoke = tuple(c * 0.6 for c in shadow[:3]) + (1.0,)
+            smoke = (*(c * 0.6 for c in shadow[:3]), 1.0)
             _set(bsdf, base=smoke, metallic=0.0, roughness=0.08, coat=1.0, coat_roughness=0.03, specular=0.8)
         else:
             _set(bsdf, base=accent, roughness=0.3, emission=accent, emission_strength=3.0)
@@ -310,7 +357,7 @@ def shadow_material():
     return material
 
 
-def neon_edge(colors):
+def neon_edge(colors: dict):
     material, bsdf = _principled("neon-edge")
     _set(bsdf, base=colors["primary"], roughness=0.25, emission=colors["primary"], emission_strength=3.2)
     return material
@@ -319,14 +366,25 @@ def neon_edge(colors):
 # --- Text ---
 
 
-def text_object(name, body, font_path, *, size, extrude, bevel, segments, align):
+def text_object(
+    name: str,
+    body: str,
+    font_path: str | None,
+    *,
+    size: float,
+    extrude: float,
+    bevel: float,
+    segments: int,
+    align: str,
+):
     curve = bpy.data.curves.new(name, type="FONT")
     curve.body = body  # data, never code
     if font_path:
         try:
             curve.font = bpy.data.fonts.load(font_path, check_existing=True)
-        except RuntimeError:
-            pass
+        except RuntimeError as exc:
+            # Blender's own font draws the words instead; the log says which font it could not read.
+            print(f"motion card: font {font_path!r} was not loaded ({exc}); using Blender's default font")
     curve.size = size
     curve.extrude = extrude
     curve.bevel_depth = bevel
@@ -342,7 +400,7 @@ def text_object(name, body, font_path, *, size, extrude, bevel, segments, align)
     return obj
 
 
-def frame_size(spec, distance):
+def frame_size(spec: dict, distance: float) -> tuple[float, float]:
     """The visible width and height at ``distance`` for a 36 mm sensor fitted to the longer side."""
     aspect = spec["width"] / spec["height"]
     long_side = distance * 36.0 / FOCAL
@@ -354,7 +412,7 @@ def dimensions(obj):
     return obj.dimensions.copy()
 
 
-def build_text(spec):
+def build_text(spec: dict):
     """Title and subtitle, sized to the frame, centred on the origin. Returns (root, title objects, subtitle, layout)."""
     style = STYLES[spec["style"]]
     kind = spec["kind"]
@@ -363,7 +421,9 @@ def build_text(spec):
     lower = kind == "lower_third"
     align = "LEFT" if lower else "CENTER"
     body = "\n".join(spec["lines"])
-    title = text_object("title", body, spec["fonts"]["title"], size=1.0, extrude=0.0, bevel=0.0, segments=0, align=align)
+    title = text_object(
+        "title", body, spec["fonts"]["title"], size=1.0, extrude=0.0, bevel=0.0, segments=0, align=align
+    )
     raw = dimensions(title)
     target_w = visible_w * (0.78 if portrait else 0.62) * (0.7 if lower else 1.0)
     target_h = visible_h * ((0.36 if len(spec["lines"]) > 2 else 0.30) if portrait else 0.36) * (0.34 if lower else 1.0)
@@ -380,10 +440,14 @@ def build_text(spec):
     bpy.context.scene.collection.objects.link(root)
     title.parent = root
     titles = [title]
-    title.data.materials.append(material_for(spec["style"], spec["colors"], "title" if spec["style"] != "paper_cut" else "0"))
+    title.data.materials.append(
+        material_for(spec["style"], spec["colors"], "title" if spec["style"] != "paper_cut" else "0")
+    )
     if spec["style"] == "neon_glass":
         # Backlit channel letters: smoked glass in front of a slightly larger lit copy of each glyph.
-        halo = text_object("halo", body, spec["fonts"]["title"], size=scale, extrude=0.0, bevel=0.0, segments=0, align=align)
+        halo = text_object(
+            "halo", body, spec["fonts"]["title"], size=scale, extrude=0.0, bevel=0.0, segments=0, align=align
+        )
         halo.data.offset = height * 0.05
         halo.rotation_euler = title.rotation_euler
         halo.location = (0.0, style["extrude"] * height + height * 0.08, 0.0)
@@ -393,8 +457,16 @@ def build_text(spec):
     if style["layers"] > 1:
         step = style["extrude"] * height * 2.6
         for layer in range(1, style["layers"]):
-            sheet = text_object(f"layer{layer}", body, spec["fonts"]["title"], size=scale, extrude=style["extrude"] * height,
-                                bevel=0.0, segments=0, align=align)
+            sheet = text_object(
+                f"layer{layer}",
+                body,
+                spec["fonts"]["title"],
+                size=scale,
+                extrude=style["extrude"] * height,
+                bevel=0.0,
+                segments=0,
+                align=align,
+            )
             sheet.rotation_euler = title.rotation_euler
             sheet.location = (height * 0.04 * layer, step * layer, -height * 0.04 * layer)
             sheet.data.materials.append(material_for("paper_cut", spec["colors"], str(layer)))
@@ -403,8 +475,16 @@ def build_text(spec):
     if not lower:
         # A soft shadow: a flat dark copy behind the words, scaled for perspective and blurred by depth of field.
         depth = height * 0.5
-        shadow = text_object("shadow", body, spec["fonts"]["title"], size=scale * (DISTANCE + depth) / DISTANCE, extrude=0.0,
-                             bevel=0.0, segments=0, align=align)
+        shadow = text_object(
+            "shadow",
+            body,
+            spec["fonts"]["title"],
+            size=scale * (DISTANCE + depth) / DISTANCE,
+            extrude=0.0,
+            bevel=0.0,
+            segments=0,
+            align=align,
+        )
         shadow.rotation_euler = title.rotation_euler
         shadow.location = (height * 0.05, depth, -height * 0.09)
         shadow.data.materials.append(shadow_material())
@@ -417,8 +497,16 @@ def build_text(spec):
     gap = height * 0.34
     if spec["subtitle"]:
         sub_size = height * (0.42 if not lower else 0.5)
-        subtitle = text_object("subtitle", spec["subtitle"], spec["fonts"]["subtitle"], size=sub_size, extrude=sub_size * 0.1,
-                               bevel=sub_size * 0.015, segments=2, align=align)
+        subtitle = text_object(
+            "subtitle",
+            spec["subtitle"],
+            spec["fonts"]["subtitle"],
+            size=sub_size,
+            extrude=sub_size * 0.1,
+            bevel=sub_size * 0.015,
+            segments=2,
+            align=align,
+        )
         subtitle.data.space_character = 1.06
         sub_dims = dimensions(subtitle)
         limit = max(title_dims.x, visible_w * (0.4 if lower else 0.78)) * 0.98
@@ -427,7 +515,9 @@ def build_text(spec):
             sub_dims = dimensions(subtitle)
         subtitle.rotation_euler = (math.radians(90), 0, 0)
         subtitle.parent = root
-        subtitle.data.materials.append(material_for(spec["style"], spec["colors"], "subtitle" if spec["style"] != "paper_cut" else "1"))
+        subtitle.data.materials.append(
+            material_for(spec["style"], spec["colors"], "subtitle" if spec["style"] != "paper_cut" else "1")
+        )
         total = title_dims.y + gap + sub_dims.y
         title.location.z = total / 2 - title_dims.y / 2
         subtitle.location.z = -total / 2 + sub_dims.y / 2
@@ -440,13 +530,18 @@ def build_text(spec):
         block = title_dims.y + ((gap + dimensions(subtitle).y) if subtitle else 0.0)
         # Above where captions sit, so the two never collide.
         root.location.z = -visible_h / 2 + visible_h * (0.3 if portrait else 0.2) + block / 2
-    return root, titles, subtitle, {"visible": (visible_w, visible_h), "line_height": height, "scale": scale, "width": width}
+    return (
+        root,
+        titles,
+        subtitle,
+        {"visible": (visible_w, visible_h), "line_height": height, "scale": scale, "width": width},
+    )
 
 
 # --- Light, scrim, backdrop, camera ---
 
 
-def area(name, location, energy, size, color, target):
+def area(name: str, location: tuple[float, float, float], energy: float, size: float, color, target):
     light = bpy.data.lights.new(name, type="AREA")
     light.energy = energy
     light.size = size
@@ -461,25 +556,32 @@ def area(name, location, energy, size, color, target):
     return obj
 
 
-def lights(spec, target):
+def lights(spec: dict, target) -> None:
     accent = spec["colors"]["accent"]
     warm = (1.0, 0.92, 0.82, 1.0)
     scale = DISTANCE / 12.0
     area("key", (-5.5 * scale, -8.0 * scale, 5.5 * scale), 3200 * scale * scale, 7.0 * scale, warm, target)
-    area("fill", (7.0 * scale, -6.0 * scale, -1.0 * scale), 500 * scale * scale, 9.0 * scale, (0.85, 0.9, 1.0, 1.0), target)
+    area(
+        "fill",
+        (7.0 * scale, -6.0 * scale, -1.0 * scale),
+        500 * scale * scale,
+        9.0 * scale,
+        (0.85, 0.9, 1.0, 1.0),
+        target,
+    )
     area("rim_left", (-7.0 * scale, 6.0 * scale, 3.0 * scale), 3200 * scale * scale, 3.0 * scale, accent, target)
     area("rim_right", (7.5 * scale, 5.0 * scale, 2.0 * scale), 2600 * scale * scale, 3.0 * scale, warm, target)
     area("top", (0.0, 1.0 * scale, 9.0 * scale), 900 * scale * scale, 6.0 * scale, warm, target)
 
 
-def _camera_plane(name, camera, spec, depth, material):
+def _camera_plane(name: str, camera, spec: dict, depth: float, material):
     """A plane parented to the camera that exactly fills the frame at ``depth``."""
     width, height = frame_size(spec, depth)
     mesh = bpy.data.meshes.new(name)
     w, h = width * 0.56, height * 0.56
     mesh.from_pydata([(-w, -h, 0), (w, -h, 0), (w, h, 0), (-w, h, 0)], [], [(0, 1, 2, 3)])
     mesh.uv_layers.new(name="UVMap")
-    for loop, uv in zip(mesh.uv_layers[0].data, ((0, 0), (1, 0), (1, 1), (0, 1))):
+    for loop, uv in zip(mesh.uv_layers[0].data, ((0, 0), (1, 0), (1, 1), (0, 1)), strict=True):
         loop.uv = uv
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.scene.collection.objects.link(obj)
@@ -490,7 +592,7 @@ def _camera_plane(name, camera, spec, depth, material):
     return obj
 
 
-def scrim_material(spec):
+def scrim_material(spec: dict):
     """Darkens the footage behind the words so they read on any picture: black at a soft, bounded alpha."""
     material = bpy.data.materials.new("scrim")
     if hasattr(material, "surface_render_method"):
@@ -538,7 +640,7 @@ def scrim_material(spec):
     return material
 
 
-def backdrop_material(path):
+def backdrop_material(path: str):
     """A still plate behind the card, opaque until the card hands over to the footage."""
     material = bpy.data.materials.new("backdrop")
     if hasattr(material, "surface_render_method"):
@@ -568,7 +670,7 @@ def backdrop_material(path):
     return material
 
 
-def _cover_uvs(obj, image_size, frame):
+def _cover_uvs(obj, image_size: tuple[float, float], frame: tuple[float, float]) -> None:
     """Crop the image's UVs so it covers the frame without stretching."""
     iw, ih = image_size
     fw, fh = frame
@@ -582,11 +684,12 @@ def _cover_uvs(obj, image_size, frame):
         span = image_aspect / frame_aspect
         us, vs = (0.0, 1.0), (0.5 - span / 2, 0.5 + span / 2)
     corners = ((us[0], vs[0]), (us[1], vs[0]), (us[1], vs[1]), (us[0], vs[1]))
-    for loop, uv in zip(obj.data.uv_layers[0].data, corners):
+    for loop, uv in zip(obj.data.uv_layers[0].data, corners, strict=True):
         loop.uv = uv
 
 
-def key(target, path, frame, value, index=-1):
+def key(target, path: str, frame: int, value, index: int = -1) -> None:
+    """Set one property and key it at ``frame``; ``index`` picks one channel of a vector."""
     if index < 0:
         setattr(target, path, value)
     else:
@@ -594,7 +697,7 @@ def key(target, path, frame, value, index=-1):
     target.keyframe_insert(path, index=index, frame=frame)
 
 
-def _fcurves(block):
+def _fcurves(block) -> list:
     action = getattr(getattr(block, "animation_data", None), "action", None)
     if action is None:
         return []
@@ -608,7 +711,7 @@ def _fcurves(block):
     return curves
 
 
-def ease_all(blocks):
+def ease_all(blocks) -> None:
     """Bezier keys with clamped automatic handles: every move eases in and settles."""
     for block in blocks:
         for curve in _fcurves(block):
@@ -627,7 +730,7 @@ CAMERA_PATHS = {
 }
 
 
-def camera_rig(spec, target, focus, last):
+def camera_rig(spec: dict, target, focus, last: int):
     data = bpy.data.cameras.new("camera")
     data.lens = FOCAL
     data.sensor_fit = "AUTO"
@@ -654,9 +757,9 @@ def camera_rig(spec, target, focus, last):
     return camera
 
 
-def animate_text(root, subtitle, spec, last, fps):
+def animate_text(root, subtitle, spec: dict, last: int, fps: float) -> int:
     """The title tips up into place and settles; the subtitle follows a beat later."""
-    settle = max(3, int(round(min(1.2, spec["duration"] * 0.5) * fps)))
+    settle = max(3, round(min(1.2, spec["duration"] * 0.5) * fps))
     tip = math.radians(-24 if spec["camera"] != "rise" else -10)
     key(root, "rotation_euler", 1, tip, index=0)
     key(root, "rotation_euler", settle, 0.0, index=0)
@@ -664,7 +767,7 @@ def animate_text(root, subtitle, spec, last, fps):
     key(root, "scale", settle, Vector((1.0, 1.0, 1.0)))
     key(root, "scale", last, Vector((1.03, 1.03, 1.03)))
     if subtitle is not None:
-        lag = max(2, int(round(0.25 * fps)))
+        lag = max(2, round(0.25 * fps))
         rest = subtitle.location.z
         drop = subtitle.data.size * 1.6
         key(subtitle, "location", 1, rest - drop, index=2)
@@ -677,8 +780,8 @@ def animate_text(root, subtitle, spec, last, fps):
     return settle
 
 
-def main():
-    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+def main() -> None:
+    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) != 2:
         raise SystemExit("usage: blender -b --factory-startup --python motion_card.py -- spec.json out_dir")
     spec_path, out_dir = argv
@@ -688,10 +791,14 @@ def main():
     scene = bpy.context.scene
     setup_render(scene, spec, out_dir)
     world(scene, spec)
-    root, titles, subtitle, layout = build_text(spec)
+    root, _titles, subtitle, layout = build_text(spec)
     focus = bpy.data.objects.new("focus", None)
     scene.collection.objects.link(focus)
-    focus.location = (root.location.x + (layout["width"] / 2 if spec["kind"] == "lower_third" else 0.0), 0.0, root.location.z)
+    focus.location = (
+        root.location.x + (layout["width"] / 2 if spec["kind"] == "lower_third" else 0.0),
+        0.0,
+        root.location.z,
+    )
     # A lower third keeps its place in the frame: the camera aims at the frame's centre, not at the words.
     aim = focus
     if spec["kind"] == "lower_third":
@@ -709,8 +816,8 @@ def main():
         _cover_uvs(backdrop, tuple(material.node_tree.nodes["plate"].image.size), (spec["width"], spec["height"]))
         # Opaque, then it hands over to the footage while the words stay.
         socket = material.node_tree.nodes["fade"].outputs[0]
-        hand_over = int(round(last * 0.5))
-        for frame, alpha in ((1, 1.0), (hand_over, 1.0), (min(last - 2, hand_over + int(round(0.6 * fps))), 0.0)):
+        hand_over = round(last * 0.5)
+        for frame, alpha in ((1, 1.0), (hand_over, 1.0), (min(last - 2, hand_over + round(0.6 * fps)), 0.0)):
             socket.default_value = alpha
             socket.keyframe_insert("default_value", frame=frame)
         ease_all([material.node_tree])

@@ -50,7 +50,17 @@ def test_missing_filter_disables_effects_but_preserves_standard_edits(project, m
         manager.create({**request, "effect": {"preset": "tilt"}})
 
 
-@pytest.mark.parametrize("effect", ["tilt", {"preset": "unknown"}, {"preset": "push", "intensity": 2}, {"preset": "float", "start": -1}, {"preset": "tilt", "duration": 0}, {"preset": "push", "intensity": math.nan}])
+@pytest.mark.parametrize(
+    "effect",
+    [
+        "tilt",
+        {"preset": "unknown"},
+        {"preset": "push", "intensity": 2},
+        {"preset": "float", "start": -1},
+        {"preset": "tilt", "duration": 0},
+        {"preset": "push", "intensity": math.nan},
+    ],
+)
 def test_effect_values_are_validated_at_job_creation(project, effect) -> None:
     manager, request = project
     with pytest.raises(CampaignError):

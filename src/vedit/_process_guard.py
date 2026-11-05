@@ -9,6 +9,7 @@ keep nested command startup cheap. Called by media.run_command, not a CLI.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -40,10 +41,9 @@ def main() -> None:
     os.close(error_fd)
     code = child.wait()
     if code < 0:
-        try:
+        # SIGKILL and SIGSTOP cannot have their handlers reset; the default already applies.
+        with contextlib.suppress(OSError, ValueError):
             signal.signal(-code, signal.SIG_DFL)
-        except (OSError, ValueError):
-            pass  # SIGKILL/SIGSTOP cannot have their handlers reset.
         os.kill(os.getpid(), -code)
     os._exit(code)
 

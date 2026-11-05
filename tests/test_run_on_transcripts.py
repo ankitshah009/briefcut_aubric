@@ -27,12 +27,14 @@ def _inside_speech(point: float, speech: list[dict]) -> bool:
 
 def test_a_long_turn_is_accepted_and_split_into_lines():
     syllables = ["ba", "ko", "mi", "ru", "te", "lo", "na", "pi", "su", "de"]
-    words = " ".join(a + b + c for a in syllables for b in syllables for c in syllables)  # 1,000 distinct words, ~7,000 characters
+    words = " ".join(
+        a + b + c for a in syllables for b in syllables for c in syllables
+    )  # 1,000 distinct words, ~7,000 characters
     cues = meta._transcript_cues({"turns": [{"startMs": 0, "endMs": 169_000, "transcript": words}]}, 169.0)
     assert len(cues) == 1 and len(cues[0]["text"]) > 2_000
     lines = captions.heard_cues(cues)
     assert len(lines) > 20
-    assert lines[0].start == pytest.approx(0.0, abs=.01) and lines[-1].end == pytest.approx(169.0, abs=.01)
+    assert lines[0].start == pytest.approx(0.0, abs=0.01) and lines[-1].end == pytest.approx(169.0, abs=0.01)
     assert all(line.text and len(line.text) <= captions.CUE_CHARS * 2 for line in lines)
 
 
@@ -57,8 +59,11 @@ def test_without_measured_speech_a_run_on_stays_one_sentence():
 
 
 def test_a_punctuated_sentence_is_not_split_at_a_breath():
-    transcript = [{"start": 0.0, "end": 2.0, "text": "We sand it twice,"}, {"start": 2.0, "end": 4.0, "text": "then oil it once."},
-                  {"start": 4.0, "end": 6.0, "text": "That is the whole trick."}]
+    transcript = [
+        {"start": 0.0, "end": 2.0, "text": "We sand it twice,"},
+        {"start": 2.0, "end": 4.0, "text": "then oil it once."},
+        {"start": 4.0, "end": 6.0, "text": "That is the whole trick."},
+    ]
     speech = [{"start": 0.0, "end": 1.8}, {"start": 2.3, "end": 3.9}, {"start": 4.1, "end": 6.0}]
     sentences = sentences_from_transcript(transcript, duration=6.0, speech=speech)
     assert [s["text"] for s in sentences] == ["We sand it twice, then oil it once.", "That is the whole trick."]
@@ -67,8 +72,13 @@ def test_a_punctuated_sentence_is_not_split_at_a_breath():
 def test_pauses_near_a_group_edge_or_each_other_do_not_make_slivers():
     transcript = _lines(20.0, 1.0)
     # pauses at 0.9 (too near the start), 10.0 and 10.8 (too near each other), 19.4 (too near the end)
-    speech = [{"start": 0.0, "end": 0.7}, {"start": 1.1, "end": 9.8}, {"start": 10.2, "end": 10.6},
-              {"start": 11.0, "end": 19.2}, {"start": 19.6, "end": 20.0}]
+    speech = [
+        {"start": 0.0, "end": 0.7},
+        {"start": 1.1, "end": 9.8},
+        {"start": 10.2, "end": 10.6},
+        {"start": 11.0, "end": 19.2},
+        {"start": 19.6, "end": 20.0},
+    ]
     sentences = sentences_from_transcript(transcript, duration=20.0, speech=speech)
     assert len(sentences) == 2
     assert all(s["end"] - s["start"] >= MIN_PIECE for s in sentences)

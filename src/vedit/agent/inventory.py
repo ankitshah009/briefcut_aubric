@@ -7,7 +7,7 @@ from pathlib import Path
 from vedit.agent.decide import silence_threshold_db
 from vedit.agent.model import Inventory, SourceShot
 from vedit.analyze import Range, detect_scenes, detect_silence, measure_loudness
-from vedit.errors import ProbeError
+from vedit.errors import ProbeError, VeditError
 from vedit.media import MediaInfo, is_audio, is_image, probe, trace
 
 
@@ -19,7 +19,7 @@ def inventory_paths(paths: list[str], *, analyze: bool = False) -> Inventory:
     names = _names([kind for _, _, kind in rows])
     notes: list[str] = []
     shots: list[SourceShot] = []
-    for name, (src, info, kind) in zip(names, rows):
+    for name, (src, info, kind) in zip(names, rows, strict=True):
         silence_ratio: float | None = None
         scene_count: int | None = None
         loudness_i: float | None = None
@@ -101,24 +101,29 @@ def _analyze(
     kind: str,
     notes: list[str],
 ) -> tuple[float | None, int | None, float | None]:
+    """Each measurement is best effort: FFmpeg failing on one is a note on the shot, not the end of the inventory."""
     silence_ratio: float | None = None
     scene_count: int | None = None
     loudness_i: float | None = None
     if info.has_audio:
         try:
             trace("loudness-enter")
-            loudness_i = float(measure_loudness(src)["input_i"])
+            measured = measure_loudness(src)
+            # None is a measurement too: digital silence, or under 0.4 s, has no programme loudness.
+            loudness_i = None if measured is None else float(measured["input_i"])
             trace("loudness-exit")
-        except Exception as exc:
+        except (VeditError, OSError) as exc:
             trace("loudness-fail")
             notes.append(_failure(name, "loudness analysis", exc))
     if info.has_audio:
         try:
             trace("silence-enter")
             # The same line the silence cut uses, relative to this recording's loudness.
-            silence_ratio = _silence_ratio(detect_silence(src, threshold_db=silence_threshold_db(loudness_i)), info.duration)
+            silence_ratio = _silence_ratio(
+                detect_silence(src, threshold_db=silence_threshold_db(loudness_i)), info.duration
+            )
             trace("silence-exit")
-        except Exception as exc:
+        except (VeditError, OSError) as exc:
             trace("silence-fail")
             notes.append(_failure(name, "silence analysis", exc))
     if info.has_video and kind != "image":
@@ -126,7 +131,7 @@ def _analyze(
             trace("scenes-enter")
             scene_count = len(detect_scenes(src))
             trace("scenes-exit")
-        except Exception as exc:
+        except (VeditError, OSError) as exc:
             trace("scenes-fail")
             notes.append(_failure(name, "scene detection", exc))
     return silence_ratio, scene_count, loudness_i

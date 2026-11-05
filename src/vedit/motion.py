@@ -25,6 +25,7 @@ import re
 import statistics
 import subprocess
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -52,8 +53,11 @@ class MotionError(ValueError):
 def _block_shift(first: bytes, second: bytes, x0: int, y0: int, width: int, height: int) -> tuple[int, int, int]:
     """Find a textured block's whole-pixel move between two small gray frames."""
     area = width * height
-    texture = sum((first[y * 160 + x] - first[y0 * 160 + x0]) ** 2
-                  for y in range(y0, y0 + height, 2) for x in range(x0, x0 + width, 2))
+    texture = sum(
+        (first[y * 160 + x] - first[y0 * 160 + x0]) ** 2
+        for y in range(y0, y0 + height, 2)
+        for x in range(x0, x0 + width, 2)
+    )
     if texture < 1200:
         return 0, 0, 0
     best, shift = float("inf"), (0, 0)
@@ -93,10 +97,29 @@ def measure_camera_shake(path: str | Path, *, seconds: float = 12.0, ffmpeg: str
         return None
     try:
         result = subprocess.run(
-            [binary, "-hide_banner", "-loglevel", "error", "-i", str(path), "-map", f"0:v:{footage}", "-t", f"{seconds:.3f}", "-an",
-             "-vf", "fps=4,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,format=gray",
-             "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-            capture_output=True, timeout=max(120.0, seconds * 12), check=False,
+            [
+                binary,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(path),
+                "-map",
+                f"0:v:{footage}",
+                "-t",
+                f"{seconds:.3f}",
+                "-an",
+                "-vf",
+                "fps=4,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,format=gray",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
+                "-",
+            ],
+            capture_output=True,
+            timeout=max(120.0, seconds * 12),
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -104,9 +127,9 @@ def measure_camera_shake(path: str | Path, *, seconds: float = 12.0, ffmpeg: str
     raw = result.stdout
     if result.returncode or len(raw) < frame_bytes * 4:
         return None
-    frames = [raw[offset:offset + frame_bytes] for offset in range(0, len(raw) - frame_bytes + 1, frame_bytes)]
+    frames = [raw[offset : offset + frame_bytes] for offset in range(0, len(raw) - frame_bytes + 1, frame_bytes)]
     steps: list[tuple[float, float]] = []
-    for first, second in zip(frames, frames[1:]):
+    for first, second in pairwise(frames):
         shifts = []
         for y in range(8, 80, 14):
             for x in range(8, 144, 18):
@@ -165,11 +188,16 @@ class Piece:
         p = max(0.0, min(1.0, (frame - self.first) / max(1, self.last - 1 - self.first)))
         e = ease(self.curve, p)
         ratio = self.end[0] / self.begin[0]
-        return (self.begin[0] * ratio ** e, self.begin[1] + (self.end[1] - self.begin[1]) * e,
-                self.begin[2] + (self.end[2] - self.begin[2]) * e)
+        return (
+            self.begin[0] * ratio**e,
+            self.begin[1] + (self.end[1] - self.begin[1]) * e,
+            self.begin[2] + (self.end[2] - self.begin[2]) * e,
+        )
 
 
-def plan_pieces(moves: list[dict[str, Any]], fps: float, *, blend: float = 0.0, end: float | None = None) -> list[Piece]:
+def plan_pieces(
+    moves: list[dict[str, Any]], fps: float, *, blend: float = 0.0, end: float | None = None
+) -> list[Piece]:
     """Whole-frame pieces for validated moves, in order and never overlapping.
 
     A transition blends two pictures that both pass through this one zoom, so
@@ -187,17 +215,36 @@ def plan_pieces(moves: list[dict[str, Any]], fps: float, *, blend: float = 0.0, 
         if not isinstance(move, dict):
             raise MotionError(f"Zoom move {index + 1} must be an object.")
         start, stop = move.get("start"), move.get("end")
-        if isinstance(start, bool) or not isinstance(start, (int, float)) or isinstance(stop, bool) or not isinstance(stop, (int, float)) \
-                or not math.isfinite(start) or not math.isfinite(stop) or start < 0 or stop <= start:
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, (int, float))
+            or isinstance(stop, bool)
+            or not isinstance(stop, (int, float))
+            or not math.isfinite(start)
+            or not math.isfinite(stop)
+            or start < 0
+            or stop <= start
+        ):
             raise MotionError(f"Zoom move {index + 1} needs a start and a later end.")
         curve = move.get("ease", "gentle")
         if curve not in EASES:
             raise MotionError(f"Zoom move {index + 1} has an unknown easing.")
         settle = move.get("settle")
-        if settle is not None and (isinstance(settle, bool) or not isinstance(settle, (int, float)) or not math.isfinite(settle) or settle <= 0):
+        if settle is not None and (
+            isinstance(settle, bool) or not isinstance(settle, (int, float)) or not math.isfinite(settle) or settle <= 0
+        ):
             raise MotionError(f"Zoom move {index + 1} has an invalid settle time.")
         first, last = round(start * fps), max(round(stop * fps), round(start * fps) + 1)
-        timed.append((first, last, _state(move.get("from"), f"Zoom move {index + 1}"), _state(move.get("to"), f"Zoom move {index + 1}"), curve, settle))
+        timed.append(
+            (
+                first,
+                last,
+                _state(move.get("from"), f"Zoom move {index + 1}"),
+                _state(move.get("to"), f"Zoom move {index + 1}"),
+                curve,
+                settle,
+            )
+        )
     timed.sort(key=lambda item: item[0])
     pieces: list[Piece] = []
     for index, (first, last, begin, finish, curve, settle) in enumerate(timed):
@@ -207,7 +254,9 @@ def plan_pieces(moves: list[dict[str, Any]], fps: float, *, blend: float = 0.0, 
         tail = max(0, last - after[0]) if after else 0
         # A still moment on either side: nothing overlaps this move, but the transition still does.
         ease_in = min(bridge, last - first) if bridge and not head and first > 0 else 0
-        ease_out = min(bridge, last - first - ease_in) if bridge and not tail and (tape_end is None or last < tape_end) else 0
+        ease_out = (
+            min(bridge, last - first - ease_in) if bridge and not tail and (tape_end is None or last < tape_end) else 0
+        )
         body_start, body_end = first + max(head, ease_in), max(first + max(head, ease_in), last - max(tail, ease_out))
         if ease_in:
             pieces.append(Piece(first, body_start, IDENTITY, begin, "smooth"))
@@ -215,12 +264,20 @@ def plan_pieces(moves: list[dict[str, Any]], fps: float, *, blend: float = 0.0, 
             if settle is not None and not (head or ease_in):
                 split = min(body_end, body_start + max(2, round(settle * fps)))
                 landing = (1 + (begin[0] - 1) * PUNCH_START, begin[1], begin[2])
-                pieces.append(Piece(body_start, split, _state({"scale": landing[0], "x": landing[1], "y": landing[2]}, "Zoom"), begin, "out"))
+                pieces.append(
+                    Piece(
+                        body_start,
+                        split,
+                        _state({"scale": landing[0], "x": landing[1], "y": landing[2]}, "Zoom"),
+                        begin,
+                        "out",
+                    )
+                )
                 if split < body_end:
                     pieces.append(Piece(split, body_end, begin, finish, curve))
             else:
                 pieces.append(Piece(body_start, body_end, begin, finish, curve))
-        if tail:
+        if after is not None and tail:
             pieces.append(Piece(body_end, last, finish, after[2], "smooth"))
         elif ease_out:
             pieces.append(Piece(body_end, last, finish, IDENTITY, "smooth"))
@@ -264,8 +321,16 @@ def zoom_filter(pieces: list[Piece]) -> str | None:
         return None
     left, right = _tree(active, 0, -1, "0"), _tree(active, 0, 1, "1")
     top, bottom = _tree(active, 1, -1, "0"), _tree(active, 1, 1, "1")
-    corners = {"x0": f"W*({left})", "y0": f"H*({top})", "x1": f"W*({right})", "y1": f"H*({top})",
-               "x2": f"W*({left})", "y2": f"H*({bottom})", "x3": f"W*({right})", "y3": f"H*({bottom})"}
+    corners = {
+        "x0": f"W*({left})",
+        "y0": f"H*({top})",
+        "x1": f"W*({right})",
+        "y1": f"H*({top})",
+        "x2": f"W*({left})",
+        "y2": f"H*({bottom})",
+        "x3": f"W*({right})",
+        "y3": f"H*({bottom})",
+    }
     spans: list[list[int]] = []
     for piece in active:
         if spans and spans[-1][1] >= piece.first:
@@ -309,7 +374,9 @@ def zoom_moves(view: dict[str, Any], settings: dict[str, Any]) -> list[dict[str,
         window = {"start": round(start, 6), "end": round(end, 6)}
         motion = segment.get("motion")
         if isinstance(motion, dict):
-            moves.append({**window, "from": motion.get("from") or base, "to": motion.get("to") or base, "ease": "smooth"})
+            moves.append(
+                {**window, "from": motion.get("from") or base, "to": motion.get("to") or base, "ease": "smooth"}
+            )
         elif mode == "slow" and strength > 0:
             back = overlapped and index % 2 == 0
             moves.append({**window, "from": pushed if back else base, "to": base if back else pushed, "ease": "gentle"})
@@ -337,7 +404,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--factor", type=int, required=True)
     args = parser.parse_args(argv)
-    Path(args.out).write_text(scale_transforms(Path(args.source).read_text(encoding="utf-8"), args.factor), encoding="utf-8")
+    Path(args.out).write_text(
+        scale_transforms(Path(args.source).read_text(encoding="utf-8"), args.factor), encoding="utf-8"
+    )
     return 0
 
 

@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 MIN_KEEP = 0.08
 MIN_SPEED = 0.25
@@ -237,7 +238,7 @@ def _surviving_text(text: str, start: float, end: float, spans: list[Span], segm
                 runs[-1] = (runs[-1][0], index)
             else:
                 runs.append((index, index))
-        return join_words(" ".join(text[offsets[first][0]:offsets[last][1]].split()) for first, last in runs)
+        return join_words(" ".join(text[offsets[first][0] : offsets[last][1]].split()) for first, last in runs)
 
     return [written(placed[segment]) for segment in segments]
 
@@ -276,12 +277,20 @@ def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str
                 # moment can begin earlier on this clock, under a transition.
                 segment, begin = pieces[0][0], pieces[0][1]
                 finish = max(hi for owner, _lo, hi in pieces if owner == segment)
-                placed.setdefault(segment, []).append({"start": round(begin, 3), "end": round(finish, 3), "text": str(word.get("text") or "")})
+                placed.setdefault(segment, []).append(
+                    {"start": round(begin, 3), "end": round(finish, 3), "text": str(word.get("text") or "")}
+                )
             for segment, segment_words in placed.items():
                 if segment_words:
-                    moved.append({"start": segment_words[0]["start"], "end": segment_words[-1]["end"],
-                                  "text": join_words(item["text"] for item in segment_words),
-                                  "words": segment_words, "segment": segment})
+                    moved.append(
+                        {
+                            "start": segment_words[0]["start"],
+                            "end": segment_words[-1]["end"],
+                            "text": join_words(item["text"] for item in segment_words),
+                            "words": segment_words,
+                            "segment": segment,
+                        }
+                    )
             continue
         pieces = map_interval(spans, start, end)
         if not pieces:
@@ -291,7 +300,7 @@ def map_cues(cues: Iterable[dict[str, Any]], spans: list[Span]) -> list[dict[str
             group = groups.setdefault(segment, [begin, finish])
             group[0], group[1] = min(group[0], begin), max(group[1], finish)
         shares = _surviving_text(text, start, end, spans, list(groups))
-        for (segment, (lo, hi)), share in zip(groups.items(), shares):
+        for (segment, (lo, hi)), share in zip(groups.items(), shares, strict=True):
             if share:
                 moved.append({"start": round(lo, 3), "end": round(hi, 3), "text": share, "segment": segment})
     moved.sort(key=lambda cue: (cue["start"], cue["end"]))
@@ -340,8 +349,14 @@ def subtract(start: float, end: float, removals: Iterable[tuple[float, float]]) 
     return keeps
 
 
-def pause_removals(speech: Iterable[dict[str, Any]], start: float, end: float, *,
-                   min_pause: float = PAUSE_SECONDS, pad: float = PAUSE_PAD) -> list[tuple[float, float]]:
+def pause_removals(
+    speech: Iterable[dict[str, Any]],
+    start: float,
+    end: float,
+    *,
+    min_pause: float = PAUSE_SECONDS,
+    pad: float = PAUSE_PAD,
+) -> list[tuple[float, float]]:
     """Pauses inside a moment, from measured speech bands. A moment with no speech keeps its picture."""
     bands = []
     for band in speech:
@@ -368,21 +383,34 @@ def _plain(word: str) -> str:
     return match.group(0) if match else ""
 
 
-def filler_removals(words: Iterable[dict[str, Any]], start: float, end: float, *, pad: float = FILLER_PAD) -> list[tuple[float, float]]:
+def filler_removals(
+    words: Iterable[dict[str, Any]], start: float, end: float, *, pad: float = FILLER_PAD
+) -> list[tuple[float, float]]:
     """Spoken fillers and immediate word repeats. Only what the transcript heard can be removed."""
     inside = []
     for word in words:
         lo, hi = _finite(word.get("start")), _finite(word.get("end"))
-        if lo is not None and hi is not None and hi > lo and lo >= start and hi <= end:
+        if lo is not None and hi is not None and hi > lo >= start and hi <= end:
             inside.append((lo, hi, _plain(str(word.get("text") or ""))))
     removals: list[tuple[float, float]] = []
     for index, (lo, hi, plain) in enumerate(inside):
         if plain in FILLERS:
             removals.append((max(start, lo - pad), min(end, hi + pad)))
-        elif index + 1 < len(inside) and plain and plain == inside[index + 1][2] and inside[index + 1][0] - hi <= STUTTER_GAP:
+        elif (
+            index + 1 < len(inside)
+            and plain
+            and plain == inside[index + 1][2]
+            and inside[index + 1][0] - hi <= STUTTER_GAP
+        ):
             # "the the shape": the second copy is the clean take.
             removals.append((max(start, lo - pad), inside[index + 1][0]))
     return removals
+
+
+def _mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
+    """``data[key]`` when it is a mapping, else an empty one. A plan is loose JSON, not a schema."""
+    value = data.get(key)
+    return value if isinstance(value, dict) else {}
 
 
 def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -391,8 +419,8 @@ def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
     A removal that would erase a whole moment is ignored; deleting a moment is a
     decision for the story, not a side effect of a cleanup setting.
     """
-    edit = plan.get("edit") if isinstance(plan.get("edit"), dict) else {}
-    analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
+    edit = _mapping(plan, "edit")
+    analysis = _mapping(plan, "analysis")
     speech = [item for item in (analysis.get("speech") or []) if isinstance(item, dict)]
     words = [item for item in (analysis.get("words") or []) if isinstance(item, dict)]
     manual = []
@@ -431,8 +459,7 @@ def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
 def plan_timeline(plan: dict[str, Any]) -> dict[str, Any]:
     """The display and compile view of a plan: resolved segments and their spans."""
     segments = resolve_segments(plan)
-    edit = plan.get("edit") if isinstance(plan.get("edit"), dict) else {}
-    transition = edit.get("transition") if isinstance(edit.get("transition"), dict) else {}
+    transition = _mapping(_mapping(plan, "edit"), "transition")
     seconds = transition.get("seconds") if transition.get("type") not in (None, "none") else 0.0
     overlap = effective_transition(segments, seconds)
     spans = build_timeline(segments, transition=overlap)

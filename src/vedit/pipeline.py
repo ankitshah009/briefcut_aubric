@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import shlex
@@ -12,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vedit.errors import RenderCancelled, RenderError
+from vedit.errors import RenderCancelled, RenderError, VeditError
 from vedit.media import CommandResult, probe, resolve_ffmpeg, run_command, shell_join
 from vedit.otio import write_otio
 
@@ -143,16 +144,10 @@ def reset_resume_state(work_dir: str | Path) -> None:
     done = root / DONE_DIR
     if done.is_dir():
         for entry in done.iterdir():
-            try:
+            with contextlib.suppress(OSError):
                 entry.unlink()
-            except OSError:
-                pass
-    try:
+    with contextlib.suppress(OSError):
         (root / "report.json").unlink()
-    except FileNotFoundError:
-        pass
-    except OSError:
-        pass
 
 
 def _done_path(pipeline: Pipeline, index: int, step: Step) -> Path:
@@ -186,7 +181,7 @@ def step_fingerprint(step: Step) -> dict[str, Any]:
     digest = hashlib.sha256()
     digest.update(json.dumps(step.argv).encode("utf-8"))
     for path, mtime_ns, size in inputs:
-        digest.update(f"\n{path}\t{mtime_ns}\t{size}".encode("utf-8"))
+        digest.update(f"\n{path}\t{mtime_ns}\t{size}".encode())
     return {"fingerprint": digest.hexdigest(), "argv": list(step.argv), "inputs": [list(row) for row in inputs]}
 
 
@@ -200,10 +195,8 @@ def _record_done(pipeline: Pipeline, index: int, step: Step) -> None:
 
 
 def _forget_done(pipeline: Pipeline, index: int, step: Step) -> None:
-    try:
+    with contextlib.suppress(OSError):
         _done_path(pipeline, index, step).unlink()
-    except OSError:
-        pass
 
 
 def _done_matches(pipeline: Pipeline, index: int, step: Step) -> bool:
@@ -239,6 +232,74 @@ def outputs_complete(step: Step) -> bool:
     return bool(step.outputs) and all(output_ready(path) for path in step.outputs)
 
 
+def _run_step(
+    pipeline: Pipeline,
+    index: int,
+    step: Step,
+    reports: list[StepReport],
+    *,
+    progress: bool,
+    cancel_event: threading.Event | None,
+) -> None:
+    """Run one step and append its report. A required step that fails raises, after writing the failure report."""
+    _forget_done(pipeline, index, step)
+    started = time.perf_counter()
+    try:
+        result: CommandResult = run_command(
+            step.argv,
+            stream_stderr=progress and sys.stderr.isatty(),
+            cancel_event=cancel_event,
+        )
+    except RenderCancelled:
+        _discard_partial_outputs(step)
+        raise
+    except RenderError as exc:
+        _discard_partial_outputs(step)
+        reports.append(
+            StepReport(
+                name=step.name,
+                ok=False,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                outputs=step.outputs,
+                stderr_tail=str(exc)[-2000:],
+            )
+        )
+        _write_failure_report(pipeline, reports, step=step, message=str(exc), stderr_tail=str(exc)[-2000:])
+        raise
+    except BaseException:
+        _discard_partial_outputs(step)
+        raise
+    elapsed = int((time.perf_counter() - started) * 1000)
+    missing = [p for p in step.outputs if not Path(p).exists()]
+    ok = result.ok and not missing
+    if not ok:
+        # ffmpeg writes progressively; a truncated file must never satisfy --resume.
+        _discard_partial_outputs(step)
+    report = StepReport(
+        name=step.name,
+        ok=ok,
+        duration_ms=elapsed,
+        outputs=step.outputs,
+        stderr_tail="\n".join(result.stderr.strip().splitlines()[-8:]),
+    )
+    reports.append(report)
+    if progress:
+        mark = "ok" if ok else "FAIL"
+        print(f"    {mark} {elapsed}ms", file=sys.stderr, flush=True)
+    if ok:
+        _record_done(pipeline, index, step)
+    elif not step.optional:
+        error = RenderError(
+            f"step '{step.name}' failed (exit {result.returncode}).\n"
+            f"command: {shell_join(step.argv)}\n"
+            f"{report.stderr_tail}" + (f"\nmissing outputs: {missing}" if missing else ""),
+            step=step.name,
+            detail=result.stderr,
+        )
+        _write_failure_report(pipeline, reports, step=step, message=str(error), stderr_tail=report.stderr_tail)
+        raise error
+
+
 def execute(
     pipeline: Pipeline,
     *,
@@ -252,15 +313,10 @@ def execute(
         raise RenderCancelled("render cancelled before starting the pipeline")
     write_codegen(pipeline)
     if dry_run:
-        return [
-            StepReport(name=s.name, ok=True, duration_ms=0, outputs=s.outputs)
-            for s in pipeline.steps
-        ]
+        return [StepReport(name=s.name, ok=True, duration_ms=0, outputs=s.outputs) for s in pipeline.steps]
     # The old report describes the old file. Until this run writes its own, there is none.
-    try:
+    with contextlib.suppress(OSError):
         (pipeline.work_dir / "report.json").unlink()
-    except OSError:
-        pass
     total = len(pipeline.steps)
     # Once one step runs again, everything after it was built from stale inputs.
     reran = False
@@ -272,67 +328,14 @@ def execute(
         if resume and not reran and outputs_complete(step) and _done_matches(pipeline, index, step):
             reports.append(
                 StepReport(
-                    name=step.name,
-                    ok=True,
-                    duration_ms=0,
-                    outputs=step.outputs,
-                    stderr_tail="skipped (outputs exist)",
+                    name=step.name, ok=True, duration_ms=0, outputs=step.outputs, stderr_tail="skipped (outputs exist)"
                 )
             )
             if progress:
                 print("    skipped (outputs exist)", file=sys.stderr, flush=True)
             continue
         reran = True
-        _forget_done(pipeline, index, step)
-        started = time.perf_counter()
-        try:
-            result: CommandResult = run_command(
-                step.argv,
-                stream_stderr=progress and sys.stderr.isatty(),
-                cancel_event=cancel_event,
-            )
-        except RenderCancelled:
-            _discard_partial_outputs(step)
-            raise
-        except RenderError as exc:
-            _discard_partial_outputs(step)
-            reports.append(StepReport(name=step.name, ok=False, duration_ms=int((time.perf_counter() - started) * 1000),
-                                      outputs=step.outputs, stderr_tail=str(exc)[-2000:]))
-            _write_failure_report(pipeline, reports, step=step, message=str(exc), stderr_tail=str(exc)[-2000:])
-            raise
-        except BaseException:
-            _discard_partial_outputs(step)
-            raise
-        elapsed = int((time.perf_counter() - started) * 1000)
-        missing = [p for p in step.outputs if not Path(p).exists()]
-        ok = result.ok and not missing
-        if not ok:
-            # ffmpeg writes progressively; a truncated file must never satisfy --resume.
-            _discard_partial_outputs(step)
-        report = StepReport(
-            name=step.name,
-            ok=ok,
-            duration_ms=elapsed,
-            outputs=step.outputs,
-            stderr_tail="\n".join(result.stderr.strip().splitlines()[-8:]),
-        )
-        reports.append(report)
-        if progress:
-            mark = "ok" if ok else "FAIL"
-            print(f"    {mark} {elapsed}ms", file=sys.stderr, flush=True)
-        if ok:
-            _record_done(pipeline, index, step)
-        elif not step.optional:
-            error = RenderError(
-                f"step '{step.name}' failed (exit {result.returncode}).\n"
-                f"command: {shell_join(step.argv)}\n"
-                f"{report.stderr_tail}"
-                + (f"\nmissing outputs: {missing}" if missing else ""),
-                step=step.name,
-                detail=result.stderr,
-            )
-            _write_failure_report(pipeline, reports, step=step, message=str(error), stderr_tail=report.stderr_tail)
-            raise error
+        _run_step(pipeline, index, step, reports, progress=progress, cancel_event=cancel_event)
     return reports
 
 
@@ -341,14 +344,20 @@ def _meta_finals(pipeline: Pipeline) -> list[Path]:
     return [Path(str(item)) for item in raw] if isinstance(raw, list) else []
 
 
-def _write_failure_report(pipeline: Pipeline, reports: list[StepReport], *, step: Step, message: str, stderr_tail: str) -> None:
+def _write_failure_report(
+    pipeline: Pipeline, reports: list[StepReport], *, step: Step, message: str, stderr_tail: str
+) -> None:
     """A failed render leaves a report that says so, never the previous run's passing one."""
     try:
-        write_report(pipeline, reports, finals=_meta_finals(pipeline),
-                     failed={"step": step.name, "message": message, "stderr_tail": stderr_tail})
-    except Exception:
+        write_report(
+            pipeline,
+            reports,
+            finals=_meta_finals(pipeline),
+            failed={"step": step.name, "message": message, "stderr_tail": stderr_tail},
+        )
+    except OSError as exc:
         # The failure itself is what the caller sees; a report that could not be written must not hide it.
-        pass
+        print(f"    report.json could not be written: {exc}", file=sys.stderr, flush=True)
 
 
 def write_report(
@@ -361,11 +370,14 @@ def write_report(
     """The proof of a render. ``ok`` is true only when every step passed and every final file exists."""
     try:
         ffmpeg = resolve_ffmpeg()
-    except Exception as exc:  # the report must still say the render failed
+    except (VeditError, OSError) as exc:  # the report must still say the render failed
         ffmpeg = f"unavailable: {exc}"
     payload: dict[str, Any] = {
         "name": pipeline.name,
-        "ok": failed is None and bool(step_reports) and all(r.ok for r in step_reports) and all(path.is_file() for path in finals),
+        "ok": failed is None
+        and bool(step_reports)
+        and all(r.ok for r in step_reports)
+        and all(path.is_file() for path in finals),
         "ffmpeg": ffmpeg,
         "work_dir": str(pipeline.work_dir),
         "steps": [asdict(r) for r in step_reports],
@@ -379,7 +391,7 @@ def write_report(
             continue
         try:
             info = probe(path)
-        except Exception as exc:  # a file ffprobe cannot read is not a delivered render
+        except (VeditError, OSError) as exc:  # a file ffprobe cannot read is not a delivered render
             payload["ok"] = False
             payload["outputs"].append({"path": str(path), "exists": True, "error": str(exc)})
             continue

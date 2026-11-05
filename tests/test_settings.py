@@ -26,7 +26,9 @@ ORIGIN_ROUTES = [
 ]
 
 
-def call(port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+def call(
+    port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None
+) -> tuple[int, dict]:
     outgoing = dict(headers or {})
     body = None
     if payload is not None:
@@ -66,17 +68,20 @@ def fake_security(folder: Path, *, fails: bool = False) -> Path:
     """A `security` that keeps its one secret in a file and logs its arguments."""
     folder.mkdir(parents=True, exist_ok=True)
     tool = folder / "security"
-    tool.write_text(f"""#!/bin/sh
+    tool.write_text(
+        f"""#!/bin/sh
 store={folder}/secret
 printf '%s\\n' "$*" >> {folder}/argv.log
-{'exit 1' if fails else ''}
+{"exit 1" if fails else ""}
 case "$1" in
   -i) read -r line
       printf '%s\\n' "$line" | sed -e 's/.* -w "//' -e 's/".*//' > "$store" ;;
   find-generic-password) cat "$store" 2>/dev/null || exit 44 ;;
   delete-generic-password) rm -f "$store" ;;
 esac
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     tool.chmod(0o755)
     return folder
 
@@ -124,7 +129,18 @@ def test_a_damaged_file_does_not_stop_anything(clean_env: None) -> None:
 
 
 def test_http_round_trip_never_exposes_the_key(server: int) -> None:
-    status, posted = call(server, "POST", "/api/settings", {"meta_api_key": KEY, "meta_enabled": True, "meta_mode": "contributor", "default_budget_usd": 1.5, "default_language": "es"})
+    status, posted = call(
+        server,
+        "POST",
+        "/api/settings",
+        {
+            "meta_api_key": KEY,
+            "meta_enabled": True,
+            "meta_mode": "contributor",
+            "default_budget_usd": 1.5,
+            "default_language": "es",
+        },
+    )
     assert status == 200
     status, read = call(server, "GET", "/api/settings")
     assert status == 200
@@ -239,7 +255,11 @@ def test_a_missing_key_stops_the_request_before_the_network(clean_env: None, mon
 
 def test_test_connection_is_the_same_free_check(server: int, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    monkeypatch.setattr(meta, "check_access", lambda: calls.append(1) or {"ok": True, "models": ["muse-spark-1.3"], "reason": "Meta credentials work."})
+    monkeypatch.setattr(
+        meta,
+        "check_access",
+        lambda: calls.append(1) or {"ok": True, "models": ["muse-spark-1.3"], "reason": "Meta credentials work."},
+    )
     status, body = call(server, "POST", "/api/settings/test", {})
     assert status == 200 and calls == [1]
     assert body["access"]["reason"] == "Meta credentials work."
@@ -252,8 +272,12 @@ def test_test_connection_says_why_when_meta_is_off(server: int) -> None:
 
 
 @pytest.mark.parametrize(("method", "path", "payload"), ORIGIN_ROUTES)
-@pytest.mark.parametrize("headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}])
-def test_new_routes_refuse_other_origins(server: int, method: str, path: str, payload: object, headers: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    "headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}]
+)
+def test_new_routes_refuse_other_origins(
+    server: int, method: str, path: str, payload: object, headers: dict[str, str]
+) -> None:
     status, body = call(server, method, path, payload, headers)
     assert status == 403, body
     assert settings.load() == {}
@@ -287,7 +311,9 @@ def test_clearing_removes_the_keychain_item(keychain: Path) -> None:
     assert settings.meta_api_key() == ""
 
 
-def test_keychain_failure_falls_back_to_the_private_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
+def test_keychain_failure_falls_back_to_the_private_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None
+) -> None:
     folder = fake_security(tmp_path / "broken", fails=True)
     monkeypatch.setenv("PATH", f"{folder}:{os.environ['PATH']}")
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -303,8 +329,13 @@ def test_no_keychain_off_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.keychain_available() is False
 
 
-@pytest.mark.skipif(sys.platform != "darwin" or os.environ.get("VEDIT_TEST_KEYCHAIN") != "1", reason="real macOS Keychain; run with VEDIT_TEST_KEYCHAIN=1")
-def test_real_keychain_round_trip_in_a_throwaway_keychain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
+@pytest.mark.skipif(
+    sys.platform != "darwin" or os.environ.get("VEDIT_TEST_KEYCHAIN") != "1",
+    reason="real macOS Keychain; run with VEDIT_TEST_KEYCHAIN=1",
+)
+def test_real_keychain_round_trip_in_a_throwaway_keychain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None
+) -> None:
     path = tmp_path / "throwaway.keychain-db"
     subprocess.run(["security", "create-keychain", "-p", "test", str(path)], check=True)
     try:
@@ -322,7 +353,9 @@ def test_real_keychain_round_trip_in_a_throwaway_keychain(tmp_path: Path, monkey
         subprocess.run(["security", "delete-keychain", str(path)], check=False)
 
 
-def test_workspace_order_is_environment_then_settings_then_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
+def test_workspace_order_is_environment_then_settings_then_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None
+) -> None:
     assert settings.configured_workspace() == (None, "default")
     chosen = tmp_path / "projects"
     state = settings.update({"workspace": str(chosen)})
@@ -333,7 +366,9 @@ def test_workspace_order_is_environment_then_settings_then_default(tmp_path: Pat
     assert settings.configured_workspace() == (tmp_path / "from-env", "environment")
 
 
-def test_enter_workspace_moves_there_and_survives_a_missing_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None, capsys: pytest.CaptureFixture[str]) -> None:
+def test_enter_workspace_moves_there_and_survives_a_missing_drive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     assert settings.enter_workspace() == tmp_path.resolve(), "nothing chosen and no default stays put"
     target = tmp_path / "default"
@@ -361,9 +396,14 @@ def test_default_workspace_follows_the_platform(tmp_path: Path, monkeypatch: pyt
     assert settings.default_workspace() == tmp_path / "data" / "briefcut"
 
 
-def test_env_local_is_applied_without_overriding_the_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
+def test_env_local_is_applied_without_overriding_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None
+) -> None:
     env = tmp_path / ".env.local"
-    env.write_text("# secrets\nexport MODEL_API_KEY='from-file'\nVEDIT_META_ENABLED=1\nVEDIT_META_MODE=contributor\nPATH=/evil\n", encoding="utf-8")
+    env.write_text(
+        "# secrets\nexport MODEL_API_KEY='from-file'\nVEDIT_META_ENABLED=1\nVEDIT_META_MODE=contributor\nPATH=/evil\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("VEDIT_META_MODE", "standard")
     before = os.environ["PATH"]
     applied = settings.load_env_file(env)

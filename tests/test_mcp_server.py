@@ -20,8 +20,16 @@ from vedit.media import resolve_ffmpeg  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parents[1] / "examples" / "demo" / "talk.mp4"
 JOB = "a" * 32
-_TINY_PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0300050001012718e3660000000049454e44ae426082")
-NEW_TOOLS = {"briefcut_status", "briefcut_timeline", "briefcut_edit", "briefcut_add_asset", "briefcut_generate_background"}
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0300050001012718e3660000000049454e44ae426082"
+)
+NEW_TOOLS = {
+    "briefcut_status",
+    "briefcut_timeline",
+    "briefcut_edit",
+    "briefcut_add_asset",
+    "briefcut_generate_background",
+}
 
 
 def _have_ffmpeg() -> bool:
@@ -78,7 +86,9 @@ def offline_create(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 @pytest.mark.render
 @pytest.mark.skipif(not _have_ffmpeg(), reason="ffmpeg required")
-def test_import_plan_render_receipts_and_artifact_over_mcp(workspace: Path, offline_create: list[dict[str, Any]]) -> None:
+def test_import_plan_render_receipts_and_artifact_over_mcp(
+    workspace: Path, offline_create: list[dict[str, Any]]
+) -> None:
     clip = workspace / "upload" / "talk.mp4"
     clip.parent.mkdir()
     shutil.copyfile(FIXTURE, clip)
@@ -88,7 +98,19 @@ def test_import_plan_render_receipts_and_artifact_over_mcp(workspace: Path, offl
         async with Client(server) as client:
             listed = await client.list_tools()
             names = {tool.name for tool in listed.tools}
-            assert {"briefcut_import_clip", "briefcut_create_story", "briefcut_wait", "briefcut_render", "briefcut_revise", "briefcut_receipts", "briefcut_artifact_path", "briefcut_cancel", "briefcut_find_moments", "briefcut_make_shorts", "briefcut_script_to_video"} | NEW_TOOLS <= names
+            assert {
+                "briefcut_import_clip",
+                "briefcut_create_story",
+                "briefcut_wait",
+                "briefcut_render",
+                "briefcut_revise",
+                "briefcut_receipts",
+                "briefcut_artifact_path",
+                "briefcut_cancel",
+                "briefcut_find_moments",
+                "briefcut_make_shorts",
+                "briefcut_script_to_video",
+            } | NEW_TOOLS <= names
 
             imported = _payload(await client.call_tool("briefcut_import_clip", {"path": str(clip)}))
             assert "tool_error" not in imported, imported
@@ -97,10 +119,18 @@ def test_import_plan_render_receipts_and_artifact_over_mcp(workspace: Path, offl
             assert inbox.is_file()
             assert inbox.relative_to(workspace / "vedit-sessions").parts[1] == "inbox"
 
-            job = _payload(await client.call_tool("briefcut_create_story", {
-                "paths": imported["paths"], "goal": "Show the talk clearly",
-                "target_duration": 3, "aspect": "9:16", "captions": False,
-            }))
+            job = _payload(
+                await client.call_tool(
+                    "briefcut_create_story",
+                    {
+                        "paths": imported["paths"],
+                        "goal": "Show the talk clearly",
+                        "target_duration": 3,
+                        "aspect": "9:16",
+                        "captions": False,
+                    },
+                )
+            )
             assert "tool_error" not in job, job
             assert offline_create[-1]["provider"] == "meta" and offline_create[-1]["caption_provider"] == "meta"
             job_id = job["id"]
@@ -127,10 +157,18 @@ def test_import_plan_render_receipts_and_artifact_over_mcp(workspace: Path, offl
                 assert "tool_error" not in artifact, artifact
                 path = Path(artifact["path"])
                 assert path.is_absolute() and path.is_file() and artifact["bytes"] > 0
-            report = json.loads(Path(_payload(await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "report"}))["path"]).read_text())
+            report = json.loads(
+                Path(
+                    _payload(await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "report"}))[
+                        "path"
+                    ]
+                ).read_text()
+            )
             assert report
 
-            missing = _payload(await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "cover", "revision": 99}))
+            missing = _payload(
+                await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "cover", "revision": 99})
+            )
             assert "tool_error" in missing and "revision" in missing["tool_error"]
             listed_jobs = _payload(await client.call_tool("briefcut_list", {}))
             assert any(item["id"] == job_id for item in listed_jobs["jobs"])
@@ -166,7 +204,7 @@ def test_campaign_error_becomes_tool_error_without_traceback(workspace: Path, mo
         def create(self, value: Any) -> dict[str, Any]:
             raise CampaignError("Choose one uploaded video for this campaign.")
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     server = mcp_server.build_server()
 
     async def flow() -> None:
@@ -191,19 +229,23 @@ def test_wait_times_out_with_a_tool_error(workspace: Path, monkeypatch: pytest.M
         def get(self, ident: str) -> dict[str, Any]:
             return {"id": ident, "status": "analyzing", "stage": "analyzing", "message": "Reading your clip."}
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     monkeypatch.setattr(mcp_server, "POLL_SECONDS", 0.01)
     server = mcp_server.build_server()
 
     async def flow() -> None:
         async with Client(server) as client:
             result = _payload(await client.call_tool("briefcut_wait", {"job_id": "a" * 32, "timeout_seconds": 0.05}))
-            assert "tool_error" in result and "Timed out" in result["tool_error"] and "analyzing" in result["tool_error"]
+            assert (
+                "tool_error" in result and "Timed out" in result["tool_error"] and "analyzing" in result["tool_error"]
+            )
 
     _run(flow())
 
 
-def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_shorts_and_script_tools_forward_campaign_requests(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls: list[tuple[str, tuple[Any, ...]]] = []
     # A real picture on disk: the tool must copy it into an inbox the manager accepts.
     picture = workspace / "scene.png"
@@ -225,30 +267,54 @@ def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path,
             calls.append(("script", (value,)))
             return {"id": "script-1", "status": "queued"}
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     server = mcp_server.build_server()
 
     async def flow() -> None:
         async with Client(server) as client:
             found = _payload(await client.call_tool("briefcut_find_moments", {"job_id": "a" * 32, "query": "the bowl"}))
             assert found["searched"] == ["transcript"]
-            shorts = _payload(await client.call_tool("briefcut_make_shorts", {
-                "job_id": "a" * 32, "count": 2, "target_duration": 12, "aspect": "9:16",
-                "budget_usd": 0.5, "auto_render": False,
-            }))
+            shorts = _payload(
+                await client.call_tool(
+                    "briefcut_make_shorts",
+                    {
+                        "job_id": "a" * 32,
+                        "count": 2,
+                        "target_duration": 12,
+                        "aspect": "9:16",
+                        "budget_usd": 0.5,
+                        "auto_render": False,
+                    },
+                )
+            )
             assert len(shorts["jobs"]) == 2
-            script = _payload(await client.call_tool("briefcut_script_to_video", {
-                "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
-                "provider": "meta", "budget_usd": 0.5, "language": "en",
-                "images": [str(picture)], "review": True, "auto_refine": 1,
-                "template": "tutorial", "edit": {"captions": {"style": "bold"}},
-            }))
+            script = _payload(
+                await client.call_tool(
+                    "briefcut_script_to_video",
+                    {
+                        "script": "A bowl begins as a block. The grain guides every cut.",
+                        "aspect": "16:9",
+                        "provider": "meta",
+                        "budget_usd": 0.5,
+                        "language": "en",
+                        "images": [str(picture)],
+                        "review": True,
+                        "auto_refine": 1,
+                        "template": "tutorial",
+                        "edit": {"captions": {"style": "bold"}},
+                    },
+                )
+            )
             assert script["job"]["id"] == "script-1"
 
     _run(flow())
     assert calls[0] == ("find", ("a" * 32, {"query": "the bowl", "verify": True, "drop_unseen": False}))
     assert calls[1][0] == "shorts" and calls[1][1][1] == {
-        "count": 2, "target_duration": 12.0, "aspect": "9:16", "auto_render": False, "budget_usd": 0.5,
+        "count": 2,
+        "target_duration": 12.0,
+        "aspect": "9:16",
+        "auto_render": False,
+        "budget_usd": 0.5,
     }
     sent = calls[2][1][0]
     staged = Path(sent["images"][0])
@@ -256,15 +322,29 @@ def test_find_shorts_and_script_tools_forward_campaign_requests(workspace: Path,
     assert staged.is_file() and staged.suffix == ".png" and staged.read_bytes() == _TINY_PNG
     assert staged.parent.name == "inbox" and staged.parent.parent.parent == workspace / "vedit-sessions"
     assert staged.parent.parent.name.startswith("source-")
-    assert calls[2] == ("script", ({
-        "script": "A bowl begins as a block. The grain guides every cut.", "aspect": "16:9",
-        "provider": "meta", "budget_usd": 0.5, "language": "en", "images": [str(staged)],
-        "review": True, "auto_refine": 1, "template": "tutorial",
-        "edit": {"captions": {"style": "bold"}}, "caption_provider": "meta",
-    },))
+    assert calls[2] == (
+        "script",
+        (
+            {
+                "script": "A bowl begins as a block. The grain guides every cut.",
+                "aspect": "16:9",
+                "provider": "meta",
+                "budget_usd": 0.5,
+                "language": "en",
+                "images": [str(staged)],
+                "review": True,
+                "auto_refine": 1,
+                "template": "tutorial",
+                "edit": {"captions": {"style": "bold"}},
+                "caption_provider": "meta",
+            },
+        ),
+    )
 
 
-def test_a_missing_script_image_is_refused_and_leaves_no_staged_copies(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_missing_script_image_is_refused_and_leaves_no_staged_copies(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     first = workspace / "one.png"
     first.write_bytes(_TINY_PNG)
 
@@ -279,29 +359,41 @@ def test_a_missing_script_image_is_refused_and_leaves_no_staged_copies(workspace
 
     async def flow() -> Any:
         async with Client(server) as client:
-            return _payload(await client.call_tool("briefcut_script_to_video", {"script": "One line.", "images": [str(first), str(workspace / "missing.png")]}))
+            return _payload(
+                await client.call_tool(
+                    "briefcut_script_to_video",
+                    {"script": "One line.", "images": [str(first), str(workspace / "missing.png")]},
+                )
+            )
 
     assert _refused(_run(flow()), "No file at")
-    assert not list((workspace / "vedit-sessions").glob("*/inbox/*")), "the picture staged before the failure is removed"
+    assert not list((workspace / "vedit-sessions").glob("*/inbox/*")), (
+        "the picture staged before the failure is removed"
+    )
 
 
-@pytest.mark.parametrize(("raw", "expected"), [
-    ("写真.png", "media.png"),
-    ("a b.MOV", "a_b.MOV"),
-    ("/Users/me/Movies/clip final.mp4", "clip_final.mp4"),
-    ("C:\\Users\\me\\写真 2.JPG", "2.JPG"),
-    ("...", "clip.mp4"),
-])
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("写真.png", "media.png"),
+        ("a b.MOV", "a_b.MOV"),
+        ("/Users/me/Movies/clip final.mp4", "clip_final.mp4"),
+        ("C:\\Users\\me\\写真 2.JPG", "2.JPG"),
+        ("...", "clip.mp4"),
+    ],
+)
 def test_safe_filename_keeps_the_extension(raw: str, expected: str) -> None:
     # The manager type-checks pictures by suffix, so 写真.png must not become "png".
     assert mcp_server._safe_filename(raw) == expected
 
 
-def test_workspace_falls_back_to_the_desktop_default_not_the_agent_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workspace_falls_back_to_the_desktop_default_not_the_agent_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from vedit import settings
 
     monkeypatch.delenv("VEDIT_WORKSPACE", raising=False)
-    monkeypatch.setattr(settings, "load", lambda: {})
+    monkeypatch.setattr(settings, "load", dict)
     monkeypatch.chdir(tmp_path)
     assert mcp_server.workspace() == settings.default_workspace().expanduser().resolve()
     assert mcp_server.workspace() != tmp_path.resolve()
@@ -312,7 +404,9 @@ def test_workspace_falls_back_to_the_desktop_default_not_the_agent_folder(tmp_pa
     assert mcp_server.workspace() == (tmp_path / "env").resolve(), "the environment wins over Settings"
 
 
-def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     called: list[Any] = []
 
     class Stub:
@@ -322,12 +416,16 @@ def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(works
             called.append(value)
             return {"id": "script-1", "status": "queued"}
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     server = mcp_server.build_server()
 
     async def flow() -> tuple[Any, str]:
         async with Client(server) as client:
-            refused = _payload(await client.call_tool("briefcut_script_to_video", {"script": "One line.", "voice": "en_US-lessac-medium"}))
+            refused = _payload(
+                await client.call_tool(
+                    "briefcut_script_to_video", {"script": "One line.", "voice": "en_US-lessac-medium"}
+                )
+            )
             listed = {item.name: item for item in (await client.list_tools()).tools}
             return refused, listed["briefcut_script_to_video"].description
 
@@ -343,20 +441,41 @@ def test_a_script_video_refuses_a_voice_because_meta_has_no_text_to_speech(works
 # ---------------------------------------------------------------------------
 
 _WORDS = [
-    {"start": 0.5, "end": 0.8, "text": "This"}, {"start": 0.8, "end": 1.0, "text": "is"}, {"start": 1.0, "end": 1.3, "text": "the"},
-    {"start": 1.3, "end": 2.0, "text": "bowl."}, {"start": 6.5, "end": 6.8, "text": "And"}, {"start": 6.8, "end": 7.1, "text": "now"},
-    {"start": 7.1, "end": 7.3, "text": "it"}, {"start": 7.3, "end": 7.6, "text": "is"}, {"start": 7.6, "end": 8.0, "text": "done."},
+    {"start": 0.5, "end": 0.8, "text": "This"},
+    {"start": 0.8, "end": 1.0, "text": "is"},
+    {"start": 1.0, "end": 1.3, "text": "the"},
+    {"start": 1.3, "end": 2.0, "text": "bowl."},
+    {"start": 6.5, "end": 6.8, "text": "And"},
+    {"start": 6.8, "end": 7.1, "text": "now"},
+    {"start": 7.1, "end": 7.3, "text": "it"},
+    {"start": 7.3, "end": 7.6, "text": "is"},
+    {"start": 7.6, "end": 8.0, "text": "done."},
 ]
-_LINES = [{"start": 0.5, "end": 2.0, "text": "This is the bowl."}, {"start": 6.5, "end": 8.0, "text": "And now it is done."}]
+_LINES = [
+    {"start": 0.5, "end": 2.0, "text": "This is the bowl."},
+    {"start": 6.5, "end": 8.0, "text": "And now it is done."},
+]
 
 
 def _planned_job(**request: Any) -> dict[str, Any]:
     analysis = {"method": "local-analysis", "transcript": _LINES, "sentences": _LINES, "words": _WORDS}
-    plan = validate_plan({"title": "Bowl", "segments": [{"start": 0.0, "end": 4.0, "label": "Open"}, {"start": 6.0, "end": 9.0, "label": "Close"}]},
-                         12.0, original={"analysis": analysis})
+    plan = validate_plan(
+        {
+            "title": "Bowl",
+            "segments": [{"start": 0.0, "end": 4.0, "label": "Open"}, {"start": 6.0, "end": 9.0, "label": "Close"}],
+        },
+        12.0,
+        original={"analysis": analysis},
+    )
     return {
-        "id": JOB, "status": "planned", "revision": 0, "verified_revision": None, "plan": plan, "source": {"duration": 12.0},
-        "request": {"provider": "local", "aspect": "9:16", "captions": True, "language": "en", **request}, "assets": {},
+        "id": JOB,
+        "status": "planned",
+        "revision": 0,
+        "verified_revision": None,
+        "plan": plan,
+        "source": {"duration": 12.0},
+        "request": {"provider": "local", "aspect": "9:16", "captions": True, "language": "en", **request},
+        "assets": {},
     }
 
 
@@ -383,7 +502,9 @@ class _EditStub:
         job = self.get(ident)
         if not job.get("plan"):
             raise CampaignError("Create a story plan before editing its timeline.", 409)
-        return validate_plan(value.get("plan", job["plan"]), job["source"]["duration"], original=job["plan"], assets=job.get("assets"))["timeline"]
+        return validate_plan(
+            value.get("plan", job["plan"]), job["source"]["duration"], original=job["plan"], assets=job.get("assets")
+        )["timeline"]
 
     def render(self, ident: str, value: dict[str, Any]) -> dict[str, Any]:
         job = self.get(ident)
@@ -417,11 +538,15 @@ def test_timeline_is_summary_first_and_pages_its_lists(workspace: Path, monkeypa
             assert summary["removed_ranges"] == 2 and summary["caption_edits"] == 0
             assert summary["captions_on"] is True and summary["assets"] == []
 
-            first = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "captions", "limit": 1}))
+            first = _payload(
+                await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "captions", "limit": 1})
+            )
             assert first["total"] == 2 and first["next_offset"] == 1 and len(first["items"]) == 1
             cue = first["items"][0]
             assert cue["key"] == "500" and cue["text"] == "This is the bowl." and "words" not in cue
-            last = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "spans", "offset": 1, "limit": 1}))
+            last = _payload(
+                await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "spans", "offset": 1, "limit": 1})
+            )
             assert last["next_offset"] is None and last["items"][0]["segment"] == 2
             assert last["items"][0]["output_start"] == pytest.approx(4.0)
             full = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "edit"}))
@@ -429,7 +554,9 @@ def test_timeline_is_summary_first_and_pages_its_lists(workspace: Path, monkeypa
 
             bad = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "everything"}))
             assert "tool_error" in bad and "summary" in bad["tool_error"]
-            too_many = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "spans", "limit": 500}))
+            too_many = _payload(
+                await client.call_tool("briefcut_timeline", {"job_id": JOB, "detail": "spans", "limit": 500})
+            )
             assert "tool_error" in too_many and "200" in too_many["tool_error"]
             unknown = _payload(await client.call_tool("briefcut_timeline", {"job_id": "b" * 32}))
             assert _refused(unknown, "Campaign not found.")
@@ -440,7 +567,11 @@ def test_timeline_is_summary_first_and_pages_its_lists(workspace: Path, monkeypa
     async def unplanned() -> None:
         async with Client(server) as client:
             waiting = _payload(await client.call_tool("briefcut_timeline", {"job_id": JOB}))
-            assert "tool_error" in waiting and "briefcut_wait" in waiting["tool_error"] and "analyzing" in waiting["tool_error"]
+            assert (
+                "tool_error" in waiting
+                and "briefcut_wait" in waiting["tool_error"]
+                and "analyzing" in waiting["tool_error"]
+            )
 
     _run(unplanned())
 
@@ -464,11 +595,19 @@ def test_edit_is_a_validated_dry_run_until_render_keeps_it(workspace: Path, monk
             assert stub.rendered == [] and stub.job["plan"]["edit"]["look"]["preset"] == "none"
 
             # Invalid values are refused by edit_spec through the manager, with its own words.
-            style = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"captions": {"style": "comic"}}}))
+            style = _payload(
+                await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"captions": {"style": "comic"}}})
+            )
             assert _refused(style, "Caption style is not one of the available choices.")
-            strength = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"intensity": 5}}, "render": True}))
+            strength = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"look": {"intensity": 5}}, "render": True}
+                )
+            )
             assert "tool_error" in strength and "Look strength must be between 0 and 1" in strength["tool_error"]
-            skipped = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "patches": [{"op": "remove", "segment": 9}]}))
+            skipped = _payload(
+                await client.call_tool("briefcut_edit", {"job_id": JOB, "patches": [{"op": "remove", "segment": 9}]})
+            )
             assert "tool_error" in skipped and "unknown moment" in skipped["tool_error"]
             empty = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB}))
             assert "tool_error" in empty and "Send an edit" in empty["tool_error"]
@@ -476,23 +615,43 @@ def test_edit_is_a_validated_dry_run_until_render_keeps_it(workspace: Path, monk
             assert _refused(unknown, "Campaign not found.")
             assert stub.rendered == []
 
-            kept = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": change, "patches": trim, "render": True}))
+            kept = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": change, "patches": trim, "render": True}
+                )
+            )
             assert "tool_error" not in kept, kept
             assert kept["rendered"] is True and kept["revision"] == 1 and kept["status"] == "queued"
             assert {"path": "look.preset", "before": "none", "after": "warm"} in kept["changes"]
             assert kept["duration"] == pytest.approx(6.5) and "briefcut_wait" in kept["next"]
             payload = stub.rendered[-1]
             assert set(payload) == {"plan"}
-            assert payload["plan"]["edit"]["look"]["preset"] == "warm" and payload["plan"]["segments"][0]["end"] == pytest.approx(3.5)
+            assert payload["plan"]["edit"]["look"]["preset"] == "warm" and payload["plan"]["segments"][0][
+                "end"
+            ] == pytest.approx(3.5)
             assert stub.job["plan"]["edit"]["captions"]["style"] == "bold"
 
-            busy = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "cool"}}, "render": True}))
+            busy = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "cool"}}, "render": True}
+                )
+            )
             assert "tool_error" in busy and "queued" in busy["tool_error"]
             stub.job["status"] = "complete"
             same = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": change, "render": True}))
             assert "tool_error" in same and "changes nothing" in same["tool_error"]
-            framed = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "cool"}}, "render": True,
-                                                                       "captions": False, "aspect": "16:9"}))
+            framed = _payload(
+                await client.call_tool(
+                    "briefcut_edit",
+                    {
+                        "job_id": JOB,
+                        "edit": {"look": {"preset": "cool"}},
+                        "render": True,
+                        "captions": False,
+                        "aspect": "16:9",
+                    },
+                )
+            )
             assert framed["rendered"] is True and framed["revision"] == 2
             assert stub.rendered[-1]["captions"] is False and stub.rendered[-1]["aspect"] == "16:9"
             assert len(stub.rendered) == 2
@@ -500,7 +659,9 @@ def test_edit_is_a_validated_dry_run_until_render_keeps_it(workspace: Path, monk
     _run(flow())
 
 
-def test_edit_names_meta_uses_and_renders_them_on_the_projects_consent(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_edit_names_meta_uses_and_renders_them_on_the_projects_consent(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     stub = _EditStub(_planned_job())
     monkeypatch.setattr(mcp_server, "capabilities", lambda: {"meta": {"available": False, "reason": "Meta is off."}})
     server = _serve(monkeypatch, stub)
@@ -513,19 +674,35 @@ def test_edit_names_meta_uses_and_renders_them_on_the_projects_consent(workspace
             assert any("Meta is off." in warning and "render will fail" in warning for warning in draft["warnings"])
             assert stub.rendered == []
             # The person agreed to Meta when the project was made; the result says what goes, and it renders.
-            rendered = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": spanish, "render": True}))
+            rendered = _payload(
+                await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": spanish, "render": True})
+            )
             assert rendered["rendered"] is True and "caption text goes to Meta" in rendered["meta"][0]
             assert stub.rendered[-1]["plan"]["edit"]["captions"]["language"] == "es"
-            gone = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": spanish, "render": True, "allow_meta": True}))
+            gone = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": spanish, "render": True, "allow_meta": True}
+                )
+            )
             assert "tool_error" in gone, "allow_meta is no longer a parameter"
 
             stub.job["status"] = "complete"
-            silent = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"captions": {"language": "fr"}}, "captions": False}))
+            silent = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"captions": {"language": "fr"}}, "captions": False}
+                )
+            )
             assert silent["meta"] == [] and any("Captions are off" in warning for warning in silent["warnings"])
             # A project saved before Briefcut was Meta-only never uploads footage for a cutout, and says so.
-            cutout = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"cutout": {"mode": "blur", "subject": "the bowl"}}}))
+            cutout = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"cutout": {"mode": "blur", "subject": "the bowl"}}}
+                )
+            )
             assert cutout["meta"] == [] and any("not made with Meta" in warning for warning in cutout["warnings"])
-            unnamed = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"cutout": {"mode": "blur"}}}))
+            unnamed = _payload(
+                await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"cutout": {"mode": "blur"}}})
+            )
             assert "tool_error" in unnamed and "Name the subject" in unnamed["tool_error"]
 
     _run(flow())
@@ -544,17 +721,30 @@ def test_edit_names_meta_uses_and_renders_them_on_the_projects_consent(workspace
             stub.job["status"] = "complete"
             stub.job["request"]["captions"] = False
             stub.job["plan"]["edit"]["captions"]["language"] = "fr"
-            turned_on = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "mono"}}, "captions": True, "render": True}))
-            assert turned_on["rendered"] is True and any("Translate the captions to fr" in use for use in turned_on["meta"])
+            turned_on = _payload(
+                await client.call_tool(
+                    "briefcut_edit",
+                    {"job_id": JOB, "edit": {"look": {"preset": "mono"}}, "captions": True, "render": True},
+                )
+            )
+            assert turned_on["rendered"] is True and any(
+                "Translate the captions to fr" in use for use in turned_on["meta"]
+            )
             stub.job["status"] = "complete"
-            stays_off = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "warm"}}, "render": True}))
+            stays_off = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "warm"}}, "render": True}
+                )
+            )
             assert stays_off["rendered"] is True and stays_off["meta"] == []
 
     _run(meta_project())
     assert len(stub.rendered) == 4 and "captions" not in stub.rendered[-1]
 
 
-def test_edit_does_not_claim_a_render_the_manager_did_not_queue(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_edit_does_not_claim_a_render_the_manager_did_not_queue(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class InFlight(_EditStub):
         def render(self, ident: str, value: dict[str, Any]) -> dict[str, Any]:
             # CampaignManager.render returns the running job unchanged when a render is already in flight.
@@ -564,13 +754,19 @@ def test_edit_does_not_claim_a_render_the_manager_did_not_queue(workspace: Path,
 
     async def flow() -> None:
         async with Client(server) as client:
-            result = _payload(await client.call_tool("briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "warm"}}, "render": True}))
+            result = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": JOB, "edit": {"look": {"preset": "warm"}}, "render": True}
+                )
+            )
             assert _refused(result, "already rendering, so this draft was not kept")
 
     _run(flow())
 
 
-def test_add_asset_stages_the_file_for_the_manager_and_removes_the_copy(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_add_asset_stages_the_file_for_the_manager_and_removes_the_copy(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sessions = workspace / "vedit-sessions"
     seen: list[tuple[str, Path, bytes]] = []
 
@@ -614,9 +810,17 @@ def test_add_asset_and_background_use_the_real_manager_gates(workspace: Path) ->
 
             missing = _payload(await client.call_tool("briefcut_add_asset", {"job_id": JOB, "path": str(note)}))
             assert _refused(missing, "Campaign not found.")
-            refused = _payload(await client.call_tool("briefcut_generate_background", {"job_id": JOB, "prompt": "a calm studio", "consent": False}))
+            refused = _payload(
+                await client.call_tool(
+                    "briefcut_generate_background", {"job_id": JOB, "prompt": "a calm studio", "consent": False}
+                )
+            )
             assert _refused(refused, "Confirm the cost before generating a background.")
-            unknown = _payload(await client.call_tool("briefcut_generate_background", {"job_id": JOB, "prompt": "a calm studio", "consent": True}))
+            unknown = _payload(
+                await client.call_tool(
+                    "briefcut_generate_background", {"job_id": JOB, "prompt": "a calm studio", "consent": True}
+                )
+            )
             assert _refused(unknown, "Campaign not found.")
 
     _run(flow())
@@ -624,7 +828,9 @@ def test_add_asset_and_background_use_the_real_manager_gates(workspace: Path) ->
     assert not [path for path in (workspace / "vedit-sessions").glob("source-*") if path.exists()]
 
 
-def test_status_reports_capabilities_offline_and_never_the_key(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_reports_capabilities_offline_and_never_the_key(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from vedit import meta
 
     secret = "sk-briefcut-test-secret-0123456789"
@@ -649,7 +855,9 @@ def test_status_reports_capabilities_offline_and_never_the_key(workspace: Path, 
     assert status["meta"]["configured"] is True and status["meta"]["enabled"] is True
     assert set(status["meta"]["features"]) >= {"story", "translate", "cutout", "background"}
     choices = status["editor"]["choices"]
-    assert "none" in choices["look.preset"] and "bold" in choices["captions.style"] and "mp4" in choices["export.format"]
+    assert (
+        "none" in choices["look.preset"] and "bold" in choices["captions.style"] and "mp4" in choices["export.format"]
+    )
     assert "set_edit" in status["director"]["patch_ops"] and status["limits"]["segments"] >= 2
     assert status["workspace"] == str(workspace.resolve())
     # Status reads capabilities only; it never takes the workspace lease.
@@ -667,10 +875,18 @@ def test_edit_renders_a_validated_change_end_to_end(workspace: Path, offline_cre
     async def flow() -> None:
         async with Client(server) as client:
             imported = _payload(await client.call_tool("briefcut_import_clip", {"path": str(clip)}))
-            job = _payload(await client.call_tool("briefcut_create_story", {
-                "paths": imported["paths"], "goal": "Show the talk clearly",
-                "target_duration": 3, "aspect": "9:16", "captions": False,
-            }))
+            job = _payload(
+                await client.call_tool(
+                    "briefcut_create_story",
+                    {
+                        "paths": imported["paths"],
+                        "goal": "Show the talk clearly",
+                        "target_duration": 3,
+                        "aspect": "9:16",
+                        "captions": False,
+                    },
+                )
+            )
             job_id = job["id"]
             planned = _payload(await client.call_tool("briefcut_wait", {"job_id": job_id, "timeout_seconds": 60}))
             assert planned.get("status") == "planned", planned
@@ -679,26 +895,50 @@ def test_edit_renders_a_validated_change_end_to_end(workspace: Path, offline_cre
             assert "tool_error" not in summary, summary
             assert summary["duration"] > 0 and summary["segments"] and summary["span_count"] >= 1
 
-            invalid = _payload(await client.call_tool("briefcut_edit", {"job_id": job_id, "edit": {"transition": {"type": "spin"}}, "render": True}))
+            invalid = _payload(
+                await client.call_tool(
+                    "briefcut_edit", {"job_id": job_id, "edit": {"transition": {"type": "spin"}}, "render": True}
+                )
+            )
             assert _refused(invalid, "Transition is not one of the available choices.")
-            dry = _payload(await client.call_tool("briefcut_edit", {"job_id": job_id, "edit": {"look": {"preset": "warm"}}}))
-            assert dry["rendered"] is False and {"path": "look.preset", "before": "none", "after": "warm"} in dry["changes"]
+            dry = _payload(
+                await client.call_tool("briefcut_edit", {"job_id": job_id, "edit": {"look": {"preset": "warm"}}})
+            )
+            assert (
+                dry["rendered"] is False
+                and {"path": "look.preset", "before": "none", "after": "warm"} in dry["changes"]
+            )
             unchanged = _payload(await client.call_tool("briefcut_get", {"job_id": job_id}))
-            assert unchanged["plan"]["edit"]["look"]["preset"] == "none" and unchanged["revision"] == planned["revision"]
+            assert (
+                unchanged["plan"]["edit"]["look"]["preset"] == "none" and unchanged["revision"] == planned["revision"]
+            )
 
-            kept = _payload(await client.call_tool("briefcut_edit", {"job_id": job_id, "edit": {"look": {"preset": "warm"}, "fade": {"out": 0.3}}, "render": True}))
+            kept = _payload(
+                await client.call_tool(
+                    "briefcut_edit",
+                    {"job_id": job_id, "edit": {"look": {"preset": "warm"}, "fade": {"out": 0.3}}, "render": True},
+                )
+            )
             assert "tool_error" not in kept, kept
             assert kept["rendered"] is True and kept["revision"] == planned["revision"] + 1
             complete = _payload(await client.call_tool("briefcut_wait", {"job_id": job_id, "timeout_seconds": 120}))
             assert complete.get("status") == "complete", complete
             receipts = _payload(await client.call_tool("briefcut_receipts", {"job_id": job_id}))
             assert receipts["checks"] and receipts["passed"] == receipts["total"] and receipts["proof"]["has_video"]
-            assert complete["plan"]["edit"]["look"]["preset"] == "warm" and complete["plan"]["edit"]["fade"]["out"] == pytest.approx(0.3)
+            assert complete["plan"]["edit"]["look"]["preset"] == "warm" and complete["plan"]["edit"]["fade"][
+                "out"
+            ] == pytest.approx(0.3)
 
             strip = _payload(await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "filmstrip"}))
             assert "tool_error" not in strip, strip
-            assert Path(strip["path"]).is_file() and Path(strip["path"]).read_bytes()[:2] == b"\xff\xd8" and strip["bytes"] > 0
-            pinned = _payload(await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "filmstrip", "revision": 1}))
+            assert (
+                Path(strip["path"]).is_file()
+                and Path(strip["path"]).read_bytes()[:2] == b"\xff\xd8"
+                and strip["bytes"] > 0
+            )
+            pinned = _payload(
+                await client.call_tool("briefcut_artifact_path", {"job_id": job_id, "name": "filmstrip", "revision": 1})
+            )
             assert "tool_error" in pinned and "revisions" in pinned["tool_error"]
 
     _run(flow())
@@ -709,12 +949,17 @@ def test_edit_renders_a_validated_change_end_to_end(workspace: Path, offline_cre
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("tool", "arguments"), [
-    ("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "provider": "local"}),
-    ("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "caption_provider": "local"}),
-    ("briefcut_script_to_video", {"script": "One line.", "provider": "local"}),
-])
-def test_create_tools_refuse_local_mode_before_the_manager(workspace: Path, monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict[str, Any]) -> None:
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "provider": "local"}),
+        ("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "caption_provider": "local"}),
+        ("briefcut_script_to_video", {"script": "One line.", "provider": "local"}),
+    ],
+)
+def test_create_tools_refuse_local_mode_before_the_manager(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict[str, Any]
+) -> None:
     monkeypatch.setattr(mcp_server, "_manager", lambda: pytest.fail("a local request must not reach the manager"))
     server = mcp_server.build_server()
 
@@ -749,7 +994,10 @@ def test_create_tools_default_to_meta(workspace: Path, monkeypatch: pytest.Monke
                 schema = getattr(listed[name], "input_schema", None) or listed[name].inputSchema
                 assert schema["properties"]["provider"]["default"] == "meta"
                 assert "whisper" not in listed[name].description.lower()
-            story = getattr(listed["briefcut_create_story"], "input_schema", None) or listed["briefcut_create_story"].inputSchema
+            story = (
+                getattr(listed["briefcut_create_story"], "input_schema", None)
+                or listed["briefcut_create_story"].inputSchema
+            )
             assert story["properties"]["caption_provider"]["default"] == "meta"
             await client.call_tool("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it"})
             await client.call_tool("briefcut_script_to_video", {"script": "One line."})
@@ -764,7 +1012,16 @@ def test_status_reads_the_real_capabilities_and_names_meta_as_the_requirement(wo
     from vedit.campaign import capabilities
 
     real = capabilities()
-    assert "local" not in real and {"render", "meta", "editor", "script", "director", "limits", "host", "effects"} <= set(real)
+    assert "local" not in real and {
+        "render",
+        "meta",
+        "editor",
+        "script",
+        "director",
+        "limits",
+        "host",
+        "effects",
+    } <= set(real)
     server = mcp_server.build_server()
 
     async def flow() -> dict[str, Any]:
@@ -779,7 +1036,9 @@ def test_status_reads_the_real_capabilities_and_names_meta_as_the_requirement(wo
     assert "whisper" not in json.dumps(status).lower()
 
 
-def test_director_verified_find_and_hero_word_reach_the_manager(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_director_verified_find_and_hero_word_reach_the_manager(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls: list[tuple[str, Any]] = []
 
     class Stub:
@@ -795,40 +1054,85 @@ def test_director_verified_find_and_hero_word_reach_the_manager(workspace: Path,
 
         def find(self, job_id: str, value: dict[str, Any]) -> dict[str, Any]:
             calls.append(("find", value))
-            return {"moments": [{"start": 1.0, "end": 2.0, "verified": True, "coverage": 0.8, "flagged": False, "thumbnail": "bowl-1000.jpg",
-                                 "thumbnail_url": f"/api/campaigns/{job_id}/find-thumbnail?name=bowl-1000.jpg"}],
-                    "searched": ["footage"], "warnings": [], "budget": {}, "verification": {"status": "verified", "phrase": "bowl", "receipt": None, "dropped": [], "spend": []}}
+            return {
+                "moments": [
+                    {
+                        "start": 1.0,
+                        "end": 2.0,
+                        "verified": True,
+                        "coverage": 0.8,
+                        "flagged": False,
+                        "thumbnail": "bowl-1000.jpg",
+                        "thumbnail_url": f"/api/campaigns/{job_id}/find-thumbnail?name=bowl-1000.jpg",
+                    }
+                ],
+                "searched": ["footage"],
+                "warnings": [],
+                "budget": {},
+                "verification": {"status": "verified", "phrase": "bowl", "receipt": None, "dropped": [], "spend": []},
+            }
 
         def suggest_hero_word(self, job_id: str, **kwargs: Any) -> dict[str, Any]:
             calls.append(("hero", kwargs))
             if kwargs.get("font") == "comic":
                 raise CampaignError("Choose a hero word font: heavy, condensed, rounded.")
-            return {"hero_word": {"word": "oak", "start": 0.2, "end": 1.0}, "proposal": {"word": "oak"}, "adjusted": [], "usage": {}}
+            return {
+                "hero_word": {"word": "oak", "start": 0.2, "end": 1.0},
+                "proposal": {"word": "oak"},
+                "adjusted": [],
+                "usage": {},
+            }
 
         def suggest_motion_card(self, job_id: str, **kwargs: Any) -> dict[str, Any]:
             calls.append(("card", kwargs))
-            return {"motion_card": {"kind": kwargs["kind"], "text": "Oak Bowl"}, "proposal": {}, "usage": {}, "poster": None}
+            return {
+                "motion_card": {"kind": kwargs["kind"], "text": "Oak Bowl"},
+                "proposal": {},
+                "usage": {},
+                "poster": None,
+            }
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     server = mcp_server.build_server()
 
     async def flow() -> None:
         async with Client(server) as client:
-            created = _payload(await client.call_tool("briefcut_create_story", {"paths": ["/tmp/a.mp4"], "goal": "Bowl", "review": True, "director": "wonder"}))
+            created = _payload(
+                await client.call_tool(
+                    "briefcut_create_story",
+                    {"paths": ["/tmp/a.mp4"], "goal": "Bowl", "review": True, "director": "wonder"},
+                )
+            )
             assert created["id"] == JOB
             await client.call_tool("briefcut_revise", {"job_id": JOB, "mode": "director", "director": "spark"})
-            found = _payload(await client.call_tool("briefcut_find_moments", {"job_id": JOB, "query": "the bowl", "verify": False, "drop_unseen": True}))
+            found = _payload(
+                await client.call_tool(
+                    "briefcut_find_moments", {"job_id": JOB, "query": "the bowl", "verify": False, "drop_unseen": True}
+                )
+            )
             assert found["moments"][0]["verified"] is True and found["verification"]["phrase"] == "bowl"
-            hero = _payload(await client.call_tool("briefcut_hero_word", {"job_id": JOB, "subject": "the bowl", "color": "#FFD60A"}))
+            hero = _payload(
+                await client.call_tool("briefcut_hero_word", {"job_id": JOB, "subject": "the bowl", "color": "#FFD60A"})
+            )
             assert hero["hero_word"]["word"] == "oak" and "briefcut_edit" in hero["next"]
             refused = _payload(await client.call_tool("briefcut_hero_word", {"job_id": JOB, "font": "comic"}))
             assert "tool_error" in refused and "hero word font" in refused["tool_error"]
             status = _payload(await client.call_tool("briefcut_status", {}))
             assert status["editor"]["choices"]["hero_word.font"] == ["heavy", "condensed", "rounded"]
-            assert "#FFFFFF" in status["editor"]["choices"]["hero_word.color"] and status["director"]["choices"] == ["spark", "wonder"]
-            assert "intro_title" in status["editor"]["choices"]["motion_card.kind"] and isinstance(status["motion_cards"], bool)
-            assert status["meta"]["private"]["enabled"] is False and status["meta"]["directors"]["wonder"] == "muse-wonder-1.0"
-            card = _payload(await client.call_tool("briefcut_motion_card", {"job_id": JOB, "kind": "end_card", "backdrop": False}))
+            assert "#FFFFFF" in status["editor"]["choices"]["hero_word.color"] and status["director"]["choices"] == [
+                "spark",
+                "wonder",
+            ]
+            assert "intro_title" in status["editor"]["choices"]["motion_card.kind"] and isinstance(
+                status["motion_cards"], bool
+            )
+            assert (
+                status["meta"]["private"]["enabled"] is False
+                and status["meta"]["directors"]["wonder"] == "muse-wonder-1.0"
+            )
+            card = _payload(
+                await client.call_tool("briefcut_motion_card", {"job_id": JOB, "kind": "end_card", "backdrop": False})
+            )
             assert card["motion_card"]["kind"] == "end_card" and "briefcut_edit" in card["next"]
 
     _run(flow())

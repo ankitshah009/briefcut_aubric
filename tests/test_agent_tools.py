@@ -72,8 +72,7 @@ def test_dispatch_revise_inserts_captions_before_export():
 
 def test_serve_stdio_two_json_lines():
     stdin = io.StringIO(
-        '{"tool":"parse_intent","arguments":{"goal":"podcast episode, no captions"}}\n'
-        '{"tool":"missing"}\n'
+        '{"tool":"parse_intent","arguments":{"goal":"podcast episode, no captions"}}\n{"tool":"missing"}\n'
     )
     stdout = io.StringIO()
     code = serve_stdio(stdin, stdout)
@@ -90,11 +89,21 @@ def test_serve_stdio_two_json_lines():
 
 def _failed_session(**fields):
     return {
-        "status": "failed", "root": "/x", "revision": 0,
-        "critique": {"ok": False, "findings": [
-            {"code": "render_failed", "severity": "fail", "message": "step 'export' failed (exit 1)", "fix": "read project.json and the step stderr"},
-            {"code": "soft", "severity": "warn", "message": "the hook is late", "fix": "trim the open"},
-        ]},
+        "status": "failed",
+        "root": "/x",
+        "revision": 0,
+        "critique": {
+            "ok": False,
+            "findings": [
+                {
+                    "code": "render_failed",
+                    "severity": "fail",
+                    "message": "step 'export' failed (exit 1)",
+                    "fix": "read project.json and the step stderr",
+                },
+                {"code": "soft", "severity": "warn", "message": "the hook is late", "fix": "trim the open"},
+            ],
+        },
         **fields,
     }
 
@@ -107,7 +116,9 @@ def test_a_failed_render_or_plan_is_not_ok(monkeypatch):
     out = dispatch("render", {"goal": "youtube talk", "paths": ["/x.mp4"]})
     assert out["ok"] is False
     assert out["result"]["status"] == "failed", "the session still comes back for inspection"
-    assert out["error"] == "step 'export' failed (exit 1) (read project.json and the step stderr)", "only failing findings make the error"
+    assert out["error"] == "step 'export' failed (exit 1) (read project.json and the step stderr)", (
+        "only failing findings make the error"
+    )
     assert dispatch("plan", {"goal": "youtube talk"})["ok"] is True
 
 

@@ -255,6 +255,8 @@ def test_unused_inputs_are_named_as_a_risk() -> None:
     picture = _image("image1", "/tmp/picture.png")
     bed = replace(shot, name="music", path="/tmp/bed.mp3", kind="audio", has_video=False, width=0, height=0)
     decision = decide(intent, Inventory(shots=(shot, broll, picture, bed), primary="main", notes=()))
-    assert any(risk.startswith("Ignored inputs: broll1, image1 (only the primary main is edited)") for risk in decision.risks), decision.risks
+    assert any(
+        risk.startswith("Ignored inputs: broll1, image1 (only the primary main is edited)") for risk in decision.risks
+    ), decision.risks
     alone = decide(intent, Inventory(shots=(shot,), primary="main", notes=()))
     assert not any(risk.startswith("Ignored inputs") for risk in alone.risks)

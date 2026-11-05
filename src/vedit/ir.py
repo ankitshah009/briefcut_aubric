@@ -152,6 +152,9 @@ def brief_from_mapping(data: dict[str, Any], *, origin: Path | None = None) -> B
 
 def load_brief(path: str | Path) -> Brief:
     src = Path(path).expanduser().resolve()
+    if not src.is_file():
+        # A BriefError, so the CLI reports it in one line instead of a traceback.
+        raise BriefError(f"brief not found: {src}")
     data = load_document(src)
     if not isinstance(data, dict):
         raise BriefError(f"{src}: expected a mapping at the top level")

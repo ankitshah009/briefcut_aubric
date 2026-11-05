@@ -11,11 +11,11 @@ from vedit.agent.model import (
 )
 
 __all__ = [
-    "SourceShot",
-    "Inventory",
-    "Intent",
-    "Finding",
     "Critique",
     "Decision",
+    "Finding",
+    "Intent",
+    "Inventory",
     "Session",
+    "SourceShot",
 ]

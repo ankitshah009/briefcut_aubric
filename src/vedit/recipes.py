@@ -12,7 +12,14 @@ Recipe = dict[str, Any]
 
 
 def _base(name: str, sources: dict[str, str], ops: list[dict[str, Any]], **kwargs: Any) -> Brief:
-    return Brief(name=name, sources=sources, ops=ops, canvas=kwargs.get("canvas", Canvas()), presets=kwargs.get("presets", []), hw=kwargs.get("hw", None))
+    return Brief(
+        name=name,
+        sources=sources,
+        ops=ops,
+        canvas=kwargs.get("canvas", Canvas()),
+        presets=kwargs.get("presets", []),
+        hw=kwargs.get("hw"),
+    )
 
 
 def recipe_podcast(talk: str, *, music: str | None = None, name: str | None = None) -> Brief:
@@ -80,7 +87,9 @@ def recipe_talking_head(talk: str, *, logo: str | None = None, name: str | None 
     return _base(name or Path(talk).stem, sources, ops)
 
 
-def recipe_slideshow(images: list[str], *, music: str | None = None, hold: float = 3.0, name: str = "slideshow") -> Brief:
+def recipe_slideshow(
+    images: list[str], *, music: str | None = None, hold: float = 3.0, name: str = "slideshow"
+) -> Brief:
     sources = {f"img{i}": str(Path(p).expanduser().resolve()) for i, p in enumerate(images)}
     ops: list[dict[str, Any]] = [
         {"op": "slideshow", "images": list(sources.keys()), "duration": hold, "fade": 0.45},
@@ -112,7 +121,15 @@ def list_recipes() -> dict[str, str]:
     }
 
 
-def apply_recipe(name: str, *, inp: str | None = None, music: str | None = None, images: list[str] | None = None, logo: str | None = None, title: str | None = None) -> Brief:
+def apply_recipe(
+    name: str,
+    *,
+    inp: str | None = None,
+    music: str | None = None,
+    images: list[str] | None = None,
+    logo: str | None = None,
+    title: str | None = None,
+) -> Brief:
     key = name.strip().lower().replace("-", "_")
     if key == "podcast":
         if not inp:

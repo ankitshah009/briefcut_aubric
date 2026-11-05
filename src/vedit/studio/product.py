@@ -25,9 +25,7 @@ def owns(method: str, path: str) -> bool:
     """True when this module answers the request."""
     if method == "DELETE":
         return _CAMPAIGN.fullmatch(path) is not None
-    if not path.startswith(("/api/setup", "/api/settings", "/api/projects", "/api/diagnostics")):
-        return False
-    return True
+    return path.startswith(("/api/setup", "/api/settings", "/api/projects", "/api/diagnostics"))
 
 
 def handle(handler: Any, method: str, path: str, query: str) -> None:
@@ -47,10 +45,12 @@ def handle(handler: Any, method: str, path: str, query: str) -> None:
         handler._send_json(exc.status, {"ok": False, "error": str(exc)})
     except (FileNotFoundError, NotADirectoryError):
         handler._send_json(404, {"ok": False, "error": "This is no longer available."})
-    except Exception as exc:
-        # Filesystem and provider exceptions may hold paths or keys. Never forward them.
+    except Exception as exc:  # noqa: BLE001  filesystem and provider errors can hold paths or keys
+        # Logged by type only; the client sees a fixed sentence and never the message.
         handler.log_error("product request failed (%s)", type(exc).__name__)
-        handler._send_json(500, {"ok": False, "error": "Studio could not finish this request. Restart it and try again."})
+        handler._send_json(
+            500, {"ok": False, "error": "Studio could not finish this request. Restart it and try again."}
+        )
 
 
 def _read(handler: Any, path: str, query: str) -> None:
@@ -154,4 +154,8 @@ def _delete(handler: Any, path: str) -> None:
     # This route reads no body. Do not leave one in the stream for the next request.
     if handler.headers.get("Content-Length", "0").strip() not in {"", "0"} or handler.headers.get("Transfer-Encoding"):
         handler.close_connection = True
-    handler._send_json(200, {"ok": True, **projects.delete(get_manager(), _CAMPAIGN.fullmatch(path).group(1))})
+    match = _CAMPAIGN.fullmatch(path)
+    if match is None:
+        handler._send_json(404, {"ok": False, "error": "not found"})
+        return
+    handler._send_json(200, {"ok": True, **projects.delete(get_manager(), match.group(1))})

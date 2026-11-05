@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import copy
 import math
+from collections.abc import Iterable
+from itertools import pairwise
 from operator import mul, sub
-from typing import Any, Iterable
+from typing import Any
 
 from vedit.sound import decode_mono
 from vedit.timeline import plan_timeline, segment_speed
@@ -49,7 +51,7 @@ def _rise(values: list[float]) -> list[float]:
     if peak <= 0:
         return [0.0] * len(values)
     logged = [math.log1p(1000.0 * value / peak) for value in values]
-    change = [0.0] + [max(0.0, later - earlier) for earlier, later in zip(logged, logged[1:])]
+    change = [0.0, *(max(0.0, later - earlier) for earlier, later in pairwise(logged))]
     top = max(change)
     return [value / top for value in change] if top > 0 else change
 
@@ -59,11 +61,11 @@ def onset_envelope(samples: Any) -> list[float]:
     body: list[float] = []
     edge: list[float] = []
     for start in range(0, len(samples) - HOP, HOP):
-        chunk = samples[start:start + HOP + 1]
+        chunk = samples[start : start + HOP + 1]
         body.append(float(sum(map(mul, chunk, chunk))))
         slope = list(map(sub, chunk[1:], chunk))
         edge.append(float(sum(map(mul, slope, slope))))
-    return [a + b for a, b in zip(_rise(body), _rise(edge))]
+    return [a + b for a, b in zip(_rise(body), _rise(edge), strict=True)]
 
 
 def estimate_period(envelope: list[float]) -> float:
@@ -138,7 +140,7 @@ def _attack(samples: Any, time: float) -> float:
         return time
     energies = []
     for start in range(first, last, ATTACK_WINDOW):
-        chunk = samples[start:start + ATTACK_WINDOW]
+        chunk = samples[start : start + ATTACK_WINDOW]
         energies.append(sum(map(mul, chunk, chunk)))
     floor, top = min(energies), max(energies)
     if top <= 0 or top < 4 * floor:
@@ -159,7 +161,7 @@ def beats_from_samples(samples: Any) -> Beats:
     if period <= 0:
         return Beats()
     times = [_attack(samples, (frame + 0.5) * HOP / RATE) for frame in track(envelope, period)]
-    times = sorted(set(round(time, 4) for time in times))
+    times = sorted({round(time, 4) for time in times})
     if len(times) < 2:
         return Beats()
     # Across the whole track, not a typical gap: refinement can pull one beat onto a
@@ -186,30 +188,48 @@ def output_beats(beats: Iterable[float], *, start: float = 0.0, length: float = 
 
 
 def _speech_near(speech: Iterable[dict[str, Any]], low: float, high: float) -> bool:
-    return any(float(band.get("start", 0)) < high + SPEECH_GUARD and float(band.get("end", 0)) > low - SPEECH_GUARD for band in speech)
+    return any(
+        float(band.get("start", 0)) < high + SPEECH_GUARD and float(band.get("end", 0)) > low - SPEECH_GUARD
+        for band in speech
+    )
 
 
-def snap_to_music(segments: list[dict[str, Any]], edit: dict[str, Any], analysis: dict[str, Any] | None,
-                  assets: dict[str, Any] | None, *, source_duration: float) -> list[dict[str, Any]]:
+def snap_to_music(
+    segments: list[dict[str, Any]],
+    edit: dict[str, Any],
+    analysis: dict[str, Any] | None,
+    assets: dict[str, Any] | None,
+    *,
+    source_duration: float,
+) -> list[dict[str, Any]]:
     """``segments`` with their silent cuts on the beat, when ``edit.music.beat_sync`` asks. Pure.
 
     Runs where a plan is validated, so preview, captions, and render share the
     same cuts. Cuts already on a beat stay put, so validating twice changes nothing.
     """
     music = edit.get("music") or {}
-    record = (assets or {}).get(music.get("asset")) if music.get("beat_sync") else None
-    beats = record.get("beats") if isinstance(record, dict) else None
-    if not beats:
+    asset = music.get("asset")
+    record = (assets or {}).get(asset) if music.get("beat_sync") and isinstance(asset, str) else None
+    if not isinstance(record, dict) or not record.get("beats"):
         return segments
     plan = {"segments": segments, "edit": edit, "analysis": analysis}
     length = float(record.get("duration") or 0.0)
-    grid = output_beats(beats, start=float(music.get("start", 0.0)), length=length,
-                        duration=plan_timeline(plan)["duration"] + SNAP_TOLERANCE)
+    grid = output_beats(
+        record["beats"],
+        start=float(music.get("start", 0.0)),
+        length=length,
+        duration=plan_timeline(plan)["duration"] + SNAP_TOLERANCE,
+    )
     return snap_cuts(plan, grid, source_duration=source_duration)[0]["segments"]
 
 
-def snap_cuts(plan: dict[str, Any], beats: Iterable[float], *, source_duration: float | None = None,
-              tolerance: float = SNAP_TOLERANCE) -> tuple[dict[str, Any], list[dict[str, float]]]:
+def snap_cuts(
+    plan: dict[str, Any],
+    beats: Iterable[float],
+    *,
+    source_duration: float | None = None,
+    tolerance: float = SNAP_TOLERANCE,
+) -> tuple[dict[str, Any], list[dict[str, float]]]:
     """Move each cut with no speech at it onto the nearest beat. Pure.
 
     ``beats`` are on the output clock. Only the end of the outgoing moment moves,
@@ -224,8 +244,9 @@ def snap_cuts(plan: dict[str, Any], beats: Iterable[float], *, source_duration: 
     segments = out.get("segments") or []
     if not grid or len(segments) < 2:
         return out, moved
-    analysis = out.get("analysis") if isinstance(out.get("analysis"), dict) else {}
-    speech = [band for band in (analysis.get("speech") or []) if isinstance(band, dict)]
+    analysis = out.get("analysis")
+    bands = analysis.get("speech") if isinstance(analysis, dict) else None
+    speech = [band for band in bands or [] if isinstance(band, dict)]
     for index in range(len(segments) - 1):
         view = plan_timeline(out)
         ends = [span.output_end for span in view["spans"] if span.segment == index + 1]
@@ -242,14 +263,19 @@ def snap_cuts(plan: dict[str, Any], beats: Iterable[float], *, source_duration: 
         speed = segment_speed(current)
         new_end = round(float(current["end"]) + shift * speed, 3)
         low, high = min(float(current["end"]), new_end), max(float(current["end"]), new_end)
-        if _speech_near(speech, low, high) or _speech_near(speech, float(following["start"]), float(following["start"])):
+        if _speech_near(speech, low, high) or _speech_near(
+            speech, float(following["start"]), float(following["start"])
+        ):
             continue
         if new_end - float(current["start"]) < MIN_MOMENT * speed:
             continue
         if source_duration is not None and new_end > source_duration:
             continue
         # Growing into footage another moment already plays would show it twice.
-        if shift > 0 and any(other is not current and float(other["start"]) < new_end and float(other["end"]) > float(current["end"]) for other in segments):
+        if shift > 0 and any(
+            other is not current and float(other["start"]) < new_end and float(other["end"]) > float(current["end"])
+            for other in segments
+        ):
             continue
         moved.append({"segment": index + 1, "from": float(current["end"]), "to": new_end, "beat": round(beat, 3)})
         current["end"] = new_end

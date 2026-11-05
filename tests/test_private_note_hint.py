@@ -15,4 +15,4 @@ def test_capabilities_say_whether_private_mode_is_on(monkeypatch):
 
 
 def test_the_note_hint_names_the_model_that_will_read_the_note():
-    assert "state.capabilities.private_mode ? \"Muse Glimmer, on this computer, turns\" : \"Muse Spark turns\"" in STUDIO
+    assert 'state.capabilities.private_mode ? "Muse Glimmer, on this computer, turns" : "Muse Spark turns"' in STUDIO

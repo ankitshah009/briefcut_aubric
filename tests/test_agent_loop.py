@@ -137,7 +137,9 @@ def _judge(monkeypatch: pytest.MonkeyPatch, ok: bool) -> list[dict]:
 
 def test_captions_are_graded_only_when_the_program_burns_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _judge(monkeypatch, ok=True)
-    session = run_session("caption these photos as a slideshow", _pictures(tmp_path), root=tmp_path / "s", analyze=False)
+    session = run_session(
+        "caption these photos as a slideshow", _pictures(tmp_path), root=tmp_path / "s", analyze=False
+    )
     assert session.intent.captions is True and session.captions_skipped is False
     assert not any(op["op"] == "captions" for op in session.decision.brief.ops), "a slideshow has no speech to caption"
     assert calls and calls[0]["enforce_captions"] is False
@@ -146,7 +148,9 @@ def test_captions_are_graded_only_when_the_program_burns_them(tmp_path: Path, mo
 
 def test_no_second_render_when_the_revision_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _judge(monkeypatch, ok=False)
-    session = run_session("slideshow of these photos", _pictures(tmp_path), root=tmp_path / "s", analyze=False, max_revisions=3)
+    session = run_session(
+        "slideshow of these photos", _pictures(tmp_path), root=tmp_path / "s", analyze=False, max_revisions=3
+    )
     assert len(calls) == 1, "an unchanged brief is not rendered again"
     assert session.revision == 0 and session.status == "failed"
     assert not (tmp_path / "s" / "rev1").exists()
@@ -167,3 +171,28 @@ def test_existing_files_in_the_goal_are_still_found(tmp_path: Path) -> None:
     clip.write_bytes(b"")
     assert _paths_from_goal(f"edit {clip} at 16/9 and/or square") == [str(clip)]
     assert _paths_from_goal("edit talk.mov as a short") == ["talk.mov"]
+
+
+def test_a_silent_track_measures_no_loudness_without_a_failure_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Digital silence measures None, which is a reading, not a failed analysis to note on the shot."""
+    from types import SimpleNamespace
+
+    from vedit.agent import inventory
+
+    clip = tmp_path / "quiet.mp4"
+    clip.write_bytes(b"x")
+    info = SimpleNamespace(
+        path=clip, duration=3.0, width=1920, height=1080, fps=30.0, has_video=True, has_audio=True, size_bytes=1
+    )
+    monkeypatch.setattr(inventory, "probe", lambda src: info)
+    monkeypatch.setattr(inventory, "measure_loudness", lambda src: None)
+    monkeypatch.setattr(inventory, "detect_silence", lambda src, threshold_db: [])
+    monkeypatch.setattr(inventory, "detect_scenes", lambda src: [1.0])
+    result = inventory.inventory_paths([str(clip)], analyze=True)
+    shot = result.shots[0]
+    assert shot.loudness_i is None
+    assert shot.silence_ratio == 0.0
+    assert shot.scene_count == 1
+    assert result.notes == ()

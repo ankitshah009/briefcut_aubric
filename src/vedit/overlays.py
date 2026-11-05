@@ -23,9 +23,24 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from vedit.caption_styles import (_EMOJI, Look, Stage, ass_color, ass_text, caption_font, direction_mark, emoji_in, fallback_faces, font_face, is_rtl,
-                                  safe_area, safe_color, strip_emoji)
+from vedit.caption_styles import (
+    _EMOJI,
+    Look,
+    Stage,
+    ass_color,
+    ass_text,
+    caption_font,
+    direction_mark,
+    emoji_in,
+    fallback_faces,
+    font_face,
+    is_rtl,
+    safe_area,
+    safe_color,
+    strip_emoji,
+)
 from vedit.captions import format_ts, join_words, split_words
+from vedit.errors import BinaryMissing
 from vedit.media import filter_value, has_filter, resolve_font
 
 ACCENT = "#FFD60A"
@@ -93,7 +108,9 @@ def _pieces(word: str, stage: Stage) -> list[str]:
     return [*parts, current]
 
 
-def layout_text(text: str, style: TextStyle, *, width: int, height: int, scale: float = 1.0, face: Any = None) -> tuple[list[str], int]:
+def layout_text(
+    text: str, style: TextStyle, *, width: int, height: int, scale: float = 1.0, face: Any = None
+) -> tuple[list[str], int]:
     """Wrapped lines and a font size that fit the canvas's safe width. Pure."""
     side, _top, _bottom = safe_area(width, height)
     size = max(8, round(min(width, height) * style.size * scale))
@@ -116,7 +133,7 @@ def layout_text(text: str, style: TextStyle, *, width: int, height: int, scale: 
 
 def _contrast(color: str) -> str:
     """Black or white, whichever reads on a background color."""
-    r, g, b = (int(color[index:index + 2], 16) for index in (1, 3, 5))
+    r, g, b = (int(color[index : index + 2], 16) for index in (1, 3, 5))
     return "#101014" if 0.2126 * r + 0.7152 * g + 0.0722 * b > 140 else "#FFFFFF"
 
 
@@ -124,8 +141,16 @@ def _tag(color: str) -> str:
     return f"&H{color[5:7]}{color[3:5]}{color[1:3]}&".upper()
 
 
-def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: int, reserve: tuple[int, int] = (0, 0),
-            rtl: bool = False) -> tuple[int, int, int]:
+def _anchor(
+    style: TextStyle,
+    position: str,
+    *,
+    width: int,
+    height: int,
+    pad: int,
+    reserve: tuple[int, int] = (0, 0),
+    rtl: bool = False,
+) -> tuple[int, int, int]:
     """ASS alignment and the point it refers to, inside the safe area and clear of a logo.
 
     A lower third starts where its reading starts: at the left for most scripts,
@@ -134,7 +159,9 @@ def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: in
     side, top, bottom = safe_area(width, height)
     top, bottom = max(top, reserve[0]), max(bottom, reserve[1])
     if style.left and rtl:
-        return (9, width - side - pad, top + pad) if position == "top" else (3, width - side - pad, height - bottom - pad)
+        return (
+            (9, width - side - pad, top + pad) if position == "top" else (3, width - side - pad, height - bottom - pad)
+        )
     if style.left:
         # A lower third belongs low in the frame, whatever the default position says.
         return (7, side + pad, top + pad) if position == "top" else (1, side + pad, height - bottom - pad)
@@ -145,7 +172,15 @@ def _anchor(style: TextStyle, position: str, *, width: int, height: int, pad: in
     return 5, width // 2, height // 2
 
 
-def text_event(item: dict[str, Any], *, width: int, height: int, end_limit: float | None, face: Any, reserve: tuple[int, int] = (0, 0)) -> str | None:
+def text_event(
+    item: dict[str, Any],
+    *,
+    width: int,
+    height: int,
+    end_limit: float | None,
+    face: Any,
+    reserve: tuple[int, int] = (0, 0),
+) -> str | None:
     """One ``Dialogue`` line for an ``edit.texts`` item, or None when nothing is left to draw."""
     style = TEXT_STYLES.get(str(item.get("style", "label")), TEXT_STYLES["label"])
     text = strip_emoji(str(item["text"]))
@@ -162,7 +197,15 @@ def text_event(item: dict[str, Any], *, width: int, height: int, end_limit: floa
         return None
     color = safe_color(item.get("color"))  # sliced into tags, so only #RRGGBB reaches them
     pad = round(size * style.padding)
-    alignment, x, y = _anchor(style, str(item.get("position", "center")), width=width, height=height, pad=pad, reserve=reserve, rtl=is_rtl(text))
+    alignment, x, y = _anchor(
+        style,
+        str(item.get("position", "center")),
+        width=width,
+        height=height,
+        pad=pad,
+        reserve=reserve,
+        rtl=is_rtl(text),
+    )
     fade = float(item.get("fade", DEFAULT_FADE))
     tags = [f"\\an{alignment}", f"\\pos({x},{y})", f"\\fs{size}"]
     if fade > 0:
@@ -176,17 +219,33 @@ def text_event(item: dict[str, Any], *, width: int, height: int, end_limit: floa
     else:
         # Soft-edged dark outline: readable on anything, with no hard stroke around the letters.
         outline = max(1, round(size * 0.05))
-        tags += [f"\\1c{_tag(color)}", f"\\bord{outline}", f"\\blur{outline * 1.4:.1f}", "\\3c&H000000&", "\\3a&H60&", "\\shad0"]
+        tags += [
+            f"\\1c{_tag(color)}",
+            f"\\bord{outline}",
+            f"\\blur{outline * 1.4:.1f}",
+            "\\3c&H000000&",
+            "\\3a&H60&",
+            "\\shad0",
+        ]
     style_name = "Boxed" if style.box else "Plain"
-    return (f"Dialogue: 5,{format_ts(start, srt=False)},{format_ts(end, srt=False)},{style_name},,0,0,0,,"
-            f"{{{''.join(tags)}}}{body}")
+    return (
+        f"Dialogue: 5,{format_ts(start, srt=False)},{format_ts(end, srt=False)},{style_name},,0,0,0,,"
+        f"{{{''.join(tags)}}}{body}"
+    )
 
 
 def has_emoji(text: str) -> bool:
     return bool(_EMOJI.search(text))
 
 
-def render_text_ass(items: list[dict[str, Any]], *, width: int, height: int, end_limit: float | None = None, reserve: tuple[int, int] = (0, 0)) -> str:
+def render_text_ass(
+    items: list[dict[str, Any]],
+    *,
+    width: int,
+    height: int,
+    end_limit: float | None = None,
+    reserve: tuple[int, int] = (0, 0),
+) -> str:
     """The complete ASS text for every text item on a canvas.
 
     ``reserve`` is how far from the top and bottom edges a logo reaches, so text
@@ -196,19 +255,50 @@ def render_text_ass(items: list[dict[str, Any]], *, width: int, height: int, end
     # BorderStyle 4 draws one box behind a whole block, in the shadow's color.
     fields = "Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
     common = f"{family},48,{ass_color('#FFFFFF')},&H000000FF,&H00000000,&H4D141010,-1,0,0,0,100,100,0,0"
-    events = [event for event in (text_event(item, width=width, height=height, end_limit=end_limit, face=face, reserve=reserve) for item in items) if event]
-    return "\n".join([
-        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}", "WrapStyle: 2",
-        "ScaledBorderAndShadow: yes", "YCbCr Matrix: TV.709", "",
-        "[V4+ Styles]", f"Format: Name, {fields}",
-        f"Style: Plain,{common},1,0,0,5,0,0,0,-1", f"Style: Boxed,{common},4,0,0,5,0,0,0,-1", "",
-        "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        *events, ""])
+    events = [
+        event
+        for event in (
+            text_event(item, width=width, height=height, end_limit=end_limit, face=face, reserve=reserve)
+            for item in items
+        )
+        if event
+    ]
+    return "\n".join(
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            f"PlayResX: {width}",
+            f"PlayResY: {height}",
+            "WrapStyle: 2",
+            "ScaledBorderAndShadow: yes",
+            "YCbCr Matrix: TV.709",
+            "",
+            "[V4+ Styles]",
+            f"Format: Name, {fields}",
+            f"Style: Plain,{common},1,0,0,5,0,0,0,-1",
+            f"Style: Boxed,{common},4,0,0,5,0,0,0,-1",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+            *events,
+            "",
+        ]
+    )
 
 
-def write_text_ass(items: list[dict[str, Any]], path: Path, *, width: int, height: int, end_limit: float | None = None, reserve: tuple[int, int] = (0, 0)) -> Path:
+def write_text_ass(
+    items: list[dict[str, Any]],
+    path: Path,
+    *,
+    width: int,
+    height: int,
+    end_limit: float | None = None,
+    reserve: tuple[int, int] = (0, 0),
+) -> Path:
     """Write the text file and, for a font chosen with ``VEDIT_FONT``, a folder holding that font."""
-    path.write_text(render_text_ass(items, width=width, height=height, end_limit=end_limit, reserve=reserve), encoding="utf-8")
+    path.write_text(
+        render_text_ass(items, width=width, height=height, end_limit=end_limit, reserve=reserve), encoding="utf-8"
+    )
     _family, _face, chosen = caption_font()
     if chosen is not None:
         fonts = path.parent / "fonts"
@@ -217,7 +307,9 @@ def write_text_ass(items: list[dict[str, Any]], path: Path, *, width: int, heigh
     return path
 
 
-def drawtext_filters(items: list[dict[str, Any]], *, work_dir: Path, width: int, height: int, end_limit: float | None = None) -> list[str]:
+def drawtext_filters(
+    items: list[dict[str, Any]], *, work_dir: Path, width: int, height: int, end_limit: float | None = None
+) -> list[str]:
     """Plain text for a machine without libass.
 
     The text sits in a file and ``expansion=none`` turns off every special
@@ -232,7 +324,9 @@ def drawtext_filters(items: list[dict[str, Any]], *, work_dir: Path, width: int,
         chosen = resolve_font(text)
         face = font_face(str(chosen))
         font = filter_value(chosen)
-        lines, size = layout_text(text, style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face)
+        lines, size = layout_text(
+            text, style, width=width, height=height, scale=float(item.get("scale", 1.0)), face=face
+        )
         if not lines:
             continue
         path = work_dir / f"text_{index:02d}.txt"
@@ -247,17 +341,27 @@ def drawtext_filters(items: list[dict[str, Any]], *, work_dir: Path, width: int,
         _alignment, _x, y = _anchor(style, str(item.get("position", "center")), width=width, height=height, pad=pad)
         side, _top, _bottom = safe_area(width, height)
         where = f"x={side + pad}" if style.left else "x=(w-text_w)/2"
-        vertical = {"top": f"y={y}", "bottom": f"y={y}-text_h"}.get(str(item.get("position", "center")), "y=(h-text_h)/2")
+        vertical = {"top": f"y={y}", "bottom": f"y={y}-text_h"}.get(
+            str(item.get("position", "center")), "y=(h-text_h)/2"
+        )
         if style.left and str(item.get("position")) != "top":
             vertical = f"y={y}-text_h"
-        box = f":box=1:boxcolor=0x101014@0.7:boxborderw={pad}" if style.box else f":borderw={max(1, size // 20)}:bordercolor=black@0.6"
-        filters.append(f"drawtext=fontfile={font}:textfile={filter_value(path)}:expansion=none:fontsize={size}"
-                       f":fontcolor={safe_color(item.get('color')).replace('#', '0x')}:text_align=center:{where}:{vertical}"
-                       f":alpha='max(0,{alpha})'{box}:enable='between(t,{start:.3f},{end:.3f})'")
+        box = (
+            f":box=1:boxcolor=0x101014@0.7:boxborderw={pad}"
+            if style.box
+            else f":borderw={max(1, size // 20)}:bordercolor=black@0.6"
+        )
+        filters.append(
+            f"drawtext=fontfile={font}:textfile={filter_value(path)}:expansion=none:fontsize={size}"
+            f":fontcolor={safe_color(item.get('color')).replace('#', '0x')}:text_align=center:{where}:{vertical}"
+            f":alpha='max(0,{alpha})'{box}:enable='between(t,{start:.3f},{end:.3f})'"
+        )
     return filters
 
 
-def logo_reserve(position: str, *, image_width: int, image_height: int, width: int, height: int, scale: float) -> tuple[int, int]:
+def logo_reserve(
+    position: str, *, image_width: int, image_height: int, width: int, height: int, scale: float
+) -> tuple[int, int]:
     """How far a logo reaches in from the top and bottom edges, with a small gap. Pure."""
     if position == "center" or image_width <= 0:
         return 0, 0
@@ -278,25 +382,39 @@ def corner(position: str, *, width: int, height: int) -> tuple[str, str]:
     return x[horizontal], y[vertical]
 
 
-def image_filter(path: str | Path, *, tag: str, x: str, y: str, width: int, opacity: float = 1.0,
-                 start: float | None = None, end: float | None = None, fade: float = 0.0, fps: float = 30.0) -> str:
+def image_filter(
+    path: str | Path,
+    *,
+    tag: str,
+    x: str,
+    y: str,
+    width: int,
+    opacity: float = 1.0,
+    start: float | None = None,
+    end: float | None = None,
+    fade: float = 0.0,
+    fps: float = 30.0,
+) -> str:
     """Fuse one image into a filter chain. The text joins the chain like any single filter."""
     chain = [f"movie={filter_value(path)}", "format=rgba"]
     if opacity < 1:
         chain.append(f"colorchannelmixer=aa={opacity:.3f}")
     # The overlay has to reach YUV through the same matrix the export declares.
     chain += [f"scale={width}:-2:flags=lanczos:out_color_matrix=bt709:out_range=limited", "format=yuva420p"]
-    timed = start is not None and end is not None
-    ending = "eof_action=repeat"
-    if timed and fade > 0:
-        # Fading needs a stream of frames, not the single frame a still image gives.
-        chain += ["loop=loop=-1:size=1:start=0", f"fps={fps}", f"fade=t=in:st={start:.3f}:d={fade:.3f}:alpha=1",
-                  f"fade=t=out:st={end - fade:.3f}:d={fade:.3f}:alpha=1"]
-        # That stream never ends, and overlay would hold the picture for as long as it runs.
-        ending = "shortest=1"
-    enable = f":enable='between(t,{start:.3f},{end:.3f})'" if timed else ""
-    return (f"null[{tag}m];{','.join(chain)}[{tag}o];"
-            f"[{tag}m][{tag}o]overlay=x={x}:y={y}:format=yuv420:{ending}{enable}")
+    ending, enable = "eof_action=repeat", ""
+    if start is not None and end is not None:
+        enable = f":enable='between(t,{start:.3f},{end:.3f})'"
+        if fade > 0:
+            # Fading needs a stream of frames, not the single frame a still image gives.
+            chain += [
+                "loop=loop=-1:size=1:start=0",
+                f"fps={fps}",
+                f"fade=t=in:st={start:.3f}:d={fade:.3f}:alpha=1",
+                f"fade=t=out:st={end - fade:.3f}:d={fade:.3f}:alpha=1",
+            ]
+            # That stream never ends, and overlay would hold the picture for as long as it runs.
+            ending = "shortest=1"
+    return f"null[{tag}m];{','.join(chain)}[{tag}o];[{tag}m][{tag}o]overlay=x={x}:y={y}:format=yuv420:{ending}{enable}"
 
 
 def text_warnings(items: list[dict[str, Any]]) -> list[str]:
@@ -309,8 +427,10 @@ def text_warnings(items: list[dict[str, Any]]) -> list[str]:
             words = strip_emoji(text)
             shown = words if len(words) <= 40 else words[:39].rstrip() + "…"
             what = f'The text "{shown}"' if shown else "A text item"
-            warnings.append(f"{what} had emoji ({' '.join(found[:6])}). The text renderer cannot draw color emoji, so they were left out"
-                            + (" and that text was skipped." if not shown else "; the words are unchanged."))
+            warnings.append(
+                f"{what} had emoji ({' '.join(found[:6])}). The text renderer cannot draw color emoji, so they were left out"
+                + (" and that text was skipped." if not shown else "; the words are unchanged.")
+            )
     return warnings
 
 
@@ -330,13 +450,25 @@ def text_engine() -> str:
 # still draws a heavy word instead of falling back to the regular caption weight.
 _NOTO_BOLD = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
 HERO_FONT_FILES = {
-    "heavy": ("/System/Library/Fonts/Supplemental/Arial Black.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-              "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", _NOTO_BOLD),
-    "condensed": ("/System/Library/Fonts/Supplemental/Impact.ttf", "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf",
-                  "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
-                  _NOTO_BOLD),
-    "rounded": ("/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", _NOTO_BOLD),
+    "heavy": (
+        "/System/Library/Fonts/Supplemental/Arial Black.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        _NOTO_BOLD,
+    ),
+    "condensed": (
+        "/System/Library/Fonts/Supplemental/Impact.ttf",
+        "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
+        _NOTO_BOLD,
+    ),
+    "rounded": (
+        "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        _NOTO_BOLD,
+    ),
 }
 # Where the word's centre sits and how wide it may grow, as shares of the visible picture.
 HERO_PLACES = {
@@ -367,7 +499,8 @@ def hero_font(font: str, text: str = "") -> tuple[str, Any, Path | None]:
     family, face, _chosen = caption_font()
     try:
         fallback = resolve_font()
-    except Exception:
+    except BinaryMissing:
+        # No font file on this machine at all: the family name still lets libass pick one.
         fallback = None
     return family, face, fallback
 
@@ -390,21 +523,31 @@ def _is_bold(face: Any) -> bool:
         return True
 
 
-def visible_rect(width: int, height: int, aspect: str | None, focus: tuple[float, float] | None = None) -> tuple[int, int, int, int]:
+def visible_rect(
+    width: int, height: int, aspect: str | None, focus: tuple[float, float] | None = None
+) -> tuple[int, int, int, int]:
     """The part of a ``width`` x ``height`` frame a fill reframe to ``aspect`` keeps, centred on ``focus``. Pure."""
     shapes = {"9:16": 9 / 16, "16:9": 16 / 9, "1:1": 1.0, "4:5": 0.8, "21:9": 21 / 9}
     ratio = shapes.get(aspect or "")
     if ratio is None:
         return 0, 0, width, height
     keep_w, keep_h = min(width, round(height * ratio)), min(height, round(width / ratio))
-    cx, cy = focus if focus else (0.5, 0.5)
+    cx, cy = focus or (0.5, 0.5)
     left = min(max(0, round(cx * width - keep_w / 2)), width - keep_w)
     top = min(max(0, round(cy * height - keep_h / 2)), height - keep_h)
     return left, top, keep_w, keep_h
 
 
-def hero_layout(word: str, *, side: str, width: int, height: int, visible: tuple[int, int, int, int] | None = None,
-                face: Any = None, subject: tuple[float, float, float, float] | None = None) -> dict[str, Any]:
+def hero_layout(
+    word: str,
+    *,
+    side: str,
+    width: int,
+    height: int,
+    visible: tuple[int, int, int, int] | None = None,
+    face: Any = None,
+    subject: tuple[float, float, float, float] | None = None,
+) -> dict[str, Any]:
     """Where the hero word goes and how big: as wide as its side allows, inside the visible picture. Pure.
 
     ``subject`` is the subject's box as shares of the frame, when SAM has
@@ -432,14 +575,36 @@ def hero_layout(word: str, *, side: str, width: int, height: int, visible: tuple
         y = max(top + keep_h * HERO_MARGIN + 0.35 * tall, min(subject[1] * height, top + keep_h) - 0.07 * tall)
     x = left + keep_w * across
     # Keep the whole word on the visible picture even when its side is narrow.
-    x = min(max(x, left + drawn / 2 + keep_w * 0.02), left + keep_w - drawn / 2 - keep_w * 0.02) if drawn < keep_w * 0.96 else left + keep_w / 2
-    return {"text": text, "size": size, "x": round(x), "y": round(y), "width": round(drawn),
-            "height": round(tall), "visible": [left, top, keep_w, keep_h]}
+    x = (
+        min(max(x, left + drawn / 2 + keep_w * 0.02), left + keep_w - drawn / 2 - keep_w * 0.02)
+        if drawn < keep_w * 0.96
+        else left + keep_w / 2
+    )
+    return {
+        "text": text,
+        "size": size,
+        "x": round(x),
+        "y": round(y),
+        "width": round(drawn),
+        "height": round(tall),
+        "visible": [left, top, keep_w, keep_h],
+    }
 
 
-def render_hero_ass(word: str, *, start: float, end: float, side: str, color: str, family: str, face: Any,
-                    width: int, height: int, visible: tuple[int, int, int, int] | None = None,
-                    subject: tuple[float, float, float, float] | None = None) -> tuple[str, dict[str, Any]]:
+def render_hero_ass(
+    word: str,
+    *,
+    start: float,
+    end: float,
+    side: str,
+    color: str,
+    family: str,
+    face: Any,
+    width: int,
+    height: int,
+    visible: tuple[int, int, int, int] | None = None,
+    subject: tuple[float, float, float, float] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """The ASS file for one hero word, and the layout it used. Times are already on the output clock."""
     color = safe_color(color)
     layout = hero_layout(word, side=side, width=width, height=height, visible=visible, face=face, subject=subject)
@@ -448,14 +613,29 @@ def render_hero_ass(word: str, *, start: float, end: float, side: str, color: st
     fade = round(min(HERO_FADE, (end - start) / 4) * 1000)
     pop = round(min(HERO_POP, (end - start) / 4) * 1000)
     bold = 1 if face is None or _is_bold(face) else 0
-    tags = (f"\\an5\\pos({layout['x']},{layout['y']})\\fs{size}\\b{bold}\\bord0\\shad{shadow}\\1c{_tag(color)}"
-            f"\\4c&H000000&\\4a&HA0&\\fad({fade},{fade})\\fscx86\\fscy86\\t(0,{pop},\\fscx100\\fscy100)")
+    tags = (
+        f"\\an5\\pos({layout['x']},{layout['y']})\\fs{size}\\b{bold}\\bord0\\shad{shadow}\\1c{_tag(color)}"
+        f"\\4c&H000000&\\4a&HA0&\\fad({fade},{fade})\\fscx86\\fscy86\\t(0,{pop},\\fscx100\\fscy100)"
+    )
     fields = "Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
-    text = "\n".join([
-        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}", "WrapStyle: 2",
-        "ScaledBorderAndShadow: yes", "YCbCr Matrix: TV.709", "",
-        "[V4+ Styles]", f"Format: Name, {fields}",
-        f"Style: Hero,{family},{size},{ass_color(color)},&H000000FF,&H00000000,&H60000000,{-bold},0,0,0,100,100,0,0,1,0,0,5,0,0,0,1", "",
-        "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        f"Dialogue: 0,{format_ts(start, srt=False)},{format_ts(end, srt=False)},Hero,,0,0,0,,{{{tags}}}{ass_text(layout['text'])}", ""])
+    text = "\n".join(
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            f"PlayResX: {width}",
+            f"PlayResY: {height}",
+            "WrapStyle: 2",
+            "ScaledBorderAndShadow: yes",
+            "YCbCr Matrix: TV.709",
+            "",
+            "[V4+ Styles]",
+            f"Format: Name, {fields}",
+            f"Style: Hero,{family},{size},{ass_color(color)},&H000000FF,&H00000000,&H60000000,{-bold},0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+            f"Dialogue: 0,{format_ts(start, srt=False)},{format_ts(end, srt=False)},Hero,,0,0,0,,{{{tags}}}{ass_text(layout['text'])}",
+            "",
+        ]
+    )
     return text, layout

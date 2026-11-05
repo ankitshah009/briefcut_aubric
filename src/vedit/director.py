@@ -14,8 +14,9 @@ import copy
 import json
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from vedit.captions import CLOSERS, SENTENCE_ENDS, _phrase_spaced, is_tight, join_words
 from vedit.edit_spec import (
@@ -124,6 +125,13 @@ EDIT_FIELDS: dict[str, EditField] = {field.path: field for field in _FIELDS}
 TEXT_DEFAULTS = {"duration": 3.0, "style": "label", "position": "center"}
 
 
+def _finite(value: Any) -> float | None:
+    """A finite number as a float, or None. ``bool`` is an ``int`` subclass and never a number here."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
 def read_edit(edit: dict[str, Any], path: str) -> Any:
     """The current value at a dotted path, or None."""
     value: Any = edit
@@ -138,7 +146,7 @@ def write_edit(edit: dict[str, Any], path: str, value: Any) -> dict[str, Any]:
     """A copy of ``edit`` with one path changed. ``texts`` appends instead of replacing."""
     changed = copy.deepcopy(edit)
     if path == "texts":
-        changed["texts"] = list(changed.get("texts") or []) + [copy.deepcopy(value)]
+        changed["texts"] = [*(changed.get("texts") or []), copy.deepcopy(value)]
         return changed
     keys = path.split(".")
     holder = changed
@@ -180,17 +188,33 @@ def coerce_edit_value(field: EditField, value: Any, *, seconds: Any = None, text
         if not isinstance(body, str) or not body.strip():
             return None
         start = placed.get("start", seconds)
-        if isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(float(start)) or start < 0:
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, (int, float))
+            or not math.isfinite(float(start))
+            or start < 0
+        ):
             start = 0.0
         length = placed.get("duration", TEXT_DEFAULTS["duration"])
-        if isinstance(length, bool) or not isinstance(length, (int, float)) or not math.isfinite(float(length)) or length <= 0:
+        if (
+            isinstance(length, bool)
+            or not isinstance(length, (int, float))
+            or not math.isfinite(float(length))
+            or length <= 0
+        ):
             length = TEXT_DEFAULTS["duration"]
         # A list or dict here is unhashable: test the type first, or one bad patch would crash a billed answer.
         style = placed.get("style")
         style = style if isinstance(style, str) and style in {row[0] for row in TEXT_STYLES} else TEXT_DEFAULTS["style"]
         position = placed.get("position")
         position = position if isinstance(position, str) and position in TEXT_POSITIONS else TEXT_DEFAULTS["position"]
-        return {"text": " ".join(body.split()), "start": float(start), "duration": float(length), "style": style, "position": position}
+        return {
+            "text": " ".join(body.split()),
+            "start": float(start),
+            "duration": float(length),
+            "style": style,
+            "position": position,
+        }
     return None
 
 
@@ -207,7 +231,9 @@ def edit_vocabulary() -> str:
         elif field.kind == "color":
             lines.append(f"{field.path}: a color such as #FFD60A")
         else:
-            lines.append(f"{field.path}: value is the words to add; seconds is when they appear on the finished video; text may set duration, style ({', '.join(row[0] for row in TEXT_STYLES)}) and position ({', '.join(TEXT_POSITIONS)})")
+            lines.append(
+                f"{field.path}: value is the words to add; seconds is when they appear on the finished video; text may set duration, style ({', '.join(row[0] for row in TEXT_STYLES)}) and position ({', '.join(TEXT_POSITIONS)})"
+            )
     return "\n".join(lines)
 
 
@@ -221,7 +247,11 @@ def current_edit(plan: dict[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for field in _FIELDS:
         if field.kind == "append":
-            values[field.path] = [{"text": item.get("text"), "start": item.get("start")} for item in (edit.get("texts") or []) if isinstance(item, dict)]
+            values[field.path] = [
+                {"text": item.get("text"), "start": item.get("start")}
+                for item in (edit.get("texts") or [])
+                if isinstance(item, dict)
+            ]
         else:
             value = read_edit(edit, field.path)
             if value is not None:
@@ -237,21 +267,28 @@ def describe_patch(patch: dict[str, Any]) -> str:
     """One plain sentence for a patch, proposed or applied. Never raises."""
     op = patch.get("op")
     moment = f"moment {patch.get('segment')}" if patch.get("segment") is not None else "the story"
-    seconds = patch.get("seconds")
-    has_seconds = isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds)
+    seconds = _finite(patch.get("seconds"))
     after = patch.get("after")
     if op == "trim_start":
-        edge = after.get("start") if isinstance(after, dict) else seconds if has_seconds else None
-        return f"{moment.capitalize()} starts at {edge:.1f} s." if isinstance(edge, (int, float)) else f"Change where {moment} starts."
+        edge = after.get("start") if isinstance(after, dict) else seconds
+        return (
+            f"{moment.capitalize()} starts at {edge:.1f} s."
+            if isinstance(edge, (int, float))
+            else f"Change where {moment} starts."
+        )
     if op == "trim_end":
-        edge = after.get("end") if isinstance(after, dict) else seconds if has_seconds else None
-        return f"{moment.capitalize()} ends at {edge:.1f} s." if isinstance(edge, (int, float)) else f"Change where {moment} ends."
+        edge = after.get("end") if isinstance(after, dict) else seconds
+        return (
+            f"{moment.capitalize()} ends at {edge:.1f} s."
+            if isinstance(edge, (int, float))
+            else f"Change where {moment} ends."
+        )
     if op == "remove":
         return f"Remove {moment}."
     if op == "move_before":
-        return f"Move {moment} before moment {int(seconds)}." if has_seconds else f"Move {moment}."
+        return f"Move {moment} before moment {int(seconds)}." if seconds is not None else f"Move {moment}."
     if op == "split":
-        return f"Split {moment} at {seconds:.1f} s." if has_seconds else f"Split {moment}."
+        return f"Split {moment} at {seconds:.1f} s." if seconds is not None else f"Split {moment}."
     if op == "set_speed":
         value = patch.get("value")
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -281,8 +318,15 @@ def describe_patch(patch: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def refine_stop(result: dict[str, Any], *, rounds: int, limit: int, worse_than: int | None,
-                remaining_usd: float, round_cost_usd: float) -> str | None:
+def refine_stop(
+    result: dict[str, Any],
+    *,
+    rounds: int,
+    limit: int,
+    worse_than: int | None,
+    remaining_usd: float,
+    round_cost_usd: float,
+) -> str | None:
     """Why the loop must stop after this version, or None to render another round.
 
     ``rounds`` counts refined versions so far. ``worse_than`` is how many checks the
@@ -313,7 +357,7 @@ def refine_stop(result: dict[str, Any], *, rounds: int, limit: int, worse_than: 
 
 def _stem(word: str) -> str:
     """A light stem so "sanding", "sanded", and "sand" meet. Not a linguistic claim."""
-    if word.endswith("sses") or word.endswith("xes") or word.endswith("ches") or word.endswith("shes"):
+    if word.endswith(("sses", "xes", "ches", "shes")):
         word = word[:-2]
     elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
         word = word[:-1]
@@ -344,7 +388,9 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def find_in_transcript(query: str, sentences: Iterable[dict[str, Any]], *, limit: int = MAX_FOUND) -> list[dict[str, Any]]:
+def find_in_transcript(
+    query: str, sentences: Iterable[dict[str, Any]], *, limit: int = MAX_FOUND
+) -> list[dict[str, Any]]:
     """Sentences that say what was asked for, best first. No model, no cost."""
     terms = _terms(query)
     phrase = " ".join(query.lower().split())
@@ -356,7 +402,13 @@ def find_in_transcript(query: str, sentences: Iterable[dict[str, Any]], *, limit
         if not isinstance(sentence, dict) or not isinstance(sentence.get("text"), str):
             continue
         start, end = sentence.get("start"), sentence.get("end")
-        if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or end <= start:
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))
+            or end <= start
+        ):
             continue
         text = " ".join(sentence["text"].split())
         stems = {_stem(word) for word in re.findall(r"[^\W_]+", text.lower())}
@@ -364,8 +416,16 @@ def find_in_transcript(query: str, sentences: Iterable[dict[str, Any]], *, limit
         if hits < needed:
             continue
         score = hits / len(terms) * 0.75 + (0.25 if phrase and phrase in text.lower() else 0.0)
-        found.append({"start": round(float(start), 3), "end": round(float(end), 3), "reason": f"Said here: “{_clip(text, 160)}”",
-                      "label": _clip(text, 60), "source": "transcript", "score": round(score, 3)})
+        found.append(
+            {
+                "start": round(float(start), 3),
+                "end": round(float(end), 3),
+                "reason": f"Said here: “{_clip(text, 160)}”",
+                "label": _clip(text, 60),
+                "source": "transcript",
+                "score": round(score, 3),
+            }
+        )
     found.sort(key=lambda item: (-item["score"], item["start"]))
     return found[:limit]
 
@@ -373,21 +433,33 @@ def find_in_transcript(query: str, sentences: Iterable[dict[str, Any]], *, limit
 _CHECKED = ("verified", "coverage", "thumbnail", "evidence", "flagged", "verification")
 
 
+def _checked_window(checked: dict[str, Any]) -> tuple[float, float] | None:
+    """The window SAM looked at (``evidence.window``), else the checked moment's own range; None when neither is numeric."""
+    evidence = checked.get("evidence")
+    window = evidence.get("window") if isinstance(evidence, dict) else None
+    if isinstance(window, (list, tuple)) and len(window) == 2:
+        low, high = _finite(window[0]), _finite(window[1])
+        if low is not None and high is not None:
+            return low, high
+    low, high = _finite(checked.get("start")), _finite(checked.get("end"))
+    if low is None or high is None:
+        return None
+    return low, high
+
+
 def _checked_inside(checked: dict[str, Any], twin: dict[str, Any]) -> bool:
     """True when at least half of the window SAM looked at (``evidence.window``) lies inside ``twin``.
 
     A check with no window was made on the moment itself, so its own range stands in.
     """
-    evidence = checked.get("evidence") if isinstance(checked.get("evidence"), dict) else {}
-    window = evidence.get("window")
-    numbers = isinstance(window, (list, tuple)) and len(window) == 2 and all(
-        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in window)
-    low, high = (float(window[0]), float(window[1])) if numbers else (checked.get("start"), checked.get("end"))
-    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (low, high, twin.get("start"), twin.get("end"))):
+    window = _checked_window(checked)
+    twin_start, twin_end = _finite(twin.get("start")), _finite(twin.get("end"))
+    if window is None or twin_start is None or twin_end is None:
         return False
+    low, high = window
     if high <= low:
-        return twin["start"] <= low <= twin["end"]
-    return min(high, twin["end"]) - max(low, twin["start"]) >= 0.5 * (high - low)
+        return twin_start <= low <= twin_end
+    return min(high, twin_end) - max(low, twin_start) >= 0.5 * (high - low)
 
 
 def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> list[dict[str, Any]]:
@@ -403,7 +475,15 @@ def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> 
     merged: list[dict[str, Any]] = []
     for group in groups:
         for moment in group:
-            twin = next((item for item in merged if min(item["end"], moment["end"]) - max(item["start"], moment["start"]) > 0.5 * max(item["end"] - item["start"], moment["end"] - moment["start"])), None)
+            twin = next(
+                (
+                    item
+                    for item in merged
+                    if min(item["end"], moment["end"]) - max(item["start"], moment["start"])
+                    > 0.5 * max(item["end"] - item["start"], moment["end"] - moment["start"])
+                ),
+                None,
+            )
             if twin is None:
                 merged.append(dict(moment))
                 continue
@@ -411,8 +491,10 @@ def merge_moments(*groups: Iterable[dict[str, Any]], limit: int = MAX_FOUND) -> 
                 twin["source"] = "both"
                 twin["score"] = round(min(1.0, max(twin.get("score", 0), moment.get("score", 0)) + 0.1), 3)
                 twin["reason"] = f"{twin['reason']} {moment['reason']}"[:600]
-            if ((twin.get("verified") is None and moment.get("verified") is not None) or ("verification" not in twin and "verification" in moment)) \
-                    and _checked_inside(moment, twin):
+            if (
+                (twin.get("verified") is None and moment.get("verified") is not None)
+                or ("verification" not in twin and "verification" in moment)
+            ) and _checked_inside(moment, twin):
                 # SAM checked the footage moment; its verdict and picture survive the merge when they are about the twin's footage.
                 twin.update({key: moment[key] for key in _CHECKED if key in moment})
     merged.sort(key=lambda item: (-item.get("score", 0), item["start"]))
@@ -458,7 +540,7 @@ def _sentences(text: str) -> list[str]:
         spaced = match.end() == len(text) or match.group(0) != mark
         if not spaced and all(char in _LATIN_ENDS or char in CLOSERS for char in mark):
             continue
-        piece = text[begin:match.start() + len(mark)].strip()
+        piece = text[begin : match.start() + len(mark)].strip()
         if piece:
             sentences.append(piece)
         begin = match.end()
@@ -476,10 +558,14 @@ def _join_lines(parts: Iterable[str]) -> str:
     """
     text = ""
     for part in parts:
-        part = part.strip()
-        if not part:
+        piece = part.strip()
+        if not piece:
             continue
-        text = f"{text} {part}" if text and _phrase_spaced(text[-1]) and _phrase_spaced(part[0]) else join_words((text, part))
+        text = (
+            f"{text} {piece}"
+            if text and _phrase_spaced(text[-1]) and _phrase_spaced(piece[0])
+            else join_words((text, piece))
+        )
     return text
 
 
@@ -527,7 +613,7 @@ def split_script(script: str, *, max_scenes: int = MAX_SCENES) -> list[str]:
     while len(scenes) > max_scenes:
         # The shortest neighbouring pair reads most naturally as one scene.
         index = min(range(len(scenes) - 1), key=lambda at: _words(scenes[at]) + _words(scenes[at + 1]))
-        scenes[index:index + 2] = [_join_lines(scenes[index:index + 2])]
+        scenes[index : index + 2] = [_join_lines(scenes[index : index + 2])]
     return scenes
 
 
@@ -551,9 +637,8 @@ def scene_cues(text: str, start: float, end: float) -> list[dict[str, Any]]:
 
 def _word_map(heard: list[dict[str, Any]], written: list[str]) -> list[int | None]:
     """For each heard word, the written word it lines up with, or None."""
-    from difflib import SequenceMatcher
-
     import unicodedata
+    from difflib import SequenceMatcher
 
     def key(text: str) -> str:
         # Letters, digits, combining marks and apostrophes. A \w class drops marks such as Devanagari vowel signs.
@@ -569,7 +654,9 @@ def _word_map(heard: list[dict[str, Any]], written: list[str]) -> list[int | Non
     return mapping
 
 
-def place_script_words(heard: list[dict[str, Any]], scenes: list[str], timing: list[tuple[float, float]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def place_script_words(
+    heard: list[dict[str, Any]], scenes: list[str], timing: list[tuple[float, float]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Give the writer's words a clock. Returns ``(words, sentences)`` on the project clock.
 
     ``heard`` are words a recognizer timed on a voice track. Briefcut makes no
@@ -587,10 +674,16 @@ def place_script_words(heard: list[dict[str, Any]], scenes: list[str], timing: l
 
     def close() -> None:
         if current:
-            cues.append({"start": current[0]["start"], "end": current[-1]["end"], "text": " ".join(word["text"] for word in current)})
+            cues.append(
+                {
+                    "start": current[0]["start"],
+                    "end": current[-1]["end"],
+                    "text": " ".join(word["text"] for word in current),
+                }
+            )
             current.clear()
 
-    for word, place in zip(heard, _word_map(heard, written)):
+    for word, place in zip(heard, _word_map(heard, written), strict=True):
         if place is not None and owners[place] != scene:
             close()
             scene = owners[place]

@@ -133,8 +133,26 @@ GIF_FPS = 15
 # The rate is a whole number, a broadcast rate such as 29.97, or ``source``: the footage's own, set when the render knows it.
 _EXPORT_NAME = re.compile(r"export_(\d{3,4})x(\d{3,4})_(\d{1,3}(?:\.\d{1,3})?|source)_(mp4|mov|webm|gif)")
 MATCH_SOURCE = "source"
-_VP9 = ("-crf", "31", "-b:v", "0", "-row-mt", "1", "-cpu-used", "4", "-pix_fmt", "yuv420p",
-        "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv")
+_VP9 = (
+    "-crf",
+    "31",
+    "-b:v",
+    "0",
+    "-row-mt",
+    "1",
+    "-cpu-used",
+    "4",
+    "-pix_fmt",
+    "yuv420p",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-colorspace",
+    "bt709",
+    "-color_range",
+    "tv",
+)
 
 
 def _rate_name(fps: float) -> str:
@@ -159,15 +177,29 @@ def _export_preset(width: int, height: int, fps: float, container: str) -> Expor
     rate = _rate_name(fps)
     name = f"export_{width}x{height}_{rate}_{container}"
     canvas = Canvas(width=width, height=height, fps=float(fps))
-    description = f"{width}x{height} at {'the source frame rate' if rate == MATCH_SOURCE else rate + ' fps'}, {container.upper()}"
+    description = (
+        f"{width}x{height} at {'the source frame rate' if rate == MATCH_SOURCE else rate + ' fps'}, {container.upper()}"
+    )
     if container == "webm":
         return ExportPreset(name, canvas, "libvpx-vp9", "libopus", 31, "128k", _VP9, description, container="webm")
     if container == "gif":
         return ExportPreset(name, canvas, "gif", "", 0, "", (), description, container="gif")
-    return ExportPreset(name, canvas, "libx264", "aac", 18, "192k", ("-profile:v", "high", *BROADCAST_COLOR), description, container=container)
+    return ExportPreset(
+        name,
+        canvas,
+        "libx264",
+        "aac",
+        18,
+        "192k",
+        ("-profile:v", "high", *BROADCAST_COLOR),
+        description,
+        container=container,
+    )
 
 
-def export_preset_name(base: str, *, quality: str | None = None, fps: float | str | None = None, format: str | None = None) -> str:
+def export_preset_name(
+    base: str, *, quality: str | None = None, fps: float | str | None = None, format: str | None = None
+) -> str:
     """The preset for an ``edit.export`` choice on a base preset's aspect.
 
     The name carries the settings, so ``vedit.analyze encode --preset`` resolves

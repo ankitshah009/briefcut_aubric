@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from vedit.edit_spec import (
-    EditError,
     TEMPLATES,
+    EditError,
     asset_ids,
     catalogue,
     default_edit,
@@ -40,19 +40,22 @@ def test_catalogue_lists_choices_and_templates() -> None:
     assert data["defaults"]["export"]["quality"] == "1080p"
 
 
-@pytest.mark.parametrize("patch", [
-    {"look": {"preset": "'; rm -rf /"}},
-    {"transition": {"type": "xfade=evil"}},
-    {"look": {"intensity": float("nan")}},
-    {"captions": {"color": "red; drop"}},
-    {"captions": {"edits": {"abc": "x"}}},
-    {"music": {"asset": "../../etc/passwd"}},
-    {"logo": {"asset": "/tmp/logo.png"}},
-    {"export": {"format": "exe"}},
-    {"cutout": {"mode": "blur", "subject": ""}},
-    {"texts": [{"text": "bad\u0007", "duration": 1}]},
-    {"removed": [[3, 1]]},
-])
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"look": {"preset": "'; rm -rf /"}},
+        {"transition": {"type": "xfade=evil"}},
+        {"look": {"intensity": float("nan")}},
+        {"captions": {"color": "red; drop"}},
+        {"captions": {"edits": {"abc": "x"}}},
+        {"music": {"asset": "../../etc/passwd"}},
+        {"logo": {"asset": "/tmp/logo.png"}},
+        {"export": {"format": "exe"}},
+        {"cutout": {"mode": "blur", "subject": ""}},
+        {"texts": [{"text": "bad\u0007", "duration": 1}]},
+        {"removed": [[3, 1]]},
+    ],
+)
 def test_hostile_or_malformed_values_are_refused(patch) -> None:
     with pytest.raises(EditError):
         validate_edit(patch, duration=10, assets=ASSETS)

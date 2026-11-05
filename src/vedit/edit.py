@@ -103,7 +103,15 @@ class Edit:
     def vflip(self) -> Self:
         return self._op("vflip")
 
-    def color(self, *, brightness: float | None = None, contrast: float | None = None, saturation: float | None = None, gamma: float | None = None, lut: str | None = None) -> Self:
+    def color(
+        self,
+        *,
+        brightness: float | None = None,
+        contrast: float | None = None,
+        saturation: float | None = None,
+        gamma: float | None = None,
+        lut: str | None = None,
+    ) -> Self:
         return self._op("color", brightness=brightness, contrast=contrast, saturation=saturation, gamma=gamma, lut=lut)
 
     def denoise(self, strength: float = 3.0) -> Self:
@@ -174,8 +182,12 @@ class Edit:
         return self._op("reframe", aspect=aspect, mode=mode)
 
     def spatial_effect(
-        self, preset: str = "float", *, intensity: float = 0.55,
-        start: float = 0.0, duration: float | None = None,
+        self,
+        preset: str = "float",
+        *,
+        intensity: float = 0.55,
+        start: float = 0.0,
+        duration: float | None = None,
         points: list[dict[str, float]] | None = None,
     ) -> Self:
         """Add a local perspective effect to the edited footage.
@@ -184,8 +196,9 @@ class Edit:
         captions and titles to keep their text fixed and readable. ``points``
         (float only) is a subject track of normalized boxes the frame drifts toward.
         """
-        return self._op("spatial_effect", preset=preset, intensity=intensity,
-                        start=start, duration=duration, points=points)
+        return self._op(
+            "spatial_effect", preset=preset, intensity=intensity, start=start, duration=duration, points=points
+        )
 
     def slideshow(self, images: list[str], duration: float = 3.0, fade: float = 0.4) -> Self:
         return self._op("slideshow", images=images, duration=duration, fade=fade)
@@ -239,7 +252,7 @@ class Edit:
         dest = Path(path)
         kept_work_dir = self._work_dir
         work_dir = kept_work_dir
-        if work_dir is None and dest.parent and dest.parent != Path("."):
+        if work_dir is None and dest.parent and dest.parent != Path():
             work_dir = dest.parent / f".vedit-{self._name}"
         export = {"op": "export", "path": str(dest), "preset": preset}
         self._ops.append(export)

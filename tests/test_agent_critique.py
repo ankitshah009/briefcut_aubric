@@ -131,7 +131,12 @@ def _cut(threshold: float) -> dict:
 
 
 def test_a_tighter_silence_cut_keeps_the_recording_relative_threshold():
-    brief = Brief(name="t", sources={"main": "/tmp/talk.mp4"}, ops=[_cut(-47.0), {"op": "export", "presets": ["shorts_9x16"]}], canvas=Canvas())
+    brief = Brief(
+        name="t",
+        sources={"main": "/tmp/talk.mp4"},
+        ops=[_cut(-47.0), {"op": "export", "presets": ["shorts_9x16"]}],
+        canvas=Canvas(),
+    )
     revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=True)
     cut = revised.ops[0]
     assert cut["min_silence"] == 0.25 and cut["pad"] == 0.08
@@ -143,8 +148,12 @@ def test_a_tighter_silence_cut_keeps_the_recording_relative_threshold():
 
 
 def test_a_silent_source_is_trimmed_instead_of_silence_cut():
-    brief = Brief(name="t", sources={"a": "/tmp/a.png", "b": "/tmp/b.png"},
-                  ops=[{"op": "slideshow", "images": ["a", "b"], "duration": 20}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    brief = Brief(
+        name="t",
+        sources={"a": "/tmp/a.png", "b": "/tmp/b.png"},
+        ops=[{"op": "slideshow", "images": ["a", "b"], "duration": 20}, {"op": "export", "presets": ["youtube_1080p"]}],
+        canvas=Canvas(),
+    )
     revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=False)
     names = [op["op"] for op in revised.ops]
     assert names == ["slideshow", "trim", "export"]
@@ -153,15 +162,36 @@ def test_a_silent_source_is_trimmed_instead_of_silence_cut():
 
 
 def test_an_added_silence_cut_comes_after_the_tape_op():
-    brief = Brief(name="t", sources={"a": "/tmp/a.mp4", "b": "/tmp/b.mp4"},
-                  ops=[{"op": "concat", "clips": ["a", "b"]}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    brief = Brief(
+        name="t",
+        sources={"a": "/tmp/a.mp4", "b": "/tmp/b.mp4"},
+        ops=[{"op": "concat", "clips": ["a", "b"]}, {"op": "export", "presets": ["youtube_1080p"]}],
+        canvas=Canvas(),
+    )
     revised, notes = revise_brief(brief, _critique([_finding("duration_over")]), _intent(), has_audio=True)
     assert [op["op"] for op in revised.ops] == ["concat", "cut_silence", "export"]
     assert notes == ("added silence cut",)
 
 
 def test_revise_reports_nothing_when_the_brief_already_has_the_fix():
-    brief = Brief(name="t", sources={"main": "/tmp/talk.mp4"},
-                  ops=[{"op": "captions", "burn": True}, {"op": "loudnorm"}, {"op": "export", "presets": ["youtube_1080p"]}], canvas=Canvas())
+    brief = Brief(
+        name="t",
+        sources={"main": "/tmp/talk.mp4"},
+        ops=[{"op": "captions", "burn": True}, {"op": "loudnorm"}, {"op": "export", "presets": ["youtube_1080p"]}],
+        canvas=Canvas(),
+    )
     revised, notes = revise_brief(brief, _critique([_finding("captions_missing"), _finding("loudness")]), _intent())
     assert revised.ops == brief.ops and notes == ()
+
+
+def test_a_silent_output_is_a_loudness_warning_not_a_measurement_crash(tmp_path, monkeypatch):
+    """``measure_loudness`` returns None for digital silence. The critique says so instead of reporting a TypeError."""
+    from vedit.agent import critique as module
+    from vedit.agent.policy import contract_for
+
+    monkeypatch.setattr("vedit.analyze.measure_loudness", lambda path: None)
+    finding = module._loudness_finding(contract_for("youtube"), tmp_path / "out.mp4")
+    assert finding is not None
+    assert (finding.code, finding.severity) == ("loudness", "warn")
+    assert "silent" in finding.message
+    assert "TypeError" not in finding.message and "NoneType" not in finding.message

@@ -39,8 +39,14 @@ _LINK_FROM_BYTES = 16 * 1024 * 1024
 _LIMIT = 500
 _THUMBNAIL_SLOTS = threading.BoundedSemaphore(2)
 _LABELS = {
-    "queued": "Queued", "analyzing": "Shaping the story", "planned": "Ready to edit", "rendering": "Making the video",
-    "complete": "Verified", "failed": "Needs attention", "cancelled": "Cancelled", "interrupted": "Interrupted",
+    "queued": "Queued",
+    "analyzing": "Shaping the story",
+    "planned": "Ready to edit",
+    "rendering": "Making the video",
+    "complete": "Verified",
+    "failed": "Needs attention",
+    "cancelled": "Cancelled",
+    "interrupted": "Interrupted",
 }
 
 
@@ -51,7 +57,7 @@ def _folder_size(path: Path, seen: set[tuple[int, int]] | None = None) -> int:
     for root, _directories, files in os.walk(path, followlinks=False):
         for name in files:
             with suppress(OSError):
-                info = os.lstat(os.path.join(root, name))
+                info = Path(root, name).lstat()
                 if stat.S_ISREG(info.st_mode) and (info.st_dev, info.st_ino) not in seen:
                     seen.add((info.st_dev, info.st_ino))
                     total += info.st_size
@@ -106,24 +112,38 @@ def _old_renders(manager: CampaignManager, job: dict[str, Any]) -> list[tuple[in
         return []
     folder = _job_folder(manager, job["id"])
     current = [job.get("_artifacts") or {}, (job.get("_verified_artifacts") or {}).get(str(latest)) or {}]
-    protected = {PurePosixPath(value).parts[0] for artifacts in current for value in artifacts.values() if isinstance(value, str) and value}
+    protected = {
+        PurePosixPath(value).parts[0]
+        for artifacts in current
+        for value in artifacts.values()
+        if isinstance(value, str) and value
+    }
     found = []
-    with suppress(OSError):
-        with os.scandir(folder) as entries:
-            for entry in entries:
-                match = _RENDER.fullmatch(entry.name)
-                if match and int(match.group(1)) < latest and entry.name not in protected and entry.is_dir(follow_symlinks=False):
-                    found.append((int(match.group(1)), Path(entry.path)))
+    with suppress(OSError), os.scandir(folder) as entries:
+        for entry in entries:
+            match = _RENDER.fullmatch(entry.name)
+            if (
+                match
+                and int(match.group(1)) < latest
+                and entry.name not in protected
+                and entry.is_dir(follow_symlinks=False)
+            ):
+                found.append((int(match.group(1)), Path(entry.path)))
     return sorted(found)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """A stored field as a dict, or an empty one: job records come from JSON and may hold anything."""
+    return value if isinstance(value, dict) else {}
 
 
 def _row(manager: CampaignManager, job: dict[str, Any]) -> dict[str, Any]:
     public = manager._public(job)
-    plan = job.get("plan") if isinstance(job.get("plan"), dict) else {}
-    source = job.get("source") if isinstance(job.get("source"), dict) else {}
-    request = job.get("request") if isinstance(job.get("request"), dict) else {}
-    result = public.get("result") if isinstance(public.get("result"), dict) else {}
-    proof = result.get("proof") if isinstance(result.get("proof"), dict) else {}
+    plan = _mapping(job.get("plan"))
+    source = _mapping(job.get("source"))
+    request = _mapping(job.get("request"))
+    result = _mapping(public.get("result"))
+    proof = _mapping(result.get("proof"))
     status = "interrupted" if job["status"] == "failed" and job.get("stage") == "interrupted" else job["status"]
     folder = _job_folder(manager, job["id"])
     seen: set[tuple[int, int]] = set()
@@ -138,14 +158,22 @@ def _row(manager: CampaignManager, job: dict[str, Any]) -> dict[str, Any]:
                     size += info.st_size
     return {
         "id": job["id"],
-        "title": job.get("name") or plan.get("title") or source.get("name") or request.get("goal") or "Untitled project",
-        "status": status, "status_label": _LABELS.get(status, status),
-        "created_at": job.get("created_at"), "updated_at": job.get("updated_at"),
+        "title": job.get("name")
+        or plan.get("title")
+        or source.get("name")
+        or request.get("goal")
+        or "Untitled project",
+        "status": status,
+        "status_label": _LABELS.get(status, status),
+        "created_at": job.get("created_at"),
+        "updated_at": job.get("updated_at"),
         "duration": proof.get("duration") or plan.get("duration") or source.get("duration"),
         "source_name": source.get("name"),
-        "revision": job.get("revision", 0), "verified_revision": public.get("verified_revision"),
+        "revision": job.get("revision", 0),
+        "verified_revision": public.get("verified_revision"),
         "versions": sum(1 for entry in public["versions"] if entry.get("status") == "verified"),
-        "error": job.get("error"), "active": job["status"] in _ACTIVE,
+        "error": job.get("error"),
+        "active": job["status"] in _ACTIVE,
         "size_bytes": size,
         "reclaimable_bytes": sum(_folder_size(path) for _revision, path in _old_renders(manager, job)),
         "thumbnail_url": f"/api/projects/{job['id']}/thumbnail",
@@ -182,8 +210,8 @@ def thumbnail(manager: CampaignManager, ident: str) -> Path:
         return cached
     with manager._lock, manager._connect() as connection:
         job = manager._load(connection, ident)
-    duration = (job.get("source") or {}).get("duration")
-    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    duration = _mapping(job.get("source")).get("duration")
+    request = _mapping(job.get("request"))
     # A script project names pictures, not a clip, so only a clip or a combined project file has a frame.
     if not (request.get("paths") or job.get("_project_file")) or not isinstance(duration, (int, float)):
         raise CampaignError("This project has no picture yet.", 404)
@@ -191,7 +219,20 @@ def thumbnail(manager: CampaignManager, ident: str) -> Path:
     pending = folder / ".library-thumb.part.jpg"
     with _THUMBNAIL_SLOTS:
         try:
-            run_ffmpeg(["-ss", f"{min(duration * 0.1, 2.0):.3f}", "-i", str(source), "-frames:v", "1", "-vf", "scale=480:-2", str(pending)], timeout=30)
+            run_ffmpeg(
+                [
+                    "-ss",
+                    f"{min(duration * 0.1, 2.0):.3f}",
+                    "-i",
+                    str(source),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=480:-2",
+                    str(pending),
+                ],
+                timeout=30,
+            )
             pending.replace(cached)
         except (VeditError, OSError) as exc:
             with suppress(OSError):
@@ -214,7 +255,7 @@ def rename(manager: CampaignManager, ident: str, value: Any) -> dict[str, Any]:
 
 def _copy_file(source: str, destination: str) -> None:
     # Clips can be gigabytes. A hard link is free, and neither side edits a media file in place.
-    if os.path.getsize(source) >= _LINK_FROM_BYTES:
+    if Path(source).stat().st_size >= _LINK_FROM_BYTES:
         with suppress(OSError):
             os.link(source, destination)
             return
@@ -243,16 +284,41 @@ def duplicate(manager: CampaignManager, ident: str) -> dict[str, Any]:
         # throughout. The request is the exception: it names files both projects share.
         copy = json.loads(_json(job).replace(ident, new_id))
         copy["request"] = {key: value for key, value in json.loads(_json(job["request"])).items() if key != "short"}
-        for name in ("versions", "applied_patches", "note", "note_summary", "recovery", "revision_source", "timings", "storage", "family"):
+        for name in (
+            "versions",
+            "applied_patches",
+            "note",
+            "note_summary",
+            "recovery",
+            "revision_source",
+            "timings",
+            "storage",
+            "family",
+        ):
             copy.pop(name, None)
         budget = job["request"]["budget_usd"]
         fingerprint = hashlib.sha256(f"duplicate|{new_id}".encode()).hexdigest()
         title = job.get("name") or job["plan"].get("title") or "Untitled project"
         copy.update(
-            id=new_id, status="planned", stage="review", progress=1, message="Review the story and approve the render.",
-            created_at=now, updated_at=now, result=None, error=None, cancel_requested=False, revision=0, verified_revision=None,
-            budget={"cap_usd": budget, "reserved_usd": 0, "remaining_usd": budget}, name=f"{title} copy"[:120], duplicated_from=ident,
-            _action="plan", _artifacts={}, _verified_artifacts={}, _fingerprint=fingerprint,
+            id=new_id,
+            status="planned",
+            stage="review",
+            progress=1,
+            message="Review the story and approve the render.",
+            created_at=now,
+            updated_at=now,
+            result=None,
+            error=None,
+            cancel_requested=False,
+            revision=0,
+            verified_revision=None,
+            budget={"cap_usd": budget, "reserved_usd": 0, "remaining_usd": budget},
+            name=f"{title} copy"[:120],
+            duplicated_from=ident,
+            _action="plan",
+            _artifacts={},
+            _verified_artifacts={},
+            _fingerprint=fingerprint,
         )
         destination = manager.root.resolve() / new_id
         try:
@@ -260,7 +326,9 @@ def duplicate(manager: CampaignManager, ident: str) -> dict[str, Any]:
                 shutil.copytree(folder, destination, symlinks=True, ignore=_skip_copied, copy_function=_copy_file)
             else:
                 destination.mkdir()
-            connection.execute("INSERT INTO jobs VALUES (?,?,?,?,?,?)", (new_id, fingerprint, copy["status"], now, now, _json(copy)))
+            connection.execute(
+                "INSERT INTO jobs VALUES (?,?,?,?,?,?)", (new_id, fingerprint, copy["status"], now, now, _json(copy))
+            )
         except OSError as exc:
             shutil.rmtree(destination, ignore_errors=True)
             raise CampaignError("The project could not be copied. Check free disk space and try again.") from exc
@@ -324,7 +392,12 @@ def _orphan_inboxes(manager: CampaignManager, jobs: list[dict[str, Any]]) -> lis
     found = []
     with suppress(OSError):
         for entry in os.scandir(sessions):
-            if entry.name == "campaigns" or entry.name.startswith(".") or entry.name in named or not entry.is_dir(follow_symlinks=False):
+            if (
+                entry.name == "campaigns"
+                or entry.name.startswith(".")
+                or entry.name in named
+                or not entry.is_dir(follow_symlinks=False)
+            ):
                 continue
             if any(entry.name in data for data in records):
                 continue
@@ -337,12 +410,17 @@ def _orphan_inboxes(manager: CampaignManager, jobs: list[dict[str, Any]]) -> lis
                 files = list(os.scandir(inbox))
                 if any(child.is_dir(follow_symlinks=False) for child in files):
                     continue
-                newest = max([entry.stat(follow_symlinks=False).st_mtime, inbox.lstat().st_mtime] + [child.stat(follow_symlinks=False).st_mtime for child in files])
+                newest = max(
+                    [entry.stat(follow_symlinks=False).st_mtime, inbox.lstat().st_mtime]
+                    + [child.stat(follow_symlinks=False).st_mtime for child in files]
+                )
             except OSError:
                 continue
             if newest > cutoff:
                 continue
-            size = sum(child.stat(follow_symlinks=False).st_size for child in files if child.is_file(follow_symlinks=False))
+            size = sum(
+                child.stat(follow_symlinks=False).st_size for child in files if child.is_file(follow_symlinks=False)
+            )
             found.append((folder, size))
     return sorted(found)
 
@@ -382,14 +460,22 @@ def delete(manager: CampaignManager, ident: str) -> dict[str, Any]:
         if job["status"] in _ACTIVE:
             raise CampaignError("This project is still working. Cancel it, then delete it.", 409)
         # A short reads its parent's record while it plans.
-        working = connection.execute("SELECT data FROM jobs WHERE status IN ('queued','analyzing','rendering')").fetchall()
-        if any(((json.loads(row[0]).get("request") or {}).get("short") or {}).get("parent") == ident for row in working):
+        working = connection.execute(
+            "SELECT data FROM jobs WHERE status IN ('queued','analyzing','rendering')"
+        ).fetchall()
+        if any(
+            ((json.loads(row[0]).get("request") or {}).get("short") or {}).get("parent") == ident for row in working
+        ):
             raise CampaignError("This project's shorts are still working. Wait for them, then delete it.", 409)
         removable, kept = _removable_inbox(manager, connection, job)
         connection.execute("DELETE FROM jobs WHERE id=?", (ident,))
         for row in connection.execute("SELECT data FROM jobs WHERE data LIKE ?", (f'%"family"%{ident}%',)).fetchall():
             relative = json.loads(row[0])
-            relative["family"] = [item for item in relative.get("family") or [] if not (isinstance(item, dict) and item.get("id") == ident)]
+            relative["family"] = [
+                item
+                for item in relative.get("family") or []
+                if not (isinstance(item, dict) and item.get("id") == ident)
+            ]
             manager._save(connection, relative)
         try:
             if folder.is_symlink():
@@ -401,7 +487,9 @@ def delete(manager: CampaignManager, ident: str) -> dict[str, Any]:
                 folder.rename(trash)
         except OSError as exc:
             connection.rollback()
-            raise CampaignError("This project's folder could not be removed. Check its permissions and try again.") from exc
+            raise CampaignError(
+                "This project's folder could not be removed. Check its permissions and try again."
+            ) from exc
     shutil.rmtree(trash, ignore_errors=True)
     size += _remove_inbox(removable)
     return {"deleted": ident, "freed_bytes": size, "source_removed": len(removable), "source_kept": kept}
@@ -439,7 +527,11 @@ def cleanup(manager: CampaignManager, *, dry_run: bool = False) -> dict[str, Any
             if not old:
                 continue
             gone = {revision for revision, _path in old}
-            job["versions"] = [entry for entry in job.get("versions") or [] if not (isinstance(entry, dict) and entry.get("revision") in gone and entry.get("status") == "verified")]
+            job["versions"] = [
+                entry
+                for entry in job.get("versions") or []
+                if not (isinstance(entry, dict) and entry.get("revision") in gone and entry.get("status") == "verified")
+            ]
             artifacts = dict(job.get("_verified_artifacts") or {})
             for revision in gone:
                 artifacts.pop(str(revision), None)

@@ -18,15 +18,17 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import platform
 import unicodedata
 import zipfile
 import zlib
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any
+
+from vedit.errors import VeditError
 
 FORMAT = "briefcut.receipts"
 FORMAT_VERSION = 1
@@ -45,6 +47,7 @@ _UNREADABLE = (UnicodeDecodeError, zipfile.BadZipFile, zlib.error, OSError)
 # ---------------------------------------------------------------------------
 # Canonical form and ids
 # ---------------------------------------------------------------------------
+
 
 def _normal(value: Any) -> Any:
     """JSON values in one spelling: NFC text, rounded floats, whole floats as ints."""
@@ -97,16 +100,29 @@ def seal(record: dict[str, Any]) -> dict[str, Any]:
     return {**body, "evidence_id": evidence_id(body)}
 
 
+def _section(holder: dict[str, Any] | None, key: str) -> dict[str, Any]:
+    """The dict stored under ``key``, or an empty one when it is missing or something else."""
+    value = holder.get(key) if holder else None
+    return value if isinstance(value, dict) else {}
+
+
 def root_id(receipts: dict[str, Any]) -> str:
     """The id over the file hash and every record id, in order: video, probe, ..., then each check."""
-    video = receipts.get("video") if isinstance(receipts.get("video"), dict) else {}
+    video = _section(receipts, "video")
     ids = [(receipts.get(name) or {}).get("evidence_id") for name in SECTIONS]
     ids += [check.get("evidence_id") if isinstance(check, dict) else None for check in receipts.get("checks") or []]
-    return "ev_" + digest({
-        "format": receipts.get("format"), "v": receipts.get("v"), "created_at": receipts.get("created_at"),
-        "video_sha256": video.get("sha256"), "video_size_bytes": video.get("size_bytes"),
-        "passed": receipts.get("passed"), "total": receipts.get("total"), "records": ids,
-    })
+    return "ev_" + digest(
+        {
+            "format": receipts.get("format"),
+            "v": receipts.get("v"),
+            "created_at": receipts.get("created_at"),
+            "video_sha256": video.get("sha256"),
+            "video_size_bytes": video.get("size_bytes"),
+            "passed": receipts.get("passed"),
+            "total": receipts.get("total"),
+            "records": ids,
+        }
+    )
 
 
 def short_id(ident: str, length: int = EXPECT_MIN_HEX) -> str:
@@ -129,7 +145,7 @@ def _stream_sha256(handle: Any) -> tuple[str, int]:
 
 def file_sha256(path: Path | str) -> tuple[str, int]:
     """sha256 hex and byte count of a file, read in 1 MB pieces."""
-    with open(path, "rb") as handle:
+    with Path(path).open("rb") as handle:
         return _stream_sha256(handle)
 
 
@@ -137,39 +153,61 @@ def file_sha256(path: Path | str) -> tuple[str, int]:
 # Building receipts
 # ---------------------------------------------------------------------------
 
+
 @lru_cache(maxsize=1)
 def _ffmpeg_version() -> str | None:
     try:
         from vedit.media import version_line
 
         return version_line()
-    except Exception:  # receipts must not fail a render that already passed
+    except (VeditError, OSError):  # no FFmpeg to ask: receipts must not fail a render that already passed
         return None
 
 
 def _probe_record(proof: dict[str, Any], info: Any) -> dict[str, Any]:
     record: dict[str, Any] = {
         "kind": "probe",
-        "duration": proof.get("duration"), "width": proof.get("width"), "height": proof.get("height"),
-        "fps": proof.get("fps"), "has_audio": proof.get("has_audio"), "has_video": proof.get("has_video"),
+        "duration": proof.get("duration"),
+        "width": proof.get("width"),
+        "height": proof.get("height"),
+        "fps": proof.get("fps"),
+        "has_audio": proof.get("has_audio"),
+        "has_video": proof.get("has_video"),
         "size_bytes": proof.get("size_bytes"),
-        "color": {"space": proof.get("color_space"), "range": proof.get("color_range"),
-                  "primaries": proof.get("color_primaries"), "transfer": proof.get("color_transfer")},
+        "color": {
+            "space": proof.get("color_space"),
+            "range": proof.get("color_range"),
+            "primaries": proof.get("color_primaries"),
+            "transfer": proof.get("color_transfer"),
+        },
         "format": getattr(info, "format_name", None),
         "streams": [],
     }
     for stream in getattr(info, "streams", ()) or ():
-        record["streams"].append({
-            "index": stream.index, "codec_type": stream.codec_type, "codec_name": stream.codec_name,
-            "width": stream.width, "height": stream.height, "fps": stream.fps, "duration": stream.duration,
-            "sample_rate": stream.sample_rate, "channels": stream.channels, "pix_fmt": stream.pix_fmt,
-        })
+        record["streams"].append(
+            {
+                "index": stream.index,
+                "codec_type": stream.codec_type,
+                "codec_name": stream.codec_name,
+                "width": stream.width,
+                "height": stream.height,
+                "fps": stream.fps,
+                "duration": stream.duration,
+                "sample_rate": stream.sample_rate,
+                "channels": stream.channels,
+                "pix_fmt": stream.pix_fmt,
+            }
+        )
     return record
 
 
 def _plan_record(plan: dict[str, Any] | None, result: dict[str, Any], note: str | None) -> dict[str, Any]:
     plan = plan if isinstance(plan, dict) else {}
-    segments = [[segment.get("start"), segment.get("end")] for segment in plan.get("segments") or [] if isinstance(segment, dict)]
+    segments = [
+        [segment.get("start"), segment.get("end")]
+        for segment in plan.get("segments") or []
+        if isinstance(segment, dict)
+    ]
     return {
         "kind": "plan",
         "edit_sha256": digest(plan.get("edit")) if plan.get("edit") is not None else None,
@@ -190,11 +228,27 @@ def _meta_record(project_root: Path | None) -> dict[str, Any]:
         from vedit.meta import call_log
 
         logged = call_log(Path(project_root))
-    except Exception:
+    except (OSError, ValueError, TypeError, KeyError):  # an unreadable or malformed log leaves the record empty
         return record
     record["log"] = "meta/meta-calls.jsonl" if (Path(project_root) / "meta" / "meta-calls.jsonl").is_file() else None
     calls = sorted(logged.get("calls") or [], key=lambda item: (item.get("started_at") or 0, item.get("id") or ""))
-    record["calls"] = [{key: call.get(key) for key in ("id", "operation", "model", "purpose", "status", "runs_on", "cost_usd", "cost_kind", "request_id")} for call in calls]
+    record["calls"] = [
+        {
+            key: call.get(key)
+            for key in (
+                "id",
+                "operation",
+                "model",
+                "purpose",
+                "status",
+                "runs_on",
+                "cost_usd",
+                "cost_kind",
+                "request_id",
+            )
+        }
+        for call in calls
+    ]
     totals = logged.get("totals") or {}
     record["totals"] = {key: totals.get(key) for key in ("calls", "api_calls", "local_calls", "spent_usd")}
     return record
@@ -209,14 +263,24 @@ def _check_record(index: int, check: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _limitations(checks: list[dict[str, Any]], meta: dict[str, Any], plan: dict[str, Any] | None, result: dict[str, Any]) -> list[str]:
-    notes = ["These ids prove the files and records are unchanged since Briefcut wrote them. They are not a signature. "
-             "Compare the root id with one from a trusted place to know who made them."]
+def _limitations(
+    checks: list[dict[str, Any]], meta: dict[str, Any], plan: dict[str, Any] | None, result: dict[str, Any]
+) -> list[str]:
+    notes = [
+        (
+            "These ids prove the files and records are unchanged since Briefcut wrote them. They are not a signature. "
+            "Compare the root id with one from a trusted place to know who made them."
+        )
+    ]
     inferred = sum(1 for check in checks if check.get("basis") == "inferred")
     if inferred:
-        notes.append(f"{inferred} check{'s are' if inferred != 1 else ' is'} a model's judgment (basis: inferred), not a measurement.")
-    analysis = (plan or {}).get("analysis") if isinstance((plan or {}).get("analysis"), dict) else {}
-    heard_by_meta = analysis.get("transcribed_by") == "meta-voice-transcribe" or result.get("caption_provider") == "meta"
+        notes.append(
+            f"{inferred} check{'s are' if inferred != 1 else ' is'} a model's judgment (basis: inferred), not a measurement."
+        )
+    analysis = _section(plan, "analysis")
+    heard_by_meta = (
+        analysis.get("transcribed_by") == "meta-voice-transcribe" or result.get("caption_provider") == "meta"
+    )
     estimated = any(isinstance(item, dict) and item.get("estimated") for item in analysis.get("transcript") or [])
     if heard_by_meta or estimated:
         notes.append("Word times are estimated. Meta Voice Transcribe times turns, not words.")
@@ -237,10 +301,19 @@ def _relative(path: Path, base: Path) -> str:
         return path.name
 
 
-def bundle_receipts(result: dict[str, Any], video_path: Path | str, *, plan: dict[str, Any] | None = None,
-                    project_root: Path | str | None = None, base: Path | str | None = None, info: Any = None,
-                    files: Iterable[tuple[Path, str]] = (), video_name: str | None = None, note: str | None = None,
-                    created_at: str | None = None) -> dict[str, Any]:
+def bundle_receipts(
+    result: dict[str, Any],
+    video_path: Path | str,
+    *,
+    plan: dict[str, Any] | None = None,
+    project_root: Path | str | None = None,
+    base: Path | str | None = None,
+    info: Any = None,
+    files: Iterable[tuple[Path, str]] = (),
+    video_name: str | None = None,
+    note: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
     """The receipts record for one verified render.
 
     ``result`` is the campaign result (``checks``, ``proof``, ``revision``).
@@ -256,28 +329,47 @@ def bundle_receipts(result: dict[str, Any], video_path: Path | str, *, plan: dic
             from vedit.media import probe
 
             info = probe(video)
-        except Exception:
+        except (VeditError, OSError):  # the probe is extra detail; the hash is the proof
             info = None
     sha, size = file_sha256(video)
-    proof = result.get("proof") if isinstance(result.get("proof"), dict) else {}
+    proof = _section(result, "proof")
     checks = [check for check in result.get("checks") or [] if isinstance(check, dict)]
     meta = _meta_record(Path(project_root) if project_root is not None else None)
     hashed = []
-    for path, name in files:
-        path = Path(path)
+    for raw, name in files:
+        path = Path(raw)
         if path.is_file():
             file_hash, file_size = file_sha256(path)
-            hashed.append({"name": name, "path": _relative(path, base_dir), "sha256": file_hash, "size_bytes": file_size})
+            hashed.append(
+                {"name": name, "path": _relative(path, base_dir), "sha256": file_hash, "size_bytes": file_size}
+            )
     receipts: dict[str, Any] = {
-        "format": FORMAT, "v": FORMAT_VERSION,
-        "created_at": created_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "passed": sum(1 for check in checks if check.get("passed")), "total": len(checks),
-        "video": seal({"kind": "video", "name": video_name or "video" + video.suffix.lower(), "path": _relative(video, base_dir), "sha256": sha, "size_bytes": size}),
+        "format": FORMAT,
+        "v": FORMAT_VERSION,
+        "created_at": created_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "passed": sum(1 for check in checks if check.get("passed")),
+        "total": len(checks),
+        "video": seal(
+            {
+                "kind": "video",
+                "name": video_name or "video" + video.suffix.lower(),
+                "path": _relative(video, base_dir),
+                "sha256": sha,
+                "size_bytes": size,
+            }
+        ),
         "probe": seal(_probe_record(proof, info)),
         "plan": seal(_plan_record(plan, result, note)),
         "meta_calls": seal(meta),
-        "versions": seal({"kind": "versions", "briefcut": _briefcut_version(), "ffmpeg": _ffmpeg_version(),
-                          "python": platform.python_version(), "receipts": FORMAT_VERSION}),
+        "versions": seal(
+            {
+                "kind": "versions",
+                "briefcut": _briefcut_version(),
+                "ffmpeg": _ffmpeg_version(),
+                "python": platform.python_version(),
+                "receipts": FORMAT_VERSION,
+            }
+        ),
         "files": seal({"kind": "files", "files": hashed}),
         "limitations": seal({"kind": "limitations", "items": _limitations(checks, meta, plan, result)}),
         "checks": [seal(_check_record(index, check)) for index, check in enumerate(checks)],
@@ -297,7 +389,7 @@ def write_receipts(receipts: dict[str, Any], path: Path | str) -> Path:
     dest = Path(path)
     pending = dest.with_name(dest.name + ".part")
     pending.write_text(json.dumps(receipts, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(pending, dest)
+    pending.replace(dest)
     return dest
 
 
@@ -305,13 +397,14 @@ def write_receipts(receipts: dict[str, Any], path: Path | str) -> Path:
 # Verifying
 # ---------------------------------------------------------------------------
 
+
 class ReceiptsMissing(Exception):
     """There is no receipts.json to check."""
 
 
 def _label(name: str, record: dict[str, Any]) -> str:
     if name == "check":
-        return f"check {record.get('index')} \"{record.get('name')}\""
+        return f'check {record.get("index")} "{record.get("name")}"'
     return f"{name.replace('_', ' ')} record"
 
 
@@ -413,61 +506,106 @@ def verify(target: Path | str, *, expect: str | None = None) -> dict[str, Any]:
         items.append({"item": item, "ok": ok, "detail": detail})
 
     try:
-        try:
-            receipts = json.loads(source.text)
-        except ValueError as exc:
-            raise ReceiptsMissing(f"{source.receipts_path} is not valid JSON: {exc}.") from exc
-        if not isinstance(receipts, dict) or receipts.get("format") != FORMAT:
-            raise ReceiptsMissing(f"{source.receipts_path} is not a Briefcut receipts file.")
-        video = receipts.get("video") if isinstance(receipts.get("video"), dict) else {}
-        for name, record in [(name, receipts.get(name)) for name in SECTIONS] + [("check", check) for check in receipts.get("checks") or []]:
-            if not isinstance(record, dict):
-                add(f"{name} record", False, "missing from the receipts")
-                continue
-            label = _label(name, record)
-            if record.get("evidence_id") != evidence_id(record):
-                add(label, False, "its content does not match its evidence id " + short_id(str(record.get("evidence_id"))))
-            else:
-                add(label, True, "matches " + short_id(record["evidence_id"]))
-        for record in [video] + list((receipts.get("files") or {}).get("files") or []):
-            if not isinstance(record, dict):
-                continue
-            name = str(record.get("name") or record.get("path"))
-            found = source.hash(record)
-            if isinstance(found, str):
-                add(name, False, found)
-            elif found[0] != record.get("sha256"):
-                add(name, False, f"sha256 differs: the bytes changed ({found[1]} bytes now, {record.get('size_bytes')} recorded)")
-            else:
-                add(name, True, f"sha256 matches ({found[1]} bytes)")
+        receipts = _loaded_receipts(source)
+        _verify_records(receipts, add)
+        _verify_files(receipts, source, add)
         checks = [check for check in receipts.get("checks") or [] if isinstance(check, dict)]
-        counted = sum(1 for check in checks if check.get("passed"))
-        if (receipts.get("passed"), receipts.get("total")) != (counted, len(checks)):
-            add("passed/total", False, f"says {receipts.get('passed')} of {receipts.get('total')}, the checks say {counted} of {len(checks)}")
-        else:
-            add("passed/total", True, f"{counted} of {len(checks)} checks passed")
+        _verify_totals(receipts, checks, add)
         stored = str(receipts.get("evidence_id") or "")
-        computed = root_id(receipts)
-        if stored != computed:
+        if stored != root_id(receipts):
             add("root id", False, f"the records no longer add up to {short_id(stored)}")
         else:
             add("root id", True, f"{stored} covers the video and {len(SECTIONS) + len(checks)} records")
         if expect is not None:
-            wanted = expect.strip()
-            if stored == wanted:
-                add("expected root", True, "matches " + short_id(wanted))
-            elif len(wanted) < 3 + EXPECT_MIN_HEX:
-                add("expected root", False, f"{wanted!r} is too short to trust: give the full id, or at least ev_ and {EXPECT_MIN_HEX} hex digits")
-            elif stored.startswith(wanted):
-                add("expected root", True, "matches " + short_id(wanted))
-            else:
-                add("expected root", False, f"is {short_id(stored)}, not {short_id(wanted)}")
+            _verify_expected(stored, expect.strip(), add)
     finally:
         source.close()
     changed = [item for item in items if not item["ok"]]
-    return {"ok": not changed, "evidence_id": receipts.get("evidence_id"), "receipts": source.receipts_path,
-            "video": video.get("name"), "passed": receipts.get("passed"), "total": receipts.get("total"),
-            "items": items, "changed": changed}
+    return {
+        "ok": not changed,
+        "evidence_id": receipts.get("evidence_id"),
+        "receipts": source.receipts_path,
+        "video": _section(receipts, "video").get("name"),
+        "passed": receipts.get("passed"),
+        "total": receipts.get("total"),
+        "items": items,
+        "changed": changed,
+    }
+
+
+_Add = Callable[[str, bool, str], None]
+
+
+def _loaded_receipts(source: _Source) -> dict[str, Any]:
+    try:
+        receipts = json.loads(source.text)
+    except ValueError as exc:
+        raise ReceiptsMissing(f"{source.receipts_path} is not valid JSON: {exc}.") from exc
+    if not isinstance(receipts, dict) or receipts.get("format") != FORMAT:
+        raise ReceiptsMissing(f"{source.receipts_path} is not a Briefcut receipts file.")
+    return receipts
+
+
+def _verify_records(receipts: dict[str, Any], add: _Add) -> None:
+    """Each section and check must still hash to its own evidence id."""
+    named = [(name, receipts.get(name)) for name in SECTIONS]
+    named += [("check", check) for check in receipts.get("checks") or []]
+    for name, record in named:
+        if not isinstance(record, dict):
+            add(f"{name} record", False, "missing from the receipts")
+            continue
+        label = _label(name, record)
+        if record.get("evidence_id") != evidence_id(record):
+            add(label, False, "its content does not match its evidence id " + short_id(str(record.get("evidence_id"))))
+        else:
+            add(label, True, "matches " + short_id(record["evidence_id"]))
+
+
+def _verify_files(receipts: dict[str, Any], source: _Source, add: _Add) -> None:
+    """The video and every bundled file must still have the recorded sha256."""
+    for record in [_section(receipts, "video"), *(_section(receipts, "files").get("files") or [])]:
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("name") or record.get("path"))
+        found = source.hash(record)
+        if isinstance(found, str):
+            add(name, False, found)
+        elif found[0] != record.get("sha256"):
+            add(
+                name,
+                False,
+                f"sha256 differs: the bytes changed ({found[1]} bytes now, {record.get('size_bytes')} recorded)",
+            )
+        else:
+            add(name, True, f"sha256 matches ({found[1]} bytes)")
+
+
+def _verify_totals(receipts: dict[str, Any], checks: list[dict[str, Any]], add: _Add) -> None:
+    counted = sum(1 for check in checks if check.get("passed"))
+    if (receipts.get("passed"), receipts.get("total")) != (counted, len(checks)):
+        add(
+            "passed/total",
+            False,
+            f"says {receipts.get('passed')} of {receipts.get('total')}, the checks say {counted} of {len(checks)}",
+        )
+    else:
+        add("passed/total", True, f"{counted} of {len(checks)} checks passed")
+
+
+def _verify_expected(stored: str, wanted: str, add: _Add) -> None:
+    """The stored root against one from a trusted place: whole, or a prefix long enough to trust."""
+    if stored == wanted:
+        add("expected root", True, "matches " + short_id(wanted))
+    elif len(wanted) < 3 + EXPECT_MIN_HEX:
+        add(
+            "expected root",
+            False,
+            f"{wanted!r} is too short to trust: give the full id, or at least ev_ and {EXPECT_MIN_HEX} hex digits",
+        )
+    elif stored.startswith(wanted):
+        add("expected root", True, "matches " + short_id(wanted))
+    else:
+        add("expected root", False, f"is {short_id(stored)}, not {short_id(wanted)}")
 
 
 def format_verification(report: dict[str, Any]) -> str:

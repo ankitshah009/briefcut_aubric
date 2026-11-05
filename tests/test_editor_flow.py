@@ -138,26 +138,14 @@ def _multipart(goal: str, clip: Path, *, render: bool, root: Path) -> tuple[byte
     file_bytes = clip.read_bytes()
     body = b"".join(
         [
-            (
-                f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="goal"\r\n\r\n'
-                f"{goal}\r\n"
-            ).encode(),
+            (f'--{boundary}\r\nContent-Disposition: form-data; name="goal"\r\n\r\n{goal}\r\n').encode(),
             (
                 f"--{boundary}\r\n"
                 f'Content-Disposition: form-data; name="render"\r\n\r\n'
                 f"{'true' if render else 'false'}\r\n"
             ).encode(),
-            (
-                f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="analyze"\r\n\r\n'
-                f"true\r\n"
-            ).encode(),
-            (
-                f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="root"\r\n\r\n'
-                f"{root}\r\n"
-            ).encode(),
+            (f'--{boundary}\r\nContent-Disposition: form-data; name="analyze"\r\n\r\ntrue\r\n').encode(),
+            (f'--{boundary}\r\nContent-Disposition: form-data; name="root"\r\n\r\n{root}\r\n').encode(),
             (
                 f"--{boundary}\r\n"
                 f'Content-Disposition: form-data; name="clip"; filename="{clip.name}"\r\n'
@@ -171,9 +159,7 @@ def _multipart(goal: str, clip: Path, *, render: bool, root: Path) -> tuple[byte
     return body, f"multipart/form-data; boundary={boundary}"
 
 
-def test_verify_reports_the_picture_without_waiting_on_vmaf(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verify_reports_the_picture_without_waiting_on_vmaf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The file a person just cut is proved by streams and duration, not a VMAF pass."""
     monkeypatch.delenv("VEDIT_VMAF", raising=False)
     e2e = _load("vedit_e2e_helpers_verify", "test_e2e.py")
@@ -198,13 +184,19 @@ def test_verify_reports_the_picture_without_waiting_on_vmaf(
 STATIC = INDEX.parent
 # Briefcut is Meta-only. Nothing in Studio may offer local mode or a local model.
 # `runs_on: "local"` is allowed: it tags calls to Muse Glimmer, Meta's open-weight model, run on this computer.
-_LOCAL_MODE = re.compile(r"whisper|speech model|setup/model|local mode|local edit|local captions|local analysis|local starting cut|choose a story with AI|signal analysis|not AI understanding|provider-local|value=\"local\"|provider\W{1,6}\"local\"", re.IGNORECASE)
+_LOCAL_MODE = re.compile(
+    r"whisper|speech model|setup/model|local mode|local edit|local captions|local analysis|local starting cut|choose a story with AI|signal analysis|not AI understanding|provider-local|value=\"local\"|provider\W{1,6}\"local\"",
+    re.IGNORECASE,
+)
 
 
 def test_no_studio_file_offers_whisper_or_local_mode() -> None:
     files = sorted(path for path in STATIC.iterdir() if path.suffix in {".html", ".js", ".css"})
     assert files and INDEX in files
-    found = {path.name: sorted({match.group(0) for match in _LOCAL_MODE.finditer(path.read_text(encoding="utf-8"))}) for path in files}
+    found = {
+        path.name: sorted({match.group(0) for match in _LOCAL_MODE.finditer(path.read_text(encoding="utf-8"))})
+        for path in files
+    }
     assert {name: hits for name, hits in found.items() if hits} == {}
 
 
@@ -349,9 +341,18 @@ def test_one_upload_supports_replanning_and_verified_render(tmp_path: Path, monk
         assert status == 201
         paths = json.loads(raw)["paths"]
         for goal, render in [(KEEP, False), (YOUTUBE, False), (KEEP, True)]:
-            status, raw = studio._exchange("POST", port, "/api/run", {
-                "goal": goal, "paths": paths, "render": render, "analyze": False,
-            }, timeout=90)
+            status, raw = studio._exchange(
+                "POST",
+                port,
+                "/api/run",
+                {
+                    "goal": goal,
+                    "paths": paths,
+                    "render": render,
+                    "analyze": False,
+                },
+                timeout=90,
+            )
             assert status == 200
             session = json.loads(raw)["session"]
             assert session["status"] == ("verified" if render else "planned"), session.get("error") or session

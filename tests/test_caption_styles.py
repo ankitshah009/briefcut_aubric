@@ -8,7 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from vedit.caption_styles import LOOKS, MIN_SCALE, Stage, ass_color, ass_text, caption_font, font_face, paginate, render_ass, safe_area, write_styled_ass
+from vedit.caption_styles import (
+    LOOKS,
+    MIN_SCALE,
+    Stage,
+    ass_color,
+    ass_text,
+    caption_font,
+    font_face,
+    paginate,
+    render_ass,
+    safe_area,
+    write_styled_ass,
+)
 from vedit.captions import Cue, Word, burn_filter, parse_ts
 from vedit.edit_spec import CAPTION_STYLES
 from vedit.media import has_filter, resolve_ffmpeg, resolve_font
@@ -20,7 +32,9 @@ LINE = re.compile(r"^Dialogue: 0,(\d:\d{2}:\d{2}\.\d{2}),(\d:\d{2}:\d{2}\.\d{2})
 
 
 def timed(text: str, start: float = 1.0, each: float = 0.5) -> Cue:
-    words = tuple(Word(start + index * each, start + (index + 1) * each, word) for index, word in enumerate(text.split()))
+    words = tuple(
+        Word(start + index * each, start + (index + 1) * each, word) for index, word in enumerate(text.split())
+    )
     return Cue(words[0].start, words[-1].end, text, words)
 
 
@@ -53,8 +67,12 @@ def test_every_catalogued_style_has_a_look() -> None:
 @pytest.mark.parametrize("style", STYLES)
 @pytest.mark.parametrize("size", [TALL, WIDE, SQUARE])
 def test_ass_is_valid_and_events_never_overlap(style: str, size: tuple[int, int]) -> None:
-    cues = [timed("This is the finished oak bowl, oiled and ready for the table.", 0.4, 0.3), timed("It started as a rough blank.", 5.0, 0.4),
-            Cue(8.0, 10.0, "A line with no word timing at all."), Cue(10.5, 12.0, r"Odd {text} with \N in it.")]
+    cues = [
+        timed("This is the finished oak bowl, oiled and ready for the table.", 0.4, 0.3),
+        timed("It started as a rough blank.", 5.0, 0.4),
+        Cue(8.0, 10.0, "A line with no word timing at all."),
+        Cue(10.5, 12.0, r"Odd {text} with \N in it."),
+    ]
     ass = render_ass(cues, width=size[0], height=size[1], settings={"style": style})
     assert f"PlayResX: {size[0]}\nPlayResY: {size[1]}\n" in ass and "WrapStyle: 2" in ass
     assert style_fields(ass)["Encoding"] == "-1", "automatic direction, or Arabic punctuation lands on the wrong side"
@@ -66,7 +84,9 @@ def test_ass_is_valid_and_events_never_overlap(style: str, size: tuple[int, int]
 
 
 def test_timed_styles_show_every_word_of_a_long_cue() -> None:
-    text = "This is the finished oak bowl, oiled and ready for the table, and it took me about three whole days to make."
+    text = (
+        "This is the finished oak bowl, oiled and ready for the table, and it took me about three whole days to make."
+    )
     cue = timed(text, 0.0, 0.3)
     for style in STYLES:
         rows = events(render_ass([cue], width=TALL[0], height=TALL[1], settings={"style": style}))
@@ -80,15 +100,24 @@ def test_timed_styles_show_every_word_of_a_long_cue() -> None:
 
 def test_karaoke_moves_one_highlight_and_never_reflows() -> None:
     cue = timed("one two three four")
-    rows = events(render_ass([cue], width=TALL[0], height=TALL[1], settings={"style": "karaoke", "highlight": "#FFD60A"}))
+    rows = events(
+        render_ass([cue], width=TALL[0], height=TALL[1], settings={"style": "karaoke", "highlight": "#FFD60A"})
+    )
     assert [(start, end) for start, end, _ in rows] == [(1.0, 1.5), (1.5, 2.0), (2.0, 2.5), (2.5, 3.0)]
     assert {spoken(text) for _, _, text in rows} == {"one two three four"}, "only the color moves"
-    assert [re.search(r"\{\\c" + HIGH + r"[^}]*\}([^{]*)\{", text)[1] for _, _, text in rows] == ["one", "two", "three", "four"]
+    assert [re.search(r"\{\\c" + HIGH + r"[^}]*\}([^{]*)\{", text)[1] for _, _, text in rows] == [
+        "one",
+        "two",
+        "three",
+        "four",
+    ]
 
 
 def test_highlight_holds_through_a_pause_inside_a_line() -> None:
     words = (Word(0.0, 0.3, "well"), Word(1.5, 1.8, "then"))
-    rows = events(render_ass([Cue(0.0, 1.8, "well then", words)], width=TALL[0], height=TALL[1], settings={"style": "karaoke"}))
+    rows = events(
+        render_ass([Cue(0.0, 1.8, "well then", words)], width=TALL[0], height=TALL[1], settings={"style": "karaoke"})
+    )
     assert [(start, end) for start, end, _ in rows] == [(0.0, 1.5), (1.5, 1.8)], "no blink between words"
 
 
@@ -109,13 +138,19 @@ def test_pop_ends_a_phrase_at_a_pause() -> None:
 
 
 def test_a_cue_without_word_times_is_highlighted_from_an_estimate() -> None:
-    rows = events(render_ass([Cue(0.0, 2.0, "Hola a todos")], width=TALL[0], height=TALL[1], settings={"style": "karaoke"}))
+    rows = events(
+        render_ass([Cue(0.0, 2.0, "Hola a todos")], width=TALL[0], height=TALL[1], settings={"style": "karaoke"})
+    )
     assert len(rows) == 3 and rows[0][0] == 0.0 and rows[-1][1] == 2.0
 
 
 def test_size_comes_from_the_canvas_and_the_scale_setting() -> None:
     def size(width: int, height: int, scale: float = 1.0) -> int:
-        return int(style_fields(render_ass([timed("hello")], width=width, height=height, settings={"style": "bold", "scale": scale}))["Fontsize"])
+        return int(
+            style_fields(
+                render_ass([timed("hello")], width=width, height=height, settings={"style": "bold", "scale": scale})
+            )["Fontsize"]
+        )
 
     assert size(1080, 1920) == size(1920, 1080) == 2 * size(540, 960)
     assert size(1080, 1920, 2.0) == 2 * size(1080, 1920)
@@ -128,7 +163,9 @@ def test_position_stays_inside_the_tall_safe_area(position: str, alignment: str)
     assert fields["Alignment"] == alignment
     assert int(fields["MarginV"]) == {"bottom": bottom, "middle": 0, "top": top}[position]
     assert int(fields["MarginL"]) == int(fields["MarginR"]) == side
-    assert bottom >= 0.2 * TALL[1] and top >= 0.12 * TALL[1] and side >= 0.1 * TALL[0], "feeds cover the frame's edges with their own buttons"
+    assert bottom >= 0.2 * TALL[1] and top >= 0.12 * TALL[1] and side >= 0.1 * TALL[0], (
+        "feeds cover the frame's edges with their own buttons"
+    )
 
 
 def test_colors_are_written_blue_green_red() -> None:
@@ -153,7 +190,9 @@ def stage(style: str, size: tuple[int, int] = TALL) -> Stage:
     side, _top, _bottom = safe_area(*size)
     look = LOOKS[style]
     pixels = round(min(size) * look.size)
-    return Stage(look, pixels, size[0] - 2 * side - round(2 * pixels * max(look.outline, look.padding)), caption_font()[1])
+    return Stage(
+        look, pixels, size[0] - 2 * side - round(2 * pixels * max(look.outline, look.padding)), caption_font()[1]
+    )
 
 
 @pytest.mark.parametrize("style", STYLES)
@@ -178,7 +217,13 @@ def test_a_word_longer_than_any_line_is_broken_and_nothing_is_lost(style: str) -
 
 
 @pytest.mark.parametrize("style", STYLES)
-@pytest.mark.parametrize("text", ["木のボウルは粗いオークの塊から始まります。旋盤の上で、長く安定した切削で形が現れます。", "这个木碗从一块粗糙的橡木开始,在车床上,形状在长而稳定的切削中显现出来。"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "木のボウルは粗いオークの塊から始まります。旋盤の上で、長く安定した切削で形が現れます。",
+        "这个木碗从一块粗糙的橡木开始,在车床上,形状在长而稳定的切削中显现出来。",
+    ],
+)
 def test_text_without_spaces_wraps_inside_the_line(style: str, text: str) -> None:
     fitted = stage(style)
     pages = paginate(Cue(0, 6, text), fitted)
@@ -209,7 +254,7 @@ def test_font_family_and_widths_come_from_the_file() -> None:
     assert face is not None and face.family
     wide, narrow = face.advance("W"), face.advance("i")
     assert wide is not None and narrow is not None and 0 < narrow < wide < 2
-    assert face.advance("\U000E0001") is None
+    assert face.advance("\U000e0001") is None
 
 
 def test_a_broken_font_file_falls_back_to_estimates(tmp_path: Path) -> None:
@@ -243,11 +288,29 @@ def test_the_system_font_needs_no_folder(tmp_path: Path, monkeypatch: pytest.Mon
 def gray_frames(ass: Path, width: int, height: int, seconds: float = 1.0) -> list[bytes]:
     """Burn onto black and return each frame's luma, so a test can look at the pixels."""
     ffmpeg = str(resolve_ffmpeg())
-    out = subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:r=30:d={seconds}",
-                          "-vf", burn_filter(ass) + ",format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+    out = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=black:s={width}x{height}:r=30:d={seconds}",
+            "-vf",
+            burn_filter(ass) + ",format=gray",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+        ],
+        capture_output=True,
+        check=False,
+    )
     assert out.returncode == 0, out.stderr.decode(errors="replace")[-400:]
     size = width * height
-    return [out.stdout[index:index + size] for index in range(0, len(out.stdout), size)]
+    return [out.stdout[index : index + size] for index in range(0, len(out.stdout), size)]
 
 
 def ink_columns(frame: bytes, width: int, height: int) -> tuple[int, int] | None:
@@ -267,7 +330,9 @@ def burns() -> None:
 @pytest.mark.render
 @pytest.mark.parametrize("style", STYLES)
 @pytest.mark.parametrize("size", [(270, 480), (480, 270)])
-def test_a_real_burn_puts_text_inside_the_side_margins(style: str, size: tuple[int, int], tmp_path: Path, burns: None) -> None:
+def test_a_real_burn_puts_text_inside_the_side_margins(
+    style: str, size: tuple[int, int], tmp_path: Path, burns: None
+) -> None:
     width, height = size
     cues = [timed("Supercalifragilisticexpialidocious pneumonoultramicroscopicsilicovolcanoconiosis", 0.0, 0.5)]
     ass = write_styled_ass(cues, tmp_path / "captions.ass", width=width, height=height, settings={"style": style})
@@ -283,7 +348,9 @@ def test_a_real_burn_puts_text_inside_the_side_margins(style: str, size: tuple[i
 
 @pytest.mark.render
 @pytest.mark.parametrize("folder", ["John's Videos", "a,b;c", "[brackets]", "colon:name", "with space"])
-def test_a_real_burn_takes_any_folder_name(folder: str, tmp_path: Path, burns: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_real_burn_takes_any_folder_name(
+    folder: str, tmp_path: Path, burns: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     try:
         system = resolve_font()
     except Exception:
@@ -299,7 +366,9 @@ def test_a_real_burn_takes_any_folder_name(folder: str, tmp_path: Path, burns: N
 
 @pytest.mark.render
 def test_pop_visibly_settles_after_each_word_starts(tmp_path: Path, burns: None) -> None:
-    ass = write_styled_ass([timed("wonderful", 0.0, 1.0)], tmp_path / "captions.ass", width=540, height=960, settings={"style": "pop"})
+    ass = write_styled_ass(
+        [timed("wonderful", 0.0, 1.0)], tmp_path / "captions.ass", width=540, height=960, settings={"style": "pop"}
+    )
     frames = gray_frames(ass, 540, 960)
     first, settled = ink_columns(frames[0], 540, 960), ink_columns(frames[15], 540, 960)
     assert first and settled
@@ -309,5 +378,7 @@ def test_pop_visibly_settles_after_each_word_starts(tmp_path: Path, burns: None)
 @pytest.mark.render
 @pytest.mark.parametrize("text", ["日本語のキャプション", "مرحبا بالعالم، كيف حالك؟", "שלום עולם", "हिन्दी कैप्शन"])
 def test_a_real_burn_of_other_scripts_does_not_fail(text: str, tmp_path: Path, burns: None) -> None:
-    ass = write_styled_ass([Cue(0.0, 1.0, text)], tmp_path / "captions.ass", width=540, height=960, settings={"style": "karaoke"})
+    ass = write_styled_ass(
+        [Cue(0.0, 1.0, text)], tmp_path / "captions.ass", width=540, height=960, settings={"style": "karaoke"}
+    )
     assert any(ink_columns(frame, 540, 960) for frame in gray_frames(ass, 540, 960))

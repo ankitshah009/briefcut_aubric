@@ -9,9 +9,7 @@ from vedit.agent.model import Intent
 
 _AUDIO_EXT = frozenset({".mp3", ".wav", ".m4a", ".aac", ".flac", ".aiff", ".aif"})
 _IMAGE_EXT = frozenset({".png", ".jpg", ".jpeg", ".webp"})
-_MEDIA_EXT = (
-    "aiff|aif|flac|jpeg|webp|m4a|m4v|webm|mkv|mp4|mov|avi|mp3|wav|aac|png|jpg"
-)
+_MEDIA_EXT = "aiff|aif|flac|jpeg|webp|m4a|m4v|webm|mkv|mp4|mov|avi|mp3|wav|aac|png|jpg"
 _PUNCT = "\"'`()[]{}<>,;:!?“”‘’"
 _PATH_RE = re.compile(
     rf"[^\s\"'`<>()\[\],;!?]+(?:/|\\)[^\s\"'`<>()\[\],;!?]+"
@@ -125,33 +123,24 @@ def _max_duration(text: str) -> float | None:
 
 
 def _cut_silence(text: str, platform: str) -> bool:
-    if platform == "preview":
-        return False
-    if _KEEP_SILENCE.search(text):
-        return False
-    return True
+    return platform != "preview" and not _KEEP_SILENCE.search(text)
 
 
 def _captions(text: str, platform: str) -> bool:
+    """An explicit no wins, then an explicit yes; otherwise every platform but a preview is captioned."""
     if _NO_CAPTIONS.search(text):
         return False
     if _YES_CAPTIONS.search(text):
         return True
-    if platform == "preview":
-        return False
-    return True
+    return platform != "preview"
 
 
 def _loudnorm(text: str, platform: str) -> bool:
-    if platform == "preview" or _NO_LOUDNORM.search(text):
-        return False
-    return True
+    return platform != "preview" and not _NO_LOUDNORM.search(text)
 
 
 def _highpass(text: str, platform: str) -> bool:
-    if platform == "preview" or _NO_HIGHPASS.search(text):
-        return False
-    return True
+    return platform != "preview" and not _NO_HIGHPASS.search(text)
 
 
 def _quoted(pattern: re.Pattern[str], text: str) -> str | None:

@@ -14,7 +14,7 @@ from vedit.agent.decide import decide
 from vedit.agent.explain import drop_captions, explain_decisions, transcriber_ready
 from vedit.agent.intent import parse_intent
 from vedit.agent.inventory import inventory_paths
-from vedit.agent.model import Critique, Decision, Finding, Inventory, Intent, Session
+from vedit.agent.model import Critique, Decision, Finding, Intent, Inventory, Session
 from vedit.agent.revise import revise_brief
 from vedit.compile import compile_brief
 from vedit.errors import ProbeError, VeditError
@@ -123,9 +123,7 @@ def run_session(
                 risks=decision.risks,
                 brief=new_brief,
             )
-            decisions = explain_decisions(
-                intent, decision, inventory, captions_skipped=captions_skipped
-            )
+            decisions = explain_decisions(intent, decision, inventory, captions_skipped=captions_skipped)
             compiler = _stage(decision.brief, root / f"rev{revision}")
             work = compiler.work_dir
             critique, primary, proof = _render_and_judge(
@@ -224,9 +222,7 @@ def _paths_from_goal(goal: str) -> list[str]:
         token = _clean_token(raw)
         if not token:
             continue
-        if token.lower().endswith(_MEDIA_SUFFIXES):
-            found.append(token)
-        elif "/" in token and Path(token).expanduser().is_file():
+        if token.lower().endswith(_MEDIA_SUFFIXES) or ("/" in token and Path(token).expanduser().is_file()):
             found.append(token)
     return found
 

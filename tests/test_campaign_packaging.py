@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from vedit.packaging import stage_app
-
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(
@@ -36,8 +35,13 @@ def _launch(app: Path, cwd: Path, python: Path, *args: str, input_text=None):
     env["VEDIT_WORKSPACE"] = str(cwd / "workspace")
     return subprocess.run(
         [str(app / "Contents" / "MacOS" / "vedit"), *args],
-        input=input_text, text=True, capture_output=True, env=env,
-        cwd=cwd, timeout=30, check=False,
+        input=input_text,
+        text=True,
+        capture_output=True,
+        env=env,
+        cwd=cwd,
+        timeout=30,
+        check=False,
     )
 
 
@@ -45,9 +49,7 @@ def test_native_launcher_uses_explicit_python_for_real_module_execution(native_a
     marker = tmp_path / "python-invocations.txt"
     wrapper = tmp_path / "chosen python"
     wrapper.write_text(
-        "#!/bin/sh\n"
-        f"printf '%s\\n' \"$1\" >> {shlex.quote(str(marker))}\n"
-        f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+        f'#!/bin/sh\nprintf \'%s\\n\' "$1" >> {shlex.quote(str(marker))}\nexec {shlex.quote(sys.executable)} "$@"\n',
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
@@ -70,7 +72,10 @@ def test_native_launcher_rejects_an_installed_unsupported_python(native_app, tmp
         pytest.skip("no legacy system Python to exercise")
     version = subprocess.run(
         [str(legacy), "-I", "-S", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
-        capture_output=True, text=True, timeout=10, check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
     )
     if version.returncode or tuple(map(int, version.stdout.strip().split("."))) >= (3, 13):
         pytest.skip("system Python is already supported")
@@ -82,10 +87,19 @@ def test_native_launcher_rejects_an_installed_unsupported_python(native_app, tmp
 
 def test_packaged_agent_runs_away_from_checkout_and_includes_campaign(native_app, tmp_path):
     packaged = native_app / "Contents" / "Resources" / "src" / "vedit"
-    for relative in ("campaign.py", "meta.py", "studio/static/index.html", "studio/static/studio.js", "studio/static/studio.css"):
+    for relative in (
+        "campaign.py",
+        "meta.py",
+        "studio/static/index.html",
+        "studio/static/studio.js",
+        "studio/static/studio.css",
+    ):
         assert (packaged / relative).is_file(), f"bundle is missing {relative}"
     result = _launch(
-        native_app, tmp_path, Path(sys.executable), "tools",
+        native_app,
+        tmp_path,
+        Path(sys.executable),
+        "tools",
         input_text=json.dumps({"tool": "specs"}) + "\n",
     )
     assert result.returncode == 0, result.stderr

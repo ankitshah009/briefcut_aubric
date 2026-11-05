@@ -8,18 +8,26 @@ import math
 import os
 import re
 import shutil
-import unicodedata
 import signal
 import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from vedit.errors import AnalysisError, BinaryMissing, CaptionError, ProbeError, RenderCancelled, RenderError, VeditError
+from vedit.errors import (
+    AnalysisError,
+    BinaryMissing,
+    CaptionError,
+    ProbeError,
+    RenderCancelled,
+    RenderError,
+    VeditError,
+)
 
 
 def trace(step: str) -> None:
@@ -28,6 +36,7 @@ def trace(step: str) -> None:
         return
     sys.stderr.write(f"vedit-trace {step}\n")
     sys.stderr.flush()
+
 
 FULL_FFMPEG = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
 FULL_FFPROBE = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe")
@@ -55,7 +64,14 @@ _INTERLACED_ORDERS = frozenset({"tt", "bb", "tb", "bt"})
 HDR_REFERENCE_WHITE = 203
 _HDR_TAIL = "format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 # FFmpeg's stream names for a matrix, and what the scale filter calls the same thing.
-_SCALE_MATRICES = {"smpte170m": "smpte170m", "bt470bg": "bt470bg", "smpte240m": "smpte240m", "fcc": "fcc", "bt2020nc": "bt2020", "bt2020c": "bt2020"}
+_SCALE_MATRICES = {
+    "smpte170m": "smpte170m",
+    "bt470bg": "bt470bg",
+    "smpte240m": "smpte240m",
+    "fcc": "fcc",
+    "bt2020nc": "bt2020",
+    "bt2020c": "bt2020",
+}
 _RGB_PIXELS = ("rgb", "bgr", "gbr", "argb", "abgr")
 _IMAGE_CODECS = frozenset({"png", "bmp", "tiff", "webp", "jpeg2000", "jpegls"})
 # A transport or program stream seeks to a nearby keyframe, which can land past
@@ -81,6 +97,8 @@ def rate_text(fps: float) -> str:
 
     exact = Fraction(fps).limit_denominator(1001)
     return str(exact.numerator) if exact.denominator == 1 else f"{exact.numerator}/{exact.denominator}"
+
+
 _CANCEL_POLL_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
 # Nested helpers must not orphan their independent groups when cancelled.
@@ -122,19 +140,57 @@ def resolve_ffprobe() -> str:
 
 # Fonts for the scripts a Latin default lacks, on macOS and on Linux (Noto). resolve_font(text)
 # checks each file's character map, so a missing or partial font is simply passed over.
-_FONT_DIRS = ("/usr/share/fonts/opentype/noto", "/usr/share/fonts/noto-cjk", "/usr/share/fonts/google-noto-cjk", "/usr/share/fonts/truetype/noto",
-              "/usr/share/fonts/noto", "/usr/share/fonts/google-noto")
+_FONT_DIRS = (
+    "/usr/share/fonts/opentype/noto",
+    "/usr/share/fonts/noto-cjk",
+    "/usr/share/fonts/google-noto-cjk",
+    "/usr/share/fonts/truetype/noto",
+    "/usr/share/fonts/noto",
+    "/usr/share/fonts/google-noto",
+)
 SCRIPT_FONTS = {
-    "ja": ("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc", "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-           *(f"{root}/NotoSansCJK-Bold.ttc" for root in _FONT_DIRS), *(f"{root}/NotoSansCJK-Regular.ttc" for root in _FONT_DIRS)),
+    "ja": (
+        "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+        *(f"{root}/NotoSansCJK-Bold.ttc" for root in _FONT_DIRS),
+        *(f"{root}/NotoSansCJK-Regular.ttc" for root in _FONT_DIRS),
+    ),
     "zh": ("/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Medium.ttc"),
     "ko": ("/System/Library/Fonts/AppleSDGothicNeo.ttc",),
-    "other": ("/System/Library/Fonts/Kohinoor.ttc", "/System/Library/Fonts/Supplemental/DevanagariMT.ttc", "/System/Library/Fonts/Supplemental/Ayuthaya.ttf",
-              "/System/Library/Fonts/Supplemental/Tahoma.ttf", "/System/Library/Fonts/GeezaPro.ttc", "/System/Library/Fonts/SFHebrew.ttf",
-              *(f"{root}/NotoSans{script}-{weight}.ttf" for script in ("Devanagari", "Thai", "Arabic", "Hebrew", "Bengali", "Tamil", "Telugu", "Gujarati",
-                                                                         "Gurmukhi", "Kannada", "Malayalam", "Khmer", "Lao", "Myanmar", "Georgian", "Armenian", "Ethiopic", "Sinhala")
-                for weight in ("Bold", "Regular") for root in _FONT_DIRS),
-              "/Library/Fonts/Arial Unicode.ttf"),
+    "other": (
+        "/System/Library/Fonts/Kohinoor.ttc",
+        "/System/Library/Fonts/Supplemental/DevanagariMT.ttc",
+        "/System/Library/Fonts/Supplemental/Ayuthaya.ttf",
+        "/System/Library/Fonts/Supplemental/Tahoma.ttf",
+        "/System/Library/Fonts/GeezaPro.ttc",
+        "/System/Library/Fonts/SFHebrew.ttf",
+        *(
+            f"{root}/NotoSans{script}-{weight}.ttf"
+            for script in (
+                "Devanagari",
+                "Thai",
+                "Arabic",
+                "Hebrew",
+                "Bengali",
+                "Tamil",
+                "Telugu",
+                "Gujarati",
+                "Gurmukhi",
+                "Kannada",
+                "Malayalam",
+                "Khmer",
+                "Lao",
+                "Myanmar",
+                "Georgian",
+                "Armenian",
+                "Ethiopic",
+                "Sinhala",
+            )
+            for weight in ("Bold", "Regular")
+            for root in _FONT_DIRS
+        ),
+        "/Library/Fonts/Arial Unicode.ttf",
+    ),
 }
 
 
@@ -283,7 +339,15 @@ class MediaInfo:
         pictures = self._of_type("video")
         if not pictures:
             return None
-        return max(pictures, key=lambda s: (not s.cover, s.codec_name not in _IMAGE_CODECS, s.readable, (s.width or 0) * (s.height or 0)))
+        return max(
+            pictures,
+            key=lambda s: (
+                not s.cover,
+                s.codec_name not in _IMAGE_CODECS,
+                s.readable,
+                (s.width or 0) * (s.height or 0),
+            ),
+        )
 
     @property
     def audio(self) -> StreamInfo | None:
@@ -309,9 +373,7 @@ class MediaInfo:
         if video is None or video.cover:
             return False
         # A lone JPEG, or art a muxer forgot to flag, is one picture and not a clip.
-        if video.codec_name == "mjpeg" and (video.duration or 0) < 0.08:
-            return False
-        return True
+        return not (video.codec_name == "mjpeg" and (video.duration or 0) < 0.08)
 
     @property
     def has_audio(self) -> bool:
@@ -351,7 +413,11 @@ class MediaInfo:
             return self.display_width
         aspect = self.video.sample_aspect_ratio
         # Turning the picture on its side turns its pixels too: FFmpeg's transpose inverts the aspect.
-        return int(self.display_width / aspect) if round(self.video.rotation) % 180 == 90 else int(self.display_width * aspect)
+        return (
+            int(self.display_width / aspect)
+            if round(self.video.rotation) % 180 == 90
+            else int(self.display_width * aspect)
+        )
 
     @property
     def fps(self) -> float:
@@ -418,7 +484,16 @@ def _packet_spans(src: Path) -> dict[int, tuple[float, float]]:
     learns its own length. Reading packets decodes nothing, and it stops where
     the data stops, so it also finds the real end of a truncated file.
     """
-    argv = [resolve_ffprobe(), "-v", "error", "-show_entries", "packet=stream_index,pts_time,duration_time", "-of", "csv=p=0", str(src)]
+    argv = [
+        resolve_ffprobe(),
+        "-v",
+        "error",
+        "-show_entries",
+        "packet=stream_index,pts_time,duration_time",
+        "-of",
+        "csv=p=0",
+        str(src),
+    ]
     try:
         lines = run_command(argv, timeout=_SCAN_TIMEOUT_SECONDS).stdout.splitlines()
     except RenderError:
@@ -438,7 +513,9 @@ def _packet_spans(src: Path) -> dict[int, tuple[float, float]]:
 def probe(path: str | Path) -> MediaInfo:
     src = Path(path).expanduser().resolve()
     if not src.is_file():
-        raise ProbeError(f"file does not exist: {src}", plain="The source file is no longer in this project. Upload it again.")
+        raise ProbeError(
+            f"file does not exist: {src}", plain="The source file is no longer in this project. Upload it again."
+        )
     argv = [
         resolve_ffprobe(),
         "-v",
@@ -565,8 +642,14 @@ def _cached_borders(src: Path) -> tuple[tuple[int, int, int, int] | None] | None
     except (OSError, ValueError):
         return None
     crop = data.get("crop") if isinstance(data, dict) else None
-    if isinstance(crop, list) and len(crop) == 4 and all(isinstance(value, int) and value >= 0 for value in crop) and crop[0] > 0 and crop[1] > 0:
-        return (tuple(crop),)  # type: ignore[return-value]
+    if (
+        isinstance(crop, list)
+        and len(crop) == 4
+        and all(isinstance(value, int) and value >= 0 for value in crop)
+        and crop[0] > 0
+        and crop[1] > 0
+    ):
+        return ((crop[0], crop[1], crop[2], crop[3]),)
     return (None,) if isinstance(data, dict) and "crop" in data else None
 
 
@@ -582,8 +665,22 @@ def _seek(info: MediaInfo, at: float) -> list[str]:
 
 def _active_area(info: MediaInfo, at: float) -> tuple[int, int, int, int] | None:
     """The non-black box cropdetect finds in a few frames from ``at``. None for a frame that is black throughout."""
-    argv = [resolve_ffmpeg(), "-hide_banner", "-nostats", *_seek(info, at), "-map", f"0:v:{info.video_map}", "-an", "-frames:v", str(_BORDER_FRAMES),
-            "-vf", "cropdetect=round=2:reset=0:skip=0", "-f", "null", "-"]
+    argv = [
+        resolve_ffmpeg(),
+        "-hide_banner",
+        "-nostats",
+        *_seek(info, at),
+        "-map",
+        f"0:v:{info.video_map}",
+        "-an",
+        "-frames:v",
+        str(_BORDER_FRAMES),
+        "-vf",
+        "cropdetect=round=2:reset=0:skip=0",
+        "-f",
+        "null",
+        "-",
+    ]
     try:
         found = _CROP_LINE.findall(run_command(argv, timeout=_PLAYABLE_TIMEOUT_SECONDS).stderr)
     except RenderError:
@@ -601,11 +698,30 @@ def _bars_are_flat(info: MediaInfo, times: list[float], box: tuple[int, int, int
     sx, sy = small_w / full_w, small_h / full_h
     width, height, x, y = box
     margin = 2
-    bands = [(0, 0, int(x * sx) - margin, small_h), (int((x + width) * sx) + margin, 0, small_w, small_h),
-             (0, 0, small_w, int(y * sy) - margin), (0, int((y + height) * sy) + margin, small_w, small_h)]
+    bands = [
+        (0, 0, int(x * sx) - margin, small_h),
+        (int((x + width) * sx) + margin, 0, small_w, small_h),
+        (0, 0, small_w, int(y * sy) - margin),
+        (0, int((y + height) * sy) + margin, small_w, small_h),
+    ]
     for at in times:
-        argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", *_seek(info, at), "-map", f"0:v:{info.video_map}", "-an", "-frames:v", "1",
-                "-vf", f"scale={small_w}:{small_h}:flags=neighbor,format=yuv420p", "-f", "rawvideo", "-"]
+        argv = [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-v",
+            "error",
+            *_seek(info, at),
+            "-map",
+            f"0:v:{info.video_map}",
+            "-an",
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={small_w}:{small_h}:flags=neighbor,format=yuv420p",
+            "-f",
+            "rawvideo",
+            "-",
+        ]
         try:
             # Raw pixels: run_command decodes its output as text.
             raw = subprocess.run(argv, capture_output=True, timeout=_PLAYABLE_TIMEOUT_SECONDS, check=False).stdout
@@ -613,12 +729,12 @@ def _bars_are_flat(info: MediaInfo, times: list[float], box: tuple[int, int, int
             return False
         if len(raw) < small_w * small_h:
             return False
-        for left, top, right, bottom in bands:
-            left, right, top, bottom = max(0, left), min(small_w, right), max(0, top), min(small_h, bottom)
+        for band in bands:
+            left, right, top, bottom = max(0, band[0]), min(small_w, band[2]), max(0, band[1]), min(small_h, band[3])
             if right <= left or bottom <= top:
                 continue  # no bar on this side
             for row in range(top, bottom):
-                if max(raw[row * small_w + left: row * small_w + right]) > _BORDER_FLAT:
+                if max(raw[row * small_w + left : row * small_w + right]) > _BORDER_FLAT:
                     return False
     return True
 
@@ -660,8 +776,8 @@ def _measure_borders(info: MediaInfo) -> tuple[int, int, int, int] | None:
     right = full_w - max(x + width for width, _, x, _ in boxes)
     bottom = full_h - max(y + height for _, height, _, y in boxes)
     sides = []
-    for low, high, span in ((left, right, full_w), (top, bottom, full_h)):
-        low, high = max(0, low), max(0, high)
+    for near, far, span in ((left, right, full_w), (top, bottom, full_h)):
+        low, high = max(0, near), max(0, far)
         paired = abs(low - high) <= max(8, _BORDER_SKEW * max(low, high))
         sides.append((low, high) if low + high >= _BORDER_MIN_SHARE * span and paired else (0, 0))
     (left, right), (top, bottom) = sides
@@ -704,6 +820,7 @@ def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
     Always send the final SIGKILL to the owned process group, then reap the
     direct child. The caller closes pipes even if a daemon escaped the group.
     """
+
     def send(sig: int) -> None:
         try:
             if os.name == "posix":
@@ -738,6 +855,51 @@ def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=_TERMINATE_GRACE_SECONDS)
 
 
+def _close_fds(*fds: int | None) -> None:
+    for fd in fds:
+        if fd is not None:
+            os.close(fd)
+
+
+def _wait_for_exit(
+    proc: subprocess.Popen[str],
+    *,
+    argv: list[str],
+    deadline: float | None,
+    timeout: float | None,
+    cancel_event: threading.Event | None,
+) -> tuple[str | None, str | None]:
+    """The command's stdout and stderr once it exits; raises when it is cancelled or runs past the deadline."""
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RenderCancelled("render cancelled; running command stopped")
+        remaining = deadline - time.perf_counter() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise RenderError(f"timed out after {timeout}s: {' '.join(argv[:6])}")
+        interval = _CANCEL_POLL_SECONDS if cancel_event is not None else remaining
+        if remaining is not None and interval is not None:
+            interval = min(interval, remaining)
+        try:
+            stdout, stderr = proc.communicate(timeout=interval)
+        except subprocess.TimeoutExpired:
+            continue
+        if cancel_event is not None and cancel_event.is_set():
+            raise RenderCancelled("render cancelled; running command stopped")
+        return stdout, stderr
+
+
+def _raise_startup_error(error_read: int, argv: list[str]) -> None:
+    """The supervisor reports a failed exec over its pipe: raise it as a direct launch would have."""
+    startup_error = os.read(error_read, 65536)
+    if not startup_error:
+        return
+    errno, message, filename = json.loads(startup_error)
+    exc = OSError(errno, message, filename)
+    if isinstance(exc, FileNotFoundError):
+        raise BinaryMissing(f"executable not found: {argv[0]}") from exc
+    raise exc
+
+
 def run_command(
     argv: list[str],
     *,
@@ -759,9 +921,7 @@ def run_command(
     started = time.perf_counter()
     deadline = started + timeout if timeout is not None else None
     env = os.environ.copy()
-    supervised = os.name == "posix" and (
-        env.get(_MANAGED_COMMAND_ENV) == "1" or cancel_event is not None
-    )
+    supervised = os.name == "posix" and (env.get(_MANAGED_COMMAND_ENV) == "1" or cancel_event is not None)
     env[_MANAGED_COMMAND_ENV] = "1"
     guard_read = guard_write = error_read = error_write = None
     launch_argv = argv
@@ -788,48 +948,21 @@ def run_command(
             pass_fds=pass_fds,
         )
     except BaseException as exc:
-        for fd in (guard_write, error_read):
-            if fd is not None:
-                os.close(fd)
+        _close_fds(guard_write, error_read)
         if isinstance(exc, FileNotFoundError):
             raise BinaryMissing(f"executable not found: {argv[0]}") from exc
         raise
     finally:
-        for fd in (guard_read, error_write):
-            if fd is not None:
-                os.close(fd)
+        _close_fds(guard_read, error_write)
     try:
-        while True:
-            if cancel_event is not None and cancel_event.is_set():
-                raise RenderCancelled("render cancelled; running command stopped")
-            remaining = deadline - time.perf_counter() if deadline is not None else None
-            if remaining is not None and remaining <= 0:
-                raise RenderError(f"timed out after {timeout}s: {' '.join(argv[:6])}")
-            interval = _CANCEL_POLL_SECONDS if cancel_event is not None else remaining
-            if remaining is not None and interval is not None:
-                interval = min(interval, remaining)
-            try:
-                stdout, stderr = proc.communicate(timeout=interval)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        if cancel_event is not None and cancel_event.is_set():
-            raise RenderCancelled("render cancelled; running command stopped")
+        stdout, stderr = _wait_for_exit(proc, argv=argv, deadline=deadline, timeout=timeout, cancel_event=cancel_event)
         if error_read is not None:
-            startup_error = os.read(error_read, 65536)
-            if startup_error:
-                errno, message, filename = json.loads(startup_error)
-                exc = OSError(errno, message, filename)
-                if isinstance(exc, FileNotFoundError):
-                    raise BinaryMissing(f"executable not found: {argv[0]}") from exc
-                raise exc
+            _raise_startup_error(error_read, argv)
     except BaseException:
         _stop_process_tree(proc)
         raise
     finally:
-        for fd in (guard_write, error_read):
-            if fd is not None:
-                os.close(fd)
+        _close_fds(guard_write, error_read)
         for pipe in (proc.stdout, proc.stderr):
             if pipe is not None:
                 pipe.close()
@@ -849,12 +982,7 @@ def run_ffmpeg(args: list[str], *, timeout: float | None = None) -> CommandResul
     if not result.ok:
         tail = result.stderr.strip().splitlines()[-12:]
         raise RenderError(
-            "ffmpeg failed ("
-            + str(result.returncode)
-            + "):\n  "
-            + " ".join(argv)
-            + "\n"
-            + "\n".join(tail),
+            "ffmpeg failed (" + str(result.returncode) + "):\n  " + " ".join(argv) + "\n" + "\n".join(tail),
             detail=result.stderr,
         )
     return result
@@ -883,12 +1011,7 @@ def filter_value(value: str | Path) -> str:
 
 
 def escape_drawtext(text: str) -> str:
-    return (
-        text.replace("\\", "\\\\")
-        .replace(":", "\\:")
-        .replace("'", "\u2019")
-        .replace("%", "\\%")
-    )
+    return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019").replace("%", "\\%")
 
 
 @lru_cache(maxsize=1)
@@ -963,28 +1086,57 @@ _INTERRUPTED = "The recording or copy was probably interrupted. Copy or export i
 
 # First match wins. Environment problems come first: a full disk says nothing about the clip.
 _FAILURES = tuple(
-    (re.compile(pattern, re.I), message)
+    (re.compile(pattern, re.IGNORECASE), message)
     for pattern, message in (
-        (r"No space left on device|Disk quota exceeded", f"The drive holding this project is full. Free some space, then retry. {RETRY_SAVED}"),
-        (r"Permission denied|Operation not permitted", f"Briefcut was not allowed to read or write a file in this project. Check the folder's permissions, then retry. {RETRY_SAVED}"),
-        (r"Cannot allocate memory|out of memory", f"This machine ran out of memory on this video. Close other apps and retry, or use a shorter or smaller clip. {RETRY_SAVED}"),
-        (r"timed out after", f"This step took too long and was stopped. Retry when the machine is less busy, or use a shorter clip. {RETRY_SAVED}"),
+        (
+            r"No space left on device|Disk quota exceeded",
+            f"The drive holding this project is full. Free some space, then retry. {RETRY_SAVED}",
+        ),
+        (
+            r"Permission denied|Operation not permitted",
+            f"Briefcut was not allowed to read or write a file in this project. Check the folder's permissions, then retry. {RETRY_SAVED}",
+        ),
+        (
+            r"Cannot allocate memory|out of memory",
+            f"This machine ran out of memory on this video. Close other apps and retry, or use a shorter or smaller clip. {RETRY_SAVED}",
+        ),
+        (
+            r"timed out after",
+            f"This step took too long and was stopped. Retry when the machine is less busy, or use a shorter clip. {RETRY_SAVED}",
+        ),
         (r"moov atom not found|partial file", f"This file is incomplete. {_INTERRUPTED}"),
-        (r"no decoder found|Decoder \S* ?not found|Unknown decoder|Failed to open decoder|Error while opening decoder|Could not find codec parameters|Unsupported codec",
-         f"This clip uses a format FFmpeg on this machine cannot decode. {CONVERT}"),
-        (r"Decoding error|Error while decoding|Invalid NAL unit|corrupt|concealing|non-existing PPS|Invalid data found when processing input",
-         f"Part of this clip is damaged and could not be decoded. Check that it plays to the end, or export it again, then upload the new file. {RETRY_SAVED}"),
-        (r"Unknown encoder|Encoder \S* ?not found|No such filter|Filter not found", f"Your FFmpeg build is missing something this edit needs. Install ffmpeg-full, then retry. {RETRY_SAVED}"),
-        (r"matches no streams|does not contain any stream|Nothing was written|Output file is empty|Could not open encoder before EOF",
-         f"One of your moments has no picture or sound in this file. Move it to a part of the clip that plays, then retry. {RETRY_SAVED}"),
+        (
+            r"no decoder found|Decoder \S* ?not found|Unknown decoder|Failed to open decoder|Error while opening decoder|Could not find codec parameters|Unsupported codec",
+            f"This clip uses a format FFmpeg on this machine cannot decode. {CONVERT}",
+        ),
+        (
+            r"Decoding error|Error while decoding|Invalid NAL unit|corrupt|concealing|non-existing PPS|Invalid data found when processing input",
+            f"Part of this clip is damaged and could not be decoded. Check that it plays to the end, or export it again, then upload the new file. {RETRY_SAVED}",
+        ),
+        (
+            r"Unknown encoder|Encoder \S* ?not found|No such filter|Filter not found",
+            f"Your FFmpeg build is missing something this edit needs. Install ffmpeg-full, then retry. {RETRY_SAVED}",
+        ),
+        (
+            r"matches no streams|does not contain any stream|Nothing was written|Output file is empty|Could not open encoder before EOF",
+            f"One of your moments has no picture or sound in this file. Move it to a part of the clip that plays, then retry. {RETRY_SAVED}",
+        ),
     )
 )
 _STEPS = (
-    ("select_ranges", "Assembling your moments"), ("captions", "Making captions"), ("export", "The export"),
-    ("verify", "Checking the export"), ("thumbnail", "Making the cover frame"), ("cut_silence", "Trimming pauses"),
-    ("spatial_effect", "The spatial effect"), ("music", "Adding music"), ("concat", "Joining your clips"),
+    ("select_ranges", "Assembling your moments"),
+    ("captions", "Making captions"),
+    ("export", "The export"),
+    ("verify", "Checking the export"),
+    ("thumbnail", "Making the cover frame"),
+    ("cut_silence", "Trimming pauses"),
+    ("spatial_effect", "The spatial effect"),
+    ("music", "Adding music"),
+    ("concat", "Joining your clips"),
 )
-_ERROR_LINE = re.compile(r"error|fail|invalid|cannot|could not|unable|not found|too large|unsupported|out of range", re.I)
+_ERROR_LINE = re.compile(
+    r"error|fail|invalid|cannot|could not|unable|not found|too large|unsupported|out of range", re.IGNORECASE
+)
 _SAFE_REASON = re.compile(r"[A-Za-z][A-Za-z ,'-]{5,90}")
 _PATH = re.compile(r"(?:[A-Za-z]:)?[\\/][^\s'\"]*")
 
@@ -1087,20 +1239,30 @@ def source_notes(info: MediaInfo) -> list[str]:
     video, audio = info.video, info.audio
     footage = [s for s in info.streams if s.codec_type == "video" and not s.cover and s.codec_name not in _IMAGE_CODECS]
     if len(footage) > 1 and video is not None:
-        notes.append(f"This file holds {len(footage)} video streams. Briefcut uses the {video.width}x{video.height} one.")
+        notes.append(
+            f"This file holds {len(footage)} video streams. Briefcut uses the {video.width}x{video.height} one."
+        )
     tracks = [s for s in info.streams if s.codec_type == "audio" and s.readable]
-    if len(tracks) > 1:
-        notes.append(f"This file holds {len(tracks)} sound tracks. Briefcut uses track {tracks.index(info.audio) + 1}. If that one is wrong, export the clip with the sound you want first.")
+    if len(tracks) > 1 and audio is not None:
+        notes.append(
+            f"This file holds {len(tracks)} sound tracks. Briefcut uses track {tracks.index(audio) + 1}. If that one is wrong, export the clip with the sound you want first."
+        )
     if audio is not None and not audio.readable:
         notes.append("This clip's sound uses a format FFmpeg cannot read, so the finished video will be silent.")
     if video is not None and video.hdr and not (has_filter("zscale") and has_filter("tonemap")):
-        notes.append("This clip is HDR, and this FFmpeg cannot convert it, so its colors will look flat. Install ffmpeg-full to fix that.")
+        notes.append(
+            "This clip is HDR, and this FFmpeg cannot convert it, so its colors will look flat. Install ffmpeg-full to fix that."
+        )
     if info.file_duration > info.duration + 0.5:
-        notes.append(f"The picture stops at {info.duration:.1f} seconds while the sound runs to {info.file_duration:.1f}. The sound after the last frame is left out.")
+        notes.append(
+            f"The picture stops at {info.duration:.1f} seconds while the sound runs to {info.file_duration:.1f}. The sound after the last frame is left out."
+        )
     return notes
 
 
-def export_problem(output: MediaInfo, *, width: int, height: int, has_audio: bool, seconds: float, tolerance: float, color: bool = True) -> str | None:
+def export_problem(
+    output: MediaInfo, *, width: int, height: int, has_audio: bool, seconds: float, tolerance: float, color: bool = True
+) -> str | None:
     """Why a finished file must not be delivered, in plain words; None when it may be."""
     again = f"It was not delivered. {RETRY_SAVED} Retry once. If it happens again, convert the clip to H.264 MP4 and upload that."
     if not output.has_video:
@@ -1110,8 +1272,10 @@ def export_problem(output: MediaInfo, *, width: int, height: int, has_audio: boo
     if output.has_audio != has_audio:
         return f"The finished file {'lost its sound' if has_audio else 'gained a sound track the clip does not have'}. {again}"
     if abs(output.duration - seconds) > tolerance:
-        return (f"The finished file runs {output.duration:.1f} seconds, not the {seconds:.1f} you approved. It was not delivered. "
-                f"The clip may be damaged there. Choose other moments, or export the clip again and upload that. {RETRY_SAVED}")
+        return (
+            f"The finished file runs {output.duration:.1f} seconds, not the {seconds:.1f} you approved. It was not delivered. "
+            f"The clip may be damaged there. Choose other moments, or export the clip again and upload that. {RETRY_SAVED}"
+        )
     video = output.video
     if color and (video is None or video.color_space != "bt709" or video.color_range != "tv"):
         return f"The finished file's color information came out wrong. {again}"
@@ -1120,8 +1284,21 @@ def export_problem(output: MediaInfo, *, width: int, height: int, has_audio: boo
 
 def _frame_decodes(info: MediaInfo, at: float) -> bool:
     argv = [
-        resolve_ffmpeg(), "-hide_banner", "-v", "error", "-ss", f"{at:.3f}", "-i", str(info.path),
-        "-map", f"0:v:{info.video_map}", "-frames:v", "1", "-f", "framecrc", "-",
+        resolve_ffmpeg(),
+        "-hide_banner",
+        "-v",
+        "error",
+        "-ss",
+        f"{at:.3f}",
+        "-i",
+        str(info.path),
+        "-map",
+        f"0:v:{info.video_map}",
+        "-frames:v",
+        "1",
+        "-f",
+        "framecrc",
+        "-",
     ]
     try:
         result = run_command(argv, timeout=_PLAYABLE_TIMEOUT_SECONDS)
@@ -1190,7 +1367,9 @@ def plain_failure(exc: BaseException) -> str:
             if pattern.search(detail):
                 return message
     if isinstance(exc, BinaryMissing):
-        return f"A program Briefcut needs is missing. Run vedit doctor to see what to install, then retry. {RETRY_SAVED}"
+        return (
+            f"A program Briefcut needs is missing. Run vedit doctor to see what to install, then retry. {RETRY_SAVED}"
+        )
     if isinstance(exc, CaptionError):
         return f"The captions could not be written into the video. Run vedit doctor, or turn captions off to render now. {RETRY_SAVED}"
     if isinstance(exc, AnalysisError):

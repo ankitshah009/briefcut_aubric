@@ -26,25 +26,107 @@ from vedit.campaign import CampaignError  # noqa: E402
 
 JOB = "b" * 32
 CHECKS = [
-    {"name": "lint: hook in the first 2 seconds", "passed": True, "at": 0.4, "note": "Opens on the product.", "basis": "derived", "by": "lint", "inputs": ["meta-voice-transcribe"]},
-    {"name": "auto: requested edits applied", "passed": True, "at": None, "note": "The brief asked for no specific edits.", "basis": "derived", "by": "brief-parser"},
-    {"name": "director: pacing", "passed": False, "at": 1.25, "note": "The middle drags.", "basis": "inferred", "by": "muse-spark"},
+    {
+        "name": "lint: hook in the first 2 seconds",
+        "passed": True,
+        "at": 0.4,
+        "note": "Opens on the product.",
+        "basis": "derived",
+        "by": "lint",
+        "inputs": ["meta-voice-transcribe"],
+    },
+    {
+        "name": "auto: requested edits applied",
+        "passed": True,
+        "at": None,
+        "note": "The brief asked for no specific edits.",
+        "basis": "derived",
+        "by": "brief-parser",
+    },
+    {
+        "name": "director: pacing",
+        "passed": False,
+        "at": 1.25,
+        "note": "The middle drags.",
+        "basis": "inferred",
+        "by": "muse-spark",
+    },
 ]
-PROOF = {"duration": 1.5, "width": 1080, "height": 1920, "fps": 30.0, "has_audio": True, "has_video": True,
-         "color_space": "bt709", "color_range": "tv", "color_primaries": "bt709", "color_transfer": "bt709", "size_bytes": 4096}
-STREAMS = SimpleNamespace(format_name="mov,mp4", streams=(
-    SimpleNamespace(index=0, codec_type="video", codec_name="h264", width=1080, height=1920, fps=30.0, duration=1.5, sample_rate=None, channels=None, pix_fmt="yuv420p"),
-    SimpleNamespace(index=1, codec_type="audio", codec_name="aac", width=None, height=None, fps=None, duration=1.5, sample_rate=48000, channels=2, pix_fmt=None),
-))
+PROOF = {
+    "duration": 1.5,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30.0,
+    "has_audio": True,
+    "has_video": True,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "color_primaries": "bt709",
+    "color_transfer": "bt709",
+    "size_bytes": 4096,
+}
+STREAMS = SimpleNamespace(
+    format_name="mov,mp4",
+    streams=(
+        SimpleNamespace(
+            index=0,
+            codec_type="video",
+            codec_name="h264",
+            width=1080,
+            height=1920,
+            fps=30.0,
+            duration=1.5,
+            sample_rate=None,
+            channels=None,
+            pix_fmt="yuv420p",
+        ),
+        SimpleNamespace(
+            index=1,
+            codec_type="audio",
+            codec_name="aac",
+            width=None,
+            height=None,
+            fps=None,
+            duration=1.5,
+            sample_rate=48000,
+            channels=2,
+            pix_fmt=None,
+        ),
+    ),
+)
 
 
 def _meta_log(project: Path) -> None:
     lines = [
-        {"event": "start", "id": "call1", "at": 1793819617.37, "operation": "story", "model": "muse-spark", "purpose": "Plan the story", "reserved_usd": 0.02, "budget_usd": 0.25, "size": {}, "pid": 1, "v": 1},
-        {"event": "end", "id": "call1", "at": 1793819620.0, "status": "done", "size": {"input_tokens": 900, "output_tokens": 200}, "cost_usd": 0.0123, "cost_is_estimate": False, "request_id": "resp_abc123", "v": 1},
+        {
+            "event": "start",
+            "id": "call1",
+            "at": 1793819617.37,
+            "operation": "story",
+            "model": "muse-spark",
+            "purpose": "Plan the story",
+            "reserved_usd": 0.02,
+            "budget_usd": 0.25,
+            "size": {},
+            "pid": 1,
+            "v": 1,
+        },
+        {
+            "event": "end",
+            "id": "call1",
+            "at": 1793819620.0,
+            "status": "done",
+            "size": {"input_tokens": 900, "output_tokens": 200},
+            "cost_usd": 0.0123,
+            "cost_is_estimate": False,
+            "request_id": "resp_abc123",
+            "v": 1,
+        },
     ]
     (project / "meta").mkdir(parents=True, exist_ok=True)
-    (project / "meta" / "meta-calls.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    (project / "meta" / "meta-calls.jsonl").write_text(
+        "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
+    )
 
 
 def _render_dir(tmp_path: Path, *, note: str | None = "Hold the bowl a beat longer.") -> tuple[Path, dict[str, Any]]:
@@ -57,11 +139,34 @@ def _render_dir(tmp_path: Path, *, note: str | None = "Hold the bowl a beat long
     video.write_bytes(bytes(range(256)) * 16)
     (work / "report.json").write_text(json.dumps({"proof": PROOF, "checks": CHECKS}), encoding="utf-8")
     (work / "post.txt").write_text("A look at the product.\n", encoding="utf-8")
-    plan = {"segments": [{"start": 0.2, "end": 1.7}], "duration": 1.5, "edit": {"look": {"preset": "warm"}},
-            "analysis": {"transcribed_by": "meta-voice-transcribe", "transcript": [{"start": 0.0, "end": 1.0, "text": "hi", "estimated": True}]}}
-    result = {"checks": CHECKS, "proof": PROOF, "revision": 2, "caption_provider": "meta", "applied_patches": [{"op": "hold"}]}
+    plan = {
+        "segments": [{"start": 0.2, "end": 1.7}],
+        "duration": 1.5,
+        "edit": {"look": {"preset": "warm"}},
+        "analysis": {
+            "transcribed_by": "meta-voice-transcribe",
+            "transcript": [{"start": 0.0, "end": 1.0, "text": "hi", "estimated": True}],
+        },
+    }
+    result = {
+        "checks": CHECKS,
+        "proof": PROOF,
+        "revision": 2,
+        "caption_provider": "meta",
+        "applied_patches": [{"op": "hold"}],
+    }
     files = [(work / "report.json", "report.json"), (work / "post.txt", "post.txt")]
-    receipts = bundle_receipts(result, video, plan=plan, project_root=project, base=work, info=STREAMS, files=files, video_name="video.mp4", note=note)
+    receipts = bundle_receipts(
+        result,
+        video,
+        plan=plan,
+        project_root=project,
+        base=work,
+        info=STREAMS,
+        files=files,
+        video_name="video.mp4",
+        note=note,
+    )
     write_receipts(receipts, work / RECEIPTS)
     with zipfile.ZipFile(work / "campaign.zip", "w") as archive:
         for path, name in [(video, "video.mp4"), *files, (work / RECEIPTS, RECEIPTS)]:
@@ -89,6 +194,7 @@ def _changed(report: dict[str, Any]) -> list[str]:
 
 # --- ids --------------------------------------------------------------------
 
+
 def test_ids_ignore_key_order_float_noise_whitespace_and_unicode_form() -> None:
     one = {"name": "café", "at": 0.30000000000000004, "nested": {"b": 2.0, "a": [1, 0.1 + 0.2]}, "passed": True}
     two = {"passed": True, "nested": {"a": [1.0, 0.3], "b": 2}, "at": 0.3, "name": "café"}
@@ -106,7 +212,12 @@ def test_ids_ignore_key_order_float_noise_whitespace_and_unicode_form() -> None:
 
 def test_seal_and_root_are_deterministic(tmp_path: Path) -> None:
     sealed = seal({"kind": "check", "b": 1.0000000001, "a": "x"})
-    assert sealed == {"kind": "check", "a": "x", "b": 1, "evidence_id": evidence_id({"a": "x", "b": 1, "kind": "check"})}
+    assert sealed == {
+        "kind": "check",
+        "a": "x",
+        "b": 1,
+        "evidence_id": evidence_id({"a": "x", "b": 1, "kind": "check"}),
+    }
     work, receipts = _render_dir(tmp_path)
     again = json.loads((work / RECEIPTS).read_text(encoding="utf-8"))
     assert root_id(again) == receipts["evidence_id"]
@@ -115,7 +226,11 @@ def test_seal_and_root_are_deterministic(tmp_path: Path) -> None:
 def test_receipts_hold_the_file_probe_checks_meta_calls_plan_versions_and_limits(tmp_path: Path) -> None:
     work, receipts = _render_dir(tmp_path)
     video = receipts["video"]
-    assert video["sha256"] == evidence.file_sha256(work / "video.mp4")[0] and video["size_bytes"] == 4096 and video["path"] == "video.mp4"
+    assert (
+        video["sha256"] == evidence.file_sha256(work / "video.mp4")[0]
+        and video["size_bytes"] == 4096
+        and video["path"] == "video.mp4"
+    )
     assert receipts["probe"]["color"] == {"space": "bt709", "range": "tv", "primaries": "bt709", "transfer": "bt709"}
     assert [stream["codec_type"] for stream in receipts["probe"]["streams"]] == ["video", "audio"]
     assert [check["name"] for check in receipts["checks"]] == [check["name"] for check in CHECKS]
@@ -123,19 +238,29 @@ def test_receipts_hold_the_file_probe_checks_meta_calls_plan_versions_and_limits
     assert len({check["evidence_id"] for check in receipts["checks"]}) == 3
     assert (receipts["passed"], receipts["total"]) == (2, 3)
     call = receipts["meta_calls"]["calls"][0]
-    assert (call["model"], call["purpose"], call["cost_usd"], call["request_id"]) == ("muse-spark", "Plan the story", 0.0123, "resp_abc123")
+    assert (call["model"], call["purpose"], call["cost_usd"], call["request_id"]) == (
+        "muse-spark",
+        "Plan the story",
+        0.0123,
+        "resp_abc123",
+    )
     assert receipts["meta_calls"]["log"] == "meta/meta-calls.jsonl"
     assert receipts["plan"]["edit_sha256"] == evidence.digest({"look": {"preset": "warm"}})
     assert receipts["plan"]["note"] == "Hold the bowl a beat longer." and receipts["plan"]["revision"] == 2
     assert receipts["versions"]["briefcut"] and receipts["versions"]["receipts"] == 1
     limits = " ".join(receipts["limitations"]["items"])
-    assert "not a signature" in limits and "Word times are estimated" in limits and "1 check is a model's judgment" in limits
+    assert (
+        "not a signature" in limits
+        and "Word times are estimated" in limits
+        and "1 check is a model's judgment" in limits
+    )
     assert {item["name"] for item in receipts["files"]["files"]} == {"report.json", "post.txt"}
     text = (work / RECEIPTS).read_text(encoding="utf-8")
     assert str(tmp_path) not in text, "receipts must not leak absolute paths"
 
 
 # --- verify -----------------------------------------------------------------
+
 
 @pytest.mark.parametrize("where", ["zip", "dir", "project", "file"])
 def test_an_untouched_bundle_verifies(tmp_path: Path, where: str) -> None:
@@ -145,9 +270,19 @@ def test_an_untouched_bundle_verifies(tmp_path: Path, where: str) -> None:
     assert report["ok"], report["changed"]
     assert report["evidence_id"] == receipts["evidence_id"]
     names = [item["item"] for item in report["items"]]
-    assert {"video.mp4", "report.json", "post.txt", "root id", "expected root", "probe record", "meta calls record"} <= set(names)
+    assert {
+        "video.mp4",
+        "report.json",
+        "post.txt",
+        "root id",
+        "expected root",
+        "probe record",
+        "meta calls record",
+    } <= set(names)
     assert sum(name.startswith("check ") for name in names) == 3
-    assert verify(target, expect=evidence.short_id(receipts["evidence_id"]))["ok"], "the label short_id shows is long enough for --expect"
+    assert verify(target, expect=evidence.short_id(receipts["evidence_id"]))["ok"], (
+        "the label short_id shows is long enough for --expect"
+    )
 
 
 def test_a_short_expected_prefix_is_too_short_to_trust(tmp_path: Path) -> None:
@@ -166,7 +301,9 @@ def test_a_short_expected_prefix_is_too_short_to_trust(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["video", "truncated_zip", "garbage_zip_member"])
-def test_a_file_that_is_not_receipts_is_a_plain_answer_not_a_traceback(tmp_path: Path, kind: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_file_that_is_not_receipts_is_a_plain_answer_not_a_traceback(
+    tmp_path: Path, kind: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     work, _ = _render_dir(tmp_path)
     if kind == "video":
         target = tmp_path / "some.mp4"
@@ -181,7 +318,7 @@ def test_a_file_that_is_not_receipts_is_a_plain_answer_not_a_traceback(tmp_path:
             archive.writestr(RECEIPTS, "{}")
         data = bytearray(target.read_bytes())
         start = data.index(b"PK\x03\x04") + 30 + len(RECEIPTS)
-        data[start:start + 2] = b"\xff\xff"  # corrupt the deflate stream of receipts.json
+        data[start : start + 2] = b"\xff\xff"  # corrupt the deflate stream of receipts.json
         target.write_bytes(bytes(data))
     with pytest.raises(evidence.ReceiptsMissing, match="not a readable receipts file or bundle"):
         verify(target)
@@ -275,6 +412,7 @@ def test_nothing_to_verify_raises(tmp_path: Path) -> None:
 
 # --- CLI ----------------------------------------------------------------------
 
+
 def test_cli_exit_codes_and_plain_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     work, receipts = _render_dir(tmp_path)
     assert main(["verify", str(work / "campaign.zip")]) == 0
@@ -299,6 +437,7 @@ def test_cli_exit_codes_and_plain_output(tmp_path: Path, capsys: pytest.CaptureF
 
 
 # --- MCP ----------------------------------------------------------------------
+
 
 class _VerifyStub:
     _closed = False
@@ -339,10 +478,16 @@ def _call_verify(monkeypatch: pytest.MonkeyPatch, stub: _VerifyStub, **arguments
     return asyncio.run(flow())
 
 
-def test_mcp_verify_checks_the_bundle_against_the_recorded_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_verify_checks_the_bundle_against_the_recorded_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     work, receipts = _render_dir(tmp_path)
-    job = {"id": JOB, "status": "complete", "result": {"revision": 2, "evidence_id": receipts["evidence_id"]},
-           "versions": [{"revision": 2, "status": "verified", "evidence_id": receipts["evidence_id"]}]}
+    job = {
+        "id": JOB,
+        "status": "complete",
+        "result": {"revision": 2, "evidence_id": receipts["evidence_id"]},
+        "versions": [{"revision": 2, "status": "verified", "evidence_id": receipts["evidence_id"]}],
+    }
     report = _call_verify(monkeypatch, _VerifyStub(job, work / "campaign.zip"))
     assert report["ok"] is True and report["evidence_id"] == receipts["evidence_id"] and report["revision"] == 2
     assert any(item["item"] == "expected root" and item["ok"] for item in report["items"])
@@ -365,8 +510,11 @@ def test_mcp_verify_checks_the_bundle_against_the_recorded_root(tmp_path: Path, 
 
 # --- a real render ------------------------------------------------------------
 
+
 def _helpers():
-    spec = importlib.util.spec_from_file_location("evidence_test_media_helpers", Path(__file__).with_name("test_e2e.py"))
+    spec = importlib.util.spec_from_file_location(
+        "evidence_test_media_helpers", Path(__file__).with_name("test_e2e.py")
+    )
     assert spec and spec.loader
     helpers = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = helpers
@@ -375,20 +523,34 @@ def _helpers():
 
 
 @pytest.mark.render
-def test_a_real_render_writes_receipts_that_verify_and_catch_tampering(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_real_render_writes_receipts_that_verify_and_catch_tampering(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     helpers = _helpers()
     if not helpers._have_ffmpeg():
         pytest.skip("ffmpeg required")
     from vedit.campaign import CampaignManager
 
-    source =tmp_path / "vedit-sessions" / "source-test" / "inbox" / "clip.mp4"
+    source = tmp_path / "vedit-sessions" / "source-test" / "inbox" / "clip.mp4"
     source.parent.mkdir(parents=True)
     clip = helpers._make_clip(source, seconds=1.5, color="teal")
     manager = CampaignManager(tmp_path, start_worker=False)
     try:
-        job = manager.create({"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False})
+        job = manager.create(
+            {"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False}
+        )
         manager.process(job["id"])
-        manager.render(job["id"], {"plan": {"title": "A clear view", "segments": [{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Chosen."}], "caption": "A look.", "hashtags": []}})
+        manager.render(
+            job["id"],
+            {
+                "plan": {
+                    "title": "A clear view",
+                    "segments": [{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Chosen."}],
+                    "caption": "A look.",
+                    "hashtags": [],
+                }
+            },
+        )
         manager.process(job["id"])
         complete = manager.get(job["id"])
         assert complete["status"] == "complete", complete["error"]
@@ -419,7 +581,9 @@ def test_a_real_render_writes_receipts_that_verify_and_catch_tampering(tmp_path:
 
 
 @pytest.mark.render
-def test_a_receipt_that_cannot_be_sealed_warns_and_keeps_the_verified_render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_receipt_that_cannot_be_sealed_warns_and_keeps_the_verified_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     helpers = _helpers()
     if not helpers._have_ffmpeg():
         pytest.skip("ffmpeg required")
@@ -434,9 +598,21 @@ def test_a_receipt_that_cannot_be_sealed_warns_and_keeps_the_verified_render(tmp
     clip = helpers._make_clip(source, seconds=1.5, color="teal")
     manager = CampaignManager(tmp_path, start_worker=False)
     try:
-        job = manager.create({"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False})
+        job = manager.create(
+            {"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False}
+        )
         manager.process(job["id"])
-        manager.render(job["id"], {"plan": {"title": "A clear view", "segments": [{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Chosen."}], "caption": "A look.", "hashtags": []}})
+        manager.render(
+            job["id"],
+            {
+                "plan": {
+                    "title": "A clear view",
+                    "segments": [{"start": 0.2, "end": 1.2, "label": "Product", "reason": "Chosen."}],
+                    "caption": "A look.",
+                    "hashtags": [],
+                }
+            },
+        )
         manager.process(job["id"])
         complete = manager.get(job["id"])
         bundle = manager.artifact(job["id"], "bundle")

@@ -22,6 +22,9 @@ from typing import Any
 MAX_TEXTS = 24
 MAX_OVERLAYS = 12
 MAX_REMOVED = 400
+MAX_CAPTION_EDITS = 600  # one story's caption lines, with room to spare
+MAX_CAPTION_EDIT_CHARS = 300
+LONGEST_SOURCE_SECONDS = 86_400.0  # a day of footage: the widest range a removed cut or a card start may name
 MAX_TEXT_CHARS = 160
 MAX_EMPHASIS = 240  # punch words across a whole story
 MAX_EMPHASIS_PER_CUE = 2
@@ -31,7 +34,9 @@ EMPHASIS_COLOR = "#3CE88C"  # an accent apart from the spoken-word highlight, so
 ASSET_ID = re.compile(r"^[a-f0-9]{8,32}$")
 CUE_KEY = re.compile(r"\d{1,8}")
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
-LANGUAGE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$")  # en, pt-BR, es-419, zh-Hant-TW; the same tags emphasis accepts
+LANGUAGE = re.compile(
+    r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$"
+)  # en, pt-BR, es-419, zh-Hant-TW; the same tags emphasis accepts
 
 LOOKS = (
     ("none", "Original", "Keep the footage as shot."),
@@ -119,6 +124,8 @@ def hero_word_ok(word: str) -> bool:
             continue
         kept.append(char)
     return bool(HERO_WORD.fullmatch("".join(char for char in kept if char != "\u0000")))
+
+
 # A 3D motion card: words in a closed set of materials, rendered by Briefcut's own Blender template.
 MOTION_CARD_KINDS = (
     ("intro_title", "Intro title", "The title over the opening seconds."),
@@ -160,10 +167,29 @@ MOTION_CARD_ASPECTS = ("9:16", "16:9", "1:1", "4:5")
 
 _DEFAULT: dict[str, Any] = {
     "template": "none",
-    "look": {"preset": "none", "intensity": 1.0, "brightness": 0.0, "contrast": 0.0, "saturation": 0.0, "temperature": 0.0, "vignette": 0.0, "sharpen": 0.0},
+    "look": {
+        "preset": "none",
+        "intensity": 1.0,
+        "brightness": 0.0,
+        "contrast": 0.0,
+        "saturation": 0.0,
+        "temperature": 0.0,
+        "vignette": 0.0,
+        "sharpen": 0.0,
+    },
     "transition": {"type": "none", "seconds": 0.35},
-    "captions": {"style": "boxed", "position": "bottom", "scale": 1.0, "color": "#FFFFFF", "highlight": "#FFD60A", "language": None, "edits": {},
-                 "emphasize": False, "emphasis": [], "emphasis_color": EMPHASIS_COLOR},
+    "captions": {
+        "style": "boxed",
+        "position": "bottom",
+        "scale": 1.0,
+        "color": "#FFFFFF",
+        "highlight": "#FFD60A",
+        "language": None,
+        "edits": {},
+        "emphasize": False,
+        "emphasis": [],
+        "emphasis_color": EMPHASIS_COLOR,
+    },
     "trim_pauses": False,
     "remove_fillers": False,
     "removed": [],
@@ -184,18 +210,77 @@ _DEFAULT: dict[str, Any] = {
 
 TEMPLATES = (
     {"id": "none", "name": "Blank", "description": "Start from your footage with nothing applied.", "edit": {}},
-    {"id": "product_story", "name": "Product story", "description": "Warm color, soft transitions, and clean captions for showing something you made.",
-     "edit": {"look": {"preset": "warm"}, "transition": {"type": "fade", "seconds": 0.3}, "captions": {"style": "boxed"}, "trim_pauses": True, "zoom": {"mode": "slow", "strength": 0.4}, "fade": {"out": 0.5}}},
-    {"id": "punchy_short", "name": "Punchy short", "description": "Fast cuts, word-by-word captions, and punch-ins for short feeds.",
-     "edit": {"look": {"preset": "vivid"}, "captions": {"style": "pop"}, "trim_pauses": True, "remove_fillers": True, "zoom": {"mode": "punch", "strength": 0.6}}},
-    {"id": "talking_head", "name": "Talking head", "description": "Clean speech, removed fillers, and karaoke captions.",
-     "edit": {"look": {"preset": "auto"}, "captions": {"style": "karaoke"}, "trim_pauses": True, "remove_fillers": True, "audio": {"enhance_voice": True, "denoise": True}}},
-    {"id": "cinematic", "name": "Cinematic", "description": "A graded look, dip-to-black transitions, and slow pushes.",
-     "edit": {"look": {"preset": "cinematic"}, "transition": {"type": "fadeblack", "seconds": 0.5}, "captions": {"style": "minimal"}, "zoom": {"mode": "slow", "strength": 0.5}, "fade": {"in": 0.5, "out": 0.8}}},
-    {"id": "recap", "name": "Event recap", "description": "Bright color and quick slides that keep a day moving.",
-     "edit": {"look": {"preset": "vivid"}, "transition": {"type": "slideleft", "seconds": 0.3}, "captions": {"style": "bold"}}},
-    {"id": "tutorial", "name": "How-to", "description": "Steady framing, big readable captions, and clear speech.",
-     "edit": {"look": {"preset": "auto"}, "captions": {"style": "bold", "scale": 1.15}, "trim_pauses": True, "audio": {"enhance_voice": True}, "transition": {"type": "fade", "seconds": 0.25}}},
+    {
+        "id": "product_story",
+        "name": "Product story",
+        "description": "Warm color, soft transitions, and clean captions for showing something you made.",
+        "edit": {
+            "look": {"preset": "warm"},
+            "transition": {"type": "fade", "seconds": 0.3},
+            "captions": {"style": "boxed"},
+            "trim_pauses": True,
+            "zoom": {"mode": "slow", "strength": 0.4},
+            "fade": {"out": 0.5},
+        },
+    },
+    {
+        "id": "punchy_short",
+        "name": "Punchy short",
+        "description": "Fast cuts, word-by-word captions, and punch-ins for short feeds.",
+        "edit": {
+            "look": {"preset": "vivid"},
+            "captions": {"style": "pop"},
+            "trim_pauses": True,
+            "remove_fillers": True,
+            "zoom": {"mode": "punch", "strength": 0.6},
+        },
+    },
+    {
+        "id": "talking_head",
+        "name": "Talking head",
+        "description": "Clean speech, removed fillers, and karaoke captions.",
+        "edit": {
+            "look": {"preset": "auto"},
+            "captions": {"style": "karaoke"},
+            "trim_pauses": True,
+            "remove_fillers": True,
+            "audio": {"enhance_voice": True, "denoise": True},
+        },
+    },
+    {
+        "id": "cinematic",
+        "name": "Cinematic",
+        "description": "A graded look, dip-to-black transitions, and slow pushes.",
+        "edit": {
+            "look": {"preset": "cinematic"},
+            "transition": {"type": "fadeblack", "seconds": 0.5},
+            "captions": {"style": "minimal"},
+            "zoom": {"mode": "slow", "strength": 0.5},
+            "fade": {"in": 0.5, "out": 0.8},
+        },
+    },
+    {
+        "id": "recap",
+        "name": "Event recap",
+        "description": "Bright color and quick slides that keep a day moving.",
+        "edit": {
+            "look": {"preset": "vivid"},
+            "transition": {"type": "slideleft", "seconds": 0.3},
+            "captions": {"style": "bold"},
+        },
+    },
+    {
+        "id": "tutorial",
+        "name": "How-to",
+        "description": "Steady framing, big readable captions, and clear speech.",
+        "edit": {
+            "look": {"preset": "auto"},
+            "captions": {"style": "bold", "scale": 1.15},
+            "trim_pauses": True,
+            "audio": {"enhance_voice": True},
+            "transition": {"type": "fade", "seconds": 0.25},
+        },
+    },
 )
 
 
@@ -246,13 +331,29 @@ def catalogue() -> dict[str, Any]:
         "text_positions": list(TEXT_POSITIONS),
         "overlay_positions": list(OVERLAY_POSITIONS),
         "cutout_modes": _rows(CUTOUT_MODES),
-        "motion_card": {"kinds": _rows(MOTION_CARD_KINDS), "styles": _rows(MOTION_CARD_STYLES), "cameras": _rows(MOTION_CARD_CAMERAS),
-                        "palettes": {name: list(colors) for name, colors in MOTION_CARD_PALETTES.items()},
-                        "min_seconds": MOTION_CARD_MIN_SECONDS, "max_seconds": MOTION_CARD_MAX_SECONDS,
-                        "max_chars": MOTION_CARD_MAX_CHARS, "subtitle_chars": MOTION_CARD_SUBTITLE_CHARS},
-        "hero_word": {"sides": list(HERO_SIDES), "fonts": _rows(HERO_FONTS), "colors": list(HERO_COLORS),
-                      "min_seconds": HERO_MIN_SECONDS, "max_seconds": HERO_MAX_SECONDS, "max_chars": HERO_MAX_CHARS, "max_words": HERO_MAX_WORDS},
-        "templates":[{"id": row["id"], "name": row["name"], "description": row["description"], "edit": row["edit"]} for row in TEMPLATES],
+        "motion_card": {
+            "kinds": _rows(MOTION_CARD_KINDS),
+            "styles": _rows(MOTION_CARD_STYLES),
+            "cameras": _rows(MOTION_CARD_CAMERAS),
+            "palettes": {name: list(colors) for name, colors in MOTION_CARD_PALETTES.items()},
+            "min_seconds": MOTION_CARD_MIN_SECONDS,
+            "max_seconds": MOTION_CARD_MAX_SECONDS,
+            "max_chars": MOTION_CARD_MAX_CHARS,
+            "subtitle_chars": MOTION_CARD_SUBTITLE_CHARS,
+        },
+        "hero_word": {
+            "sides": list(HERO_SIDES),
+            "fonts": _rows(HERO_FONTS),
+            "colors": list(HERO_COLORS),
+            "min_seconds": HERO_MIN_SECONDS,
+            "max_seconds": HERO_MAX_SECONDS,
+            "max_chars": HERO_MAX_CHARS,
+            "max_words": HERO_MAX_WORDS,
+        },
+        "templates": [
+            {"id": row["id"], "name": row["name"], "description": row["description"], "edit": row["edit"]}
+            for row in TEMPLATES
+        ],
         "export": {"qualities": list(EXPORT_QUALITIES), "fps": list(EXPORT_FPS), "formats": list(EXPORT_FORMATS)},
         "defaults": default_edit(),
     }
@@ -335,13 +436,19 @@ def validate_emphasis(value: Any) -> list[dict[str, Any]]:
     seen: set[tuple[str, int]] = set()
     per_cue: dict[str, int] = {}
     for item in value:
-        item = _object(item, "Each emphasised word")
-        key, index, word = item.get("cue_key"), item.get("word_index"), item.get("word")
+        pick = _object(item, "Each emphasised word")
+        key, index, word = pick.get("cue_key"), pick.get("word_index"), pick.get("word")
         if not isinstance(key, str) or not CUE_KEY.fullmatch(key):
             raise EditError("Caption emphasis is keyed by the cue's start time in milliseconds.")
         if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= MAX_EMPHASIS_INDEX:
             raise EditError(f"An emphasised word's place must be a whole number from 0 to {MAX_EMPHASIS_INDEX}.")
-        if not isinstance(word, str) or not word or len(word) > MAX_EMPHASIS_WORD or word != word.strip() or any(ch.isspace() or ord(ch) < 32 for ch in word):
+        if (
+            not isinstance(word, str)
+            or not word
+            or len(word) > MAX_EMPHASIS_WORD
+            or word != word.strip()
+            or any(ch.isspace() or ord(ch) < 32 for ch in word)
+        ):
             raise EditError(f"An emphasised word must be one word of at most {MAX_EMPHASIS_WORD} characters.")
         if (key, index) in seen:
             raise EditError("A word can be emphasised only once.")
@@ -364,9 +471,53 @@ def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None 
     clean = default_edit()
     template_ids = tuple(row["id"] for row in TEMPLATES)
     clean["template"] = _choice(raw.get("template"), "Template", template_ids)
+    clean["look"] = _validate_look(_object(raw["look"], "Look"))
+    transition = _object(raw["transition"], "Transition")
+    clean["transition"] = {
+        "type": _choice(transition.get("type"), "Transition", _ids(TRANSITIONS)),
+        "seconds": _number(transition.get("seconds", 0.35), "Transition length", 0.1, 2.0),
+    }
+    clean["captions"] = _validate_captions(_object(raw["captions"], "Captions"))
+    clean["trim_pauses"] = _flag(raw.get("trim_pauses"), "Trim pauses")
+    clean["remove_fillers"] = _flag(raw.get("remove_fillers"), "Remove fillers")
+    clean["stabilize"] = _flag(raw.get("stabilize"), "Stabilize")
+    clean["denoise_picture"] = _flag(raw.get("denoise_picture"), "Picture denoise")
+    clean["removed"] = _validate_removed(raw.get("removed"))
+    audio = _object(raw["audio"], "Audio")
+    clean["audio"] = {
+        key: _flag(audio.get(key, False), f"Audio setting {key}")
+        for key in ("enhance_voice", "denoise", "keep_loudness", "mute_source")
+    }
+    if raw.get("music") is not None:
+        clean["music"] = _validate_music(_object(raw["music"], "Music"), assets)
+    zoom = _object(raw["zoom"], "Zoom")
+    clean["zoom"] = {
+        "mode": _choice(zoom.get("mode"), "Zoom", _ids(ZOOM_MODES)),
+        "strength": _number(zoom.get("strength", 0.5), "Zoom strength", 0.0, 1.0),
+    }
+    clean["texts"] = _validate_texts(raw.get("texts"), duration)
+    if raw.get("logo") is not None:
+        clean["logo"] = _validate_logo(_object(raw["logo"], "Logo"), assets)
+    clean["overlays"] = _validate_overlays(raw.get("overlays"), duration, assets)
+    fade = _object(raw["fade"], "Fade")
+    clean["fade"] = {
+        "in": _number(fade.get("in", 0.0), "Fade in", 0.0, 5.0),
+        "out": _number(fade.get("out", 0.0), "Fade out", 0.0, 5.0),
+    }
+    clean["cutout"] = _validate_cutout(_object(raw["cutout"], "Cutout"), assets)
+    export = _object(raw["export"], "Export")
+    clean["export"] = {
+        "quality": _choice(export.get("quality"), "Export quality", EXPORT_QUALITIES),
+        "fps": _choice(export.get("fps"), "Export frame rate", EXPORT_FPS),
+        "format": _choice(export.get("format"), "Export format", EXPORT_FORMATS),
+    }
+    clean["hero_word"] = validate_hero_word(raw.get("hero_word"), duration=duration)
+    clean["motion_card"] = validate_motion_card(raw.get("motion_card"), duration=duration, assets=assets)
+    return clean
 
-    look = _object(raw["look"], "Look")
-    clean["look"] = {
+
+def _validate_look(look: dict[str, Any]) -> dict[str, Any]:
+    return {
         "preset": _choice(look.get("preset"), "Look", _ids(LOOKS)),
         "intensity": _number(look.get("intensity", 1.0), "Look strength", 0.0, 1.0),
         "brightness": _number(look.get("brightness", 0.0), "Brightness", -1.0, 1.0),
@@ -377,25 +528,21 @@ def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None 
         "sharpen": _number(look.get("sharpen", 0.0), "Sharpen", 0.0, 1.0),
     }
 
-    transition = _object(raw["transition"], "Transition")
-    clean["transition"] = {
-        "type": _choice(transition.get("type"), "Transition", _ids(TRANSITIONS)),
-        "seconds": _number(transition.get("seconds", 0.35), "Transition length", 0.1, 2.0),
-    }
 
-    captions = _object(raw["captions"], "Captions")
+def _validate_captions(captions: dict[str, Any]) -> dict[str, Any]:
+    """Caption settings, with the per-line text edits keyed by the cue's start in milliseconds."""
     language = captions.get("language")
     if language is not None and (not isinstance(language, str) or not LANGUAGE.fullmatch(language)):
         raise EditError("Caption language must be a language code such as es or pt-BR.")
     edits: dict[str, str] = {}
     raw_edits = captions.get("edits") or {}
-    if not isinstance(raw_edits, dict) or len(raw_edits) > 600:
+    if not isinstance(raw_edits, dict) or len(raw_edits) > MAX_CAPTION_EDITS:
         raise EditError("Caption edits must be a bounded object.")
     for key, text in raw_edits.items():
-        if not isinstance(key, str) or not re.fullmatch(r"\d{1,8}", key):
+        if not isinstance(key, str) or not CUE_KEY.fullmatch(key):
             raise EditError("Caption edits are keyed by the cue's start time in milliseconds.")
-        edits[key] = _text(text, "Caption text", 300)
-    clean["captions"] = {
+        edits[key] = _text(text, "Caption text", MAX_CAPTION_EDIT_CHARS)
+    return {
         "style": _choice(captions.get("style"), "Caption style", _ids(CAPTION_STYLES)),
         "position": _choice(captions.get("position"), "Caption position", CAPTION_POSITIONS),
         "scale": _number(captions.get("scale", 1.0), "Caption size", 0.5, 2.0),
@@ -408,114 +555,103 @@ def validate_edit(value: Any, *, duration: float, assets: dict[str, Any] | None 
         "emphasis_color": _color(captions.get("emphasis_color", EMPHASIS_COLOR), "Caption emphasis color"),
     }
 
-    clean["trim_pauses"] = _flag(raw.get("trim_pauses"), "Trim pauses")
-    clean["remove_fillers"] = _flag(raw.get("remove_fillers"), "Remove fillers")
-    clean["stabilize"] = _flag(raw.get("stabilize"), "Stabilize")
-    clean["denoise_picture"] = _flag(raw.get("denoise_picture"), "Picture denoise")
 
-    removed = raw.get("removed") or []
+def _validate_removed(value: Any) -> list[list[float]]:
+    """Source ranges the edit cuts out, each ``[start, end]`` in seconds."""
+    removed = value or []
     if not isinstance(removed, list) or len(removed) > MAX_REMOVED:
         raise EditError("Removed ranges must be a bounded list.")
-    clean["removed"] = []
+    clean: list[list[float]] = []
     for item in removed:
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             raise EditError("Each removed range needs a start and an end.")
-        low = _number(item[0], "Removed start", 0.0, 86_400.0)
-        high = _number(item[1], "Removed end", 0.0, 86_400.0)
+        low = _number(item[0], "Removed start", 0.0, LONGEST_SOURCE_SECONDS)
+        high = _number(item[1], "Removed end", 0.0, LONGEST_SOURCE_SECONDS)
         if high <= low:
             raise EditError("A removed range must end after it starts.")
-        clean["removed"].append([low, high])
+        clean.append([low, high])
+    return clean
 
-    audio = _object(raw["audio"], "Audio")
-    clean["audio"] = {key: _flag(audio.get(key, False), f"Audio setting {key}") for key in ("enhance_voice", "denoise", "keep_loudness", "mute_source")}
 
-    music = raw.get("music")
-    if music is not None:
-        music = _object(music, "Music")
-        clean["music"] = {
-            "asset": _asset(music.get("asset"), "Music", assets, ("audio",)),
-            "volume_db": _number(music.get("volume_db", -18.0), "Music volume", -40.0, 0.0),
-            "duck": _flag(music.get("duck", True), "Music ducking"),
-            "fade_out": _number(music.get("fade_out", 1.5), "Music fade", 0.0, 10.0),
-            "start": _number(music.get("start", 0.0), "Music start", 0.0, 3600.0),
-            "beat_sync": _flag(music.get("beat_sync", False), "Beat sync"),
-        }
-
-    zoom = _object(raw["zoom"], "Zoom")
-    clean["zoom"] = {
-        "mode": _choice(zoom.get("mode"), "Zoom", _ids(ZOOM_MODES)),
-        "strength": _number(zoom.get("strength", 0.5), "Zoom strength", 0.0, 1.0),
+def _validate_music(music: dict[str, Any], assets: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "asset": _asset(music.get("asset"), "Music", assets, ("audio",)),
+        "volume_db": _number(music.get("volume_db", -18.0), "Music volume", -40.0, 0.0),
+        "duck": _flag(music.get("duck", True), "Music ducking"),
+        "fade_out": _number(music.get("fade_out", 1.5), "Music fade", 0.0, 10.0),
+        "start": _number(music.get("start", 0.0), "Music start", 0.0, 3600.0),
+        "beat_sync": _flag(music.get("beat_sync", False), "Beat sync"),
     }
 
-    texts = raw.get("texts") or []
+
+def _validate_texts(value: Any, duration: float) -> list[dict[str, Any]]:
+    texts = value or []
     if not isinstance(texts, list) or len(texts) > MAX_TEXTS:
         raise EditError(f"A story can hold at most {MAX_TEXTS} text items.")
-    clean["texts"] = []
+    clean: list[dict[str, Any]] = []
     for index, item in enumerate(texts, 1):
-        item = _object(item, f"Text {index}")
-        body = _text(item.get("text"), f"Text {index}")
+        record = _object(item, f"Text {index}")
+        body = _text(record.get("text"), f"Text {index}")
         if not body:
             raise EditError(f"Text {index} is empty.")
-        start, length = _timed(item, f"Text {index}", duration)
-        clean["texts"].append({
-            "text": body, "start": start, "duration": length,
-            "style": _choice(item.get("style", "label"), f"Text {index} style", _ids(TEXT_STYLES)),
-            "position": _choice(item.get("position", "center"), f"Text {index} position", TEXT_POSITIONS),
-            "scale": _number(item.get("scale", 1.0), f"Text {index} size", 0.5, 2.5),
-            "color": _color(item.get("color", "#FFFFFF"), f"Text {index} color"),
-        })
+        start, length = _timed(record, f"Text {index}", duration)
+        clean.append(
+            {
+                "text": body,
+                "start": start,
+                "duration": length,
+                "style": _choice(record.get("style", "label"), f"Text {index} style", _ids(TEXT_STYLES)),
+                "position": _choice(record.get("position", "center"), f"Text {index} position", TEXT_POSITIONS),
+                "scale": _number(record.get("scale", 1.0), f"Text {index} size", 0.5, 2.5),
+                "color": _color(record.get("color", "#FFFFFF"), f"Text {index} color"),
+            }
+        )
+    return clean
 
-    logo = raw.get("logo")
-    if logo is not None:
-        logo = _object(logo, "Logo")
-        clean["logo"] = {
-            "asset": _asset(logo.get("asset"), "Logo", assets, ("image",)),
-            "position": _choice(logo.get("position", "top-right"), "Logo position", OVERLAY_POSITIONS),
-            "scale": _number(logo.get("scale", 0.14), "Logo size", 0.03, 0.6),
-            "opacity": _number(logo.get("opacity", 0.9), "Logo opacity", 0.1, 1.0),
-        }
 
-    overlays = raw.get("overlays") or []
+def _validate_logo(logo: dict[str, Any], assets: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "asset": _asset(logo.get("asset"), "Logo", assets, ("image",)),
+        "position": _choice(logo.get("position", "top-right"), "Logo position", OVERLAY_POSITIONS),
+        "scale": _number(logo.get("scale", 0.14), "Logo size", 0.03, 0.6),
+        "opacity": _number(logo.get("opacity", 0.9), "Logo opacity", 0.1, 1.0),
+    }
+
+
+def _validate_overlays(value: Any, duration: float, assets: dict[str, Any] | None) -> list[dict[str, Any]]:
+    overlays = value or []
     if not isinstance(overlays, list) or len(overlays) > MAX_OVERLAYS:
         raise EditError(f"A story can hold at most {MAX_OVERLAYS} overlays.")
-    clean["overlays"] = []
+    clean: list[dict[str, Any]] = []
     for index, item in enumerate(overlays, 1):
-        item = _object(item, f"Overlay {index}")
-        start, length = _timed(item, f"Overlay {index}", duration)
-        clean["overlays"].append({
-            "asset": _asset(item.get("asset"), f"Overlay {index}", assets, ("image",)),
-            "start": start, "duration": length,
-            "position": _choice(item.get("position", "center"), f"Overlay {index} position", OVERLAY_POSITIONS),
-            "scale": _number(item.get("scale", 0.3), f"Overlay {index} size", 0.03, 1.0),
-        })
+        record = _object(item, f"Overlay {index}")
+        start, length = _timed(record, f"Overlay {index}", duration)
+        clean.append(
+            {
+                "asset": _asset(record.get("asset"), f"Overlay {index}", assets, ("image",)),
+                "start": start,
+                "duration": length,
+                "position": _choice(record.get("position", "center"), f"Overlay {index} position", OVERLAY_POSITIONS),
+                "scale": _number(record.get("scale", 0.3), f"Overlay {index} size", 0.03, 1.0),
+            }
+        )
+    return clean
 
-    fade = _object(raw["fade"], "Fade")
-    clean["fade"] = {"in": _number(fade.get("in", 0.0), "Fade in", 0.0, 5.0), "out": _number(fade.get("out", 0.0), "Fade out", 0.0, 5.0)}
 
-    cutout = _object(raw["cutout"], "Cutout")
+def _validate_cutout(cutout: dict[str, Any], assets: dict[str, Any] | None) -> dict[str, Any]:
+    """A subject cutout needs a named subject; only the ``image`` mode carries a background asset."""
     mode = _choice(cutout.get("mode"), "Cutout", _ids(CUTOUT_MODES))
     subject = _text(cutout.get("subject", ""), "Cutout subject", 150)
     if mode != "none" and not subject:
         raise EditError("Name the subject to cut out, such as “the person on the left”.")
-    image = cutout.get("asset")
-    if mode == "image":
-        image = _asset(image, "Cutout background", assets, ("image",))
-    clean["cutout"] = {
-        "mode": mode, "subject": subject,
+    image = _asset(cutout.get("asset"), "Cutout background", assets, ("image",)) if mode == "image" else None
+    return {
+        "mode": mode,
+        "subject": subject,
         "color": _color(cutout.get("color", "#101418"), "Cutout color"),
-        "asset": image if mode == "image" else None,
+        "asset": image,
         "blur": _number(cutout.get("blur", 0.6), "Background blur", 0.0, 1.0),
     }
-
-    export = _object(raw["export"], "Export")
-    clean["export"] = {
-        "quality": _choice(export.get("quality"), "Export quality", EXPORT_QUALITIES),
-        "fps": _choice(export.get("fps"), "Export frame rate", EXPORT_FPS),
-        "format": _choice(export.get("format"), "Export format", EXPORT_FORMATS),
-    }
-    clean["hero_word"] = validate_hero_word(raw.get("hero_word"), duration=duration)
-    clean["motion_card"] = validate_motion_card(raw.get("motion_card"), duration=duration, assets=assets)
-    return clean
 
 
 def validate_hero_word(value: Any, *, duration: float) -> dict[str, Any] | None:
@@ -546,7 +682,10 @@ def validate_hero_word(value: Any, *, duration: float) -> dict[str, Any] | None:
     if color not in HERO_COLORS:
         raise EditError("The hero word color is not one of the available choices.")
     clean = {
-        "word": word, "start": start, "end": end, "subject": subject,
+        "word": word,
+        "start": start,
+        "end": end,
+        "subject": subject,
         "side": _choice(item.get("side", "center"), "Hero word side", HERO_SIDES),
         "font": _choice(item.get("font", "heavy"), "Hero word font", _ids(HERO_FONTS)),
         "color": color,
@@ -575,13 +714,17 @@ def _card_text(value: Any, name: str, limit: int) -> str:
     for char in text:
         category = unicodedata.category(char)
         if category[0] == "M":
-            raise EditError(f"{name} cannot hold vowel signs or other combining marks: Blender's text cannot place them. Use a title without them.")
+            raise EditError(
+                f"{name} cannot hold vowel signs or other combining marks: Blender's text cannot place them. Use a title without them."
+            )
         if not (category[0] in "LNP" or char == " " or char in "&+#%$€£¥@/=~°"):
             raise EditError(f"{name} can hold letters, digits, punctuation and spaces only.")
     return text
 
 
-def validate_motion_card(value: Any, *, duration: float | None = None, assets: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def validate_motion_card(
+    value: Any, *, duration: float | None = None, assets: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """``edit.motion_card``: a 3D title card as closed choices and short words.
 
     Returns None for no card. ``duration`` is the finished story's length; a card
@@ -591,7 +734,13 @@ def validate_motion_card(value: Any, *, duration: float | None = None, assets: d
     """
     if value is None:
         return None
-    item = _object(value, "Motion card")
+    return motion_card_spec(_object(value, "Motion card"), duration=duration, assets=assets)
+
+
+def motion_card_spec(
+    item: dict[str, Any], *, duration: float | None = None, assets: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """The bounded card an object describes; ``validate_motion_card`` states the rules. Never None."""
     text = _card_text(item.get("text"), "Motion card text", MOTION_CARD_MAX_CHARS)
     if not text:
         raise EditError("The motion card needs a few words.")
@@ -604,7 +753,9 @@ def validate_motion_card(value: Any, *, duration: float | None = None, assets: d
         raise EditError(f"The motion card lasts {seconds:g} s, longer than this {duration:g} s story.")
     kind = _choice(item.get("kind", "intro_title"), "Motion card kind", _ids(MOTION_CARD_KINDS))
     clean: dict[str, Any] = {
-        "kind": kind, "text": text, "subtitle": subtitle,
+        "kind": kind,
+        "text": text,
+        "subtitle": subtitle,
         "style": _choice(item.get("style", "brushed_metal"), "Motion card style", _ids(MOTION_CARD_STYLES)),
         "palette": palette,
         "camera": _choice(item.get("camera", "dolly_in"), "Motion card camera", _ids(MOTION_CARD_CAMERAS)),
@@ -616,7 +767,7 @@ def validate_motion_card(value: Any, *, duration: float | None = None, assets: d
         clean["aspect"] = _choice(aspect, "Motion card aspect", MOTION_CARD_ASPECTS)
     start = item.get("start")
     if start is not None:
-        limit = max(0.0, (duration if duration is not None else 86_400.0) - seconds)
+        limit = max(0.0, (duration if duration is not None else LONGEST_SOURCE_SECONDS) - seconds)
         clean["start"] = _number(start, "Motion card start", 0.0, limit)
     backdrop = item.get("backdrop")
     if backdrop is not None:
@@ -628,14 +779,9 @@ def validate_motion_card(value: Any, *, duration: float | None = None, assets: d
 
 def asset_ids(edit: dict[str, Any]) -> list[str]:
     """Every asset an edit refers to, for packaging and validation."""
-    found: list[str] = []
-    for holder in (edit.get("music"), edit.get("logo"), edit.get("cutout")):
-        if isinstance(holder, dict) and isinstance(holder.get("asset"), str):
-            found.append(holder["asset"])
+    holders = [edit.get("music"), edit.get("logo"), edit.get("cutout"), *(edit.get("overlays") or [])]
+    found = [holder["asset"] for holder in holders if isinstance(holder, dict) and isinstance(holder.get("asset"), str)]
     card = edit.get("motion_card")
     if isinstance(card, dict) and isinstance(card.get("backdrop"), str):
         found.append(card["backdrop"])
-    for item in edit.get("overlays") or []:
-        if isinstance(item, dict) and isinstance(item.get("asset"), str):
-            found.append(item["asset"])
     return found

@@ -26,9 +26,10 @@ _CATALOGUE = (
 
 def effect_catalogue() -> list[dict[str, Any]]:
     """Return fresh, JSON-safe metadata without exposing filter expressions."""
-    return [{"id": key, "label": label, "description": description,
-             "default_intensity": 0.55, "default_duration": 3.0}
-            for key, label, description in _CATALOGUE]
+    return [
+        {"id": key, "label": label, "description": description, "default_intensity": 0.55, "default_duration": 3.0}
+        for key, label, description in _CATALOGUE
+    ]
 
 
 def _number(value: Any, field: str) -> float:
@@ -52,8 +53,9 @@ def _subject_points(raw: Any, clip_duration: float | None) -> list[dict[str, flo
     for index, item in enumerate(raw):
         if not isinstance(item, dict) or set(item) - {"time", "x", "y", "width", "height"}:
             raise EffectError(f"Subject point {index} must be a time and bounding box.")
-        values = {key: _number(item.get(key), f"points[{index}].{key}")
-                  for key in ("time", "x", "y", "width", "height")}
+        values = {
+            key: _number(item.get(key), f"points[{index}].{key}") for key in ("time", "x", "y", "width", "height")
+        }
         time, x, y, width, height = (values[key] for key in ("time", "x", "y", "width", "height"))
         if time < 0 or time - previous < 0.000001:
             raise EffectError("Subject point times must be non-negative and strictly increasing.")

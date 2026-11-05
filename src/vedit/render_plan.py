@@ -12,9 +12,10 @@ can only do part of what an op asks.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from vedit.edit_spec import asset_ids, default_edit
 from vedit.ir import Canvas
@@ -42,17 +43,38 @@ class RenderContext:
     assets: dict[str, Any] = field(default_factory=dict)
     tracking: list[dict[str, Any]] | None = None
     matte: Path | None = None
-    hero_matte: Path | None = None  # the subject over the hero word's window only, from ``vedit.hero_word.window_matte``
+    hero_matte: Path | None = (
+        None  # the subject over the hero word's window only, from ``vedit.hero_word.window_matte``
+    )
     subtitle: Path | None = None
     effect: dict[str, Any] | None = None
     warnings: list[str] = field(default_factory=list)
 
 
-def context(plan: dict[str, Any], *, request: dict[str, Any], aspect: str, canvas: Canvas, work: Path, has_audio: bool, **extra: Any) -> RenderContext:
+def context(
+    plan: dict[str, Any],
+    *,
+    request: dict[str, Any],
+    aspect: str,
+    canvas: Canvas,
+    work: Path,
+    has_audio: bool,
+    **extra: Any,
+) -> RenderContext:
     """Build a context from a plan, resolving the clock once."""
-    edit = plan.get("edit") if isinstance(plan.get("edit"), dict) else default_edit()
-    return RenderContext(plan=plan, view=plan_timeline(plan), edit=edit, request=request, aspect=aspect,
-                         canvas=canvas, work=work, has_audio=has_audio, **extra)
+    given = plan.get("edit")
+    edit = given if isinstance(given, dict) else default_edit()
+    return RenderContext(
+        plan=plan,
+        view=plan_timeline(plan),
+        edit=edit,
+        request=request,
+        aspect=aspect,
+        canvas=canvas,
+        work=work,
+        has_audio=has_audio,
+        **extra,
+    )
 
 
 def _asset_file(ctx: RenderContext, ident: Any) -> str | None:
@@ -125,9 +147,17 @@ def cutout(ctx: RenderContext) -> list[dict[str, Any]]:
     if settings["mode"] == "none":
         return []
     if ctx.matte is None:
-        ctx.warnings.append("The cutout needs a subject mask, which this version does not have, so the background is unchanged.")
+        ctx.warnings.append(
+            "The cutout needs a subject mask, which this version does not have, so the background is unchanged."
+        )
         return []
-    op = {"op": "cutout", "matte": str(ctx.matte), "mode": settings["mode"], "color": settings["color"], "blur": settings["blur"]}
+    op = {
+        "op": "cutout",
+        "matte": str(ctx.matte),
+        "mode": settings["mode"],
+        "color": settings["color"],
+        "blur": settings["blur"],
+    }
     if settings["mode"] == "image":
         image = asset_path(ctx, settings["asset"], "The cutout background image")
         if image is None:
@@ -138,7 +168,11 @@ def cutout(ctx: RenderContext) -> list[dict[str, Any]]:
 
 def _hero_focus(ctx: RenderContext, start: float, end: float) -> list[float] | None:
     """Where a tracked crop is centred during the window, so the word is laid out inside what stays on screen."""
-    boxes = [point for point in ctx.tracking or [] if isinstance(point, dict) and start - 0.5 <= float(point.get("time", -1)) <= end + 0.5]
+    boxes = [
+        point
+        for point in ctx.tracking or []
+        if isinstance(point, dict) and start - 0.5 <= float(point.get("time", -1)) <= end + 0.5
+    ]
     if not boxes:
         return None
     x = sum(float(box["x"]) + float(box["width"]) / 2 for box in boxes) / len(boxes)
@@ -152,16 +186,34 @@ def hero_word(ctx: RenderContext) -> list[dict[str, Any]]:
     if not settings:
         return []
     if ctx.hero_matte is None:
-        ctx.warnings.append("The hero word needs a subject mask for its moment, which this version does not have, so it is left out.")
+        ctx.warnings.append(
+            "The hero word needs a subject mask for its moment, which this version does not have, so it is left out."
+        )
         return []
     start, end = settings["start"], settings["end"]
     inside = [span for span in ctx.view["spans"] if span.output_start - 1e-3 <= start and end <= span.output_end + 1e-3]
     overlap = ctx.view["transition_seconds"]
-    if not inside or (overlap > 0 and any(span is not inside[0] and span.output_start < end and start < span.output_end for span in ctx.view["spans"])):
-        ctx.warnings.append("The hero word's moment no longer sits inside one shot of this cut, so it is left out. Pick it again.")
+    if not inside or (
+        overlap > 0
+        and any(
+            span is not inside[0] and span.output_start < end and start < span.output_end for span in ctx.view["spans"]
+        )
+    ):
+        ctx.warnings.append(
+            "The hero word's moment no longer sits inside one shot of this cut, so it is left out. Pick it again."
+        )
         return []
-    op = {"op": "hero_word", "matte": str(ctx.hero_matte), "word": settings["word"], "start": start, "end": end,
-          "side": settings["side"], "font": settings["font"], "color": settings["color"], "aspect": ctx.aspect}
+    op = {
+        "op": "hero_word",
+        "matte": str(ctx.hero_matte),
+        "word": settings["word"],
+        "start": start,
+        "end": end,
+        "side": settings["side"],
+        "font": settings["font"],
+        "color": settings["color"],
+        "aspect": ctx.aspect,
+    }
     focus = _hero_focus(ctx, start, end)
     if focus is not None:
         op["focus"] = focus
@@ -220,7 +272,15 @@ def logo(ctx: RenderContext) -> list[dict[str, Any]]:
     source = asset_path(ctx, settings["asset"], "The logo")
     if source is None:
         return []
-    return [{"op": "logo", "source": source, "position": settings["position"], "scale": settings["scale"], "opacity": settings["opacity"]}]
+    return [
+        {
+            "op": "logo",
+            "source": source,
+            "position": settings["position"],
+            "scale": settings["scale"],
+            "opacity": settings["opacity"],
+        }
+    ]
 
 
 def overlays(ctx: RenderContext) -> list[dict[str, Any]]:
@@ -228,8 +288,16 @@ def overlays(ctx: RenderContext) -> list[dict[str, Any]]:
     for item in ctx.edit["overlays"]:
         source = asset_path(ctx, item["asset"], "An overlay image")
         if source is not None:
-            ops.append({"op": "overlay", "source": source, "start": item["start"], "duration": item["duration"],
-                        "position": item["position"], "scale": item["scale"]})
+            ops.append(
+                {
+                    "op": "overlay",
+                    "source": source,
+                    "start": item["start"],
+                    "duration": item["duration"],
+                    "position": item["position"],
+                    "scale": item["scale"],
+                }
+            )
     return ops
 
 
@@ -253,7 +321,11 @@ def motion_card(ctx: RenderContext) -> list[dict[str, Any]]:
     if not card:
         return []
     start, _end = card_window(card, float(ctx.view["duration"]))
-    op: dict[str, Any] = {"op": "motion_card", "card": {key: value for key, value in card.items() if key != "backdrop"}, "start": start}
+    op: dict[str, Any] = {
+        "op": "motion_card",
+        "card": {key: value for key, value in card.items() if key != "backdrop"},
+        "start": start,
+    }
     if card.get("backdrop"):
         source = asset_path(ctx, card["backdrop"], "The motion card backdrop")
         if source is not None:
@@ -278,8 +350,18 @@ def music(ctx: RenderContext) -> list[dict[str, Any]]:
     source = asset_path(ctx, settings["asset"], "The music track")
     if source is None:
         return []
-    return [{"op": "music", "source": source, "volume_db": settings["volume_db"], "duck": settings["duck"], "fade_out": settings["fade_out"],
-             "start": settings["start"], "beat_sync": settings["beat_sync"], "mute_source": ctx.edit["audio"]["mute_source"]}]
+    return [
+        {
+            "op": "music",
+            "source": source,
+            "volume_db": settings["volume_db"],
+            "duck": settings["duck"],
+            "fade_out": settings["fade_out"],
+            "start": settings["start"],
+            "beat_sync": settings["beat_sync"],
+            "mute_source": ctx.edit["audio"]["mute_source"],
+        }
+    ]
 
 
 def has_sound(ctx: RenderContext) -> bool:
@@ -316,12 +398,33 @@ def delivery_preset(preset: str, edit: dict[str, Any]) -> ExportPreset:
 
 def export(ctx: RenderContext) -> list[dict[str, Any]]:
     container = delivery_preset(ctx.preset, ctx.edit).container
-    return [{"op": "export", "preset": ctx.preset, "path": str(ctx.work / f"video.{container}"), **export_choices(ctx.edit)}]
+    return [
+        {"op": "export", "preset": ctx.preset, "path": str(ctx.work / f"video.{container}"), **export_choices(ctx.edit)}
+    ]
 
 
 STAGES: tuple[Callable[[RenderContext], list[dict[str, Any]]], ...] = (
-    reframe_center, assembly, cutout, hero_word, reframe_subject, stabilize, denoise, zoom, spatial_effect,
-    look, voice, texts, logo, overlays, motion_card, captions, fades, music, loudness, thumbnail, export,
+    reframe_center,
+    assembly,
+    cutout,
+    hero_word,
+    reframe_subject,
+    stabilize,
+    denoise,
+    zoom,
+    spatial_effect,
+    look,
+    voice,
+    texts,
+    logo,
+    overlays,
+    motion_card,
+    captions,
+    fades,
+    music,
+    loudness,
+    thumbnail,
+    export,
 )
 
 

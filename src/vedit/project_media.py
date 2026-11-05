@@ -27,18 +27,34 @@ import math
 import re
 import secrets
 import shutil
+import sys
 import threading
 import time
 from array import array
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from vedit.errors import CompileError, ProbeError, RenderCancelled, RenderError, VeditError
 from vedit.ir import Brief, Canvas, brief_dumps
-from vedit.media import MediaInfo, check_playable, has_filter, plain_failure, probe, rate_text, resolve_ffmpeg, resolve_ffprobe, run_command, source_problem, standard_rate, tone_map, with_borders
-from vedit.pipeline import Pipeline, StepReport, Step, execute, write_codegen, write_report
+from vedit.media import (
+    MediaInfo,
+    check_playable,
+    has_filter,
+    plain_failure,
+    probe,
+    rate_text,
+    resolve_ffmpeg,
+    resolve_ffprobe,
+    run_command,
+    source_problem,
+    standard_rate,
+    tone_map,
+    with_borders,
+)
+from vedit.pipeline import Pipeline, Step, StepReport, execute, write_codegen, write_report
 
 MAX_ITEMS = 30
 MAX_SOURCE_BYTES = 4_000_000_000
@@ -85,7 +101,20 @@ _BLUR = r"boxblur=luma_radius=min(w\,h)/10:luma_power=2:chroma_radius=min(cw\,ch
 def _encode(rate: float) -> list[str]:
     """Stitchable x264 headers let the concat demuxer join finished clips without
     touching a frame; a keyframe every second keeps scrubbing and seeking quick."""
-    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(round(rate)), "-x264-params", "stitchable=1", "-pix_fmt", "yuv420p"]
+    return [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "16",
+        "-g",
+        str(round(rate)),
+        "-x264-params",
+        "stitchable=1",
+        "-pix_fmt",
+        "yuv420p",
+    ]
 
 
 class MediaProblem(VeditError):
@@ -113,7 +142,7 @@ class MediaItem:
 
 
 def even(value: float) -> int:
-    return max(2, int(round(value / 2)) * 2)
+    return max(2, round(value / 2) * 2)
 
 
 def _pictures(info: MediaInfo) -> list[Any]:
@@ -160,21 +189,54 @@ def _still_size(path: Path, info: MediaInfo, streams: list[Any]) -> tuple[int, i
             components = group.get("components") if isinstance(group, dict) else None
             grid = components[0] if isinstance(components, list) and components else None
             if isinstance(grid, dict) and grid.get("width") and grid.get("height"):
-                turned = any(_sideways(item.get("rotation")) for item in grid.get("side_data_list") or [] if isinstance(item, dict))
+                turned = any(
+                    _sideways(item.get("rotation"))
+                    for item in grid.get("side_data_list") or []
+                    if isinstance(item, dict)
+                )
                 width, height = int(grid["width"]), int(grid["height"])
                 return (height, width, "0:g:0") if turned else (width, height, "0:g:0")
     picture, position = info.video, info.video_map
-    frames = _ffprobe_json(path, "-select_streams", f"v:{position}", "-read_intervals", "%+#1", "-show_entries", "frame=width,height:frame_side_data=rotation").get("frames") or []
+    stream_width = picture.width if picture is not None else 0
+    stream_height = picture.height if picture is not None else 0
+    frames = (
+        _ffprobe_json(
+            path,
+            "-select_streams",
+            f"v:{position}",
+            "-read_intervals",
+            "%+#1",
+            "-show_entries",
+            "frame=width,height:frame_side_data=rotation",
+        ).get("frames")
+        or []
+    )
     frame = frames[0] if frames and isinstance(frames[0], dict) else {}
-    width, height = int(frame.get("width") or picture.width or 0), int(frame.get("height") or picture.height or 0)
-    turned = _sideways(picture.rotation) or any(_sideways(item.get("rotation")) for item in frame.get("side_data_list") or [] if isinstance(item, dict))
+    width, height = int(frame.get("width") or stream_width or 0), int(frame.get("height") or stream_height or 0)
+    turned = (picture is not None and _sideways(picture.rotation)) or any(
+        _sideways(item.get("rotation")) for item in frame.get("side_data_list") or [] if isinstance(item, dict)
+    )
     return (height, width, f"0:v:{position}") if turned else (width, height, f"0:v:{position}")
 
 
 def _packet_count(path: Path) -> int:
     """Pictures in a short file. Reading packets decodes nothing."""
     try:
-        result = run_command([resolve_ffprobe(), "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=stream_index", "-of", "csv=p=0", str(path)], timeout=60.0)
+        result = run_command(
+            [
+                resolve_ffprobe(),
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "packet=stream_index",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            timeout=60.0,
+        )
     except RenderError:
         return 0
     return len(result.stdout.split())
@@ -206,29 +268,65 @@ def inspect_media(path: Path | str, *, name: str | None = None) -> MediaItem:
         raise MediaProblem(unreadable)
     streams = _pictures(info)
     if not streams:
-        if not info.has_audio or not math.isfinite(info.file_duration) or info.file_duration <= 0:
+        sound = info.audio
+        if sound is None or not info.has_audio or not math.isfinite(info.file_duration) or info.file_duration <= 0:
             raise MediaProblem(unreadable)
-        return MediaItem(target, label, "audio", duration=info.file_duration, has_audio=True, sound=f"0:a:{info.audio_map}", codec=info.audio.codec_name)
+        return MediaItem(
+            target,
+            label,
+            "audio",
+            duration=info.file_duration,
+            has_audio=True,
+            sound=f"0:a:{info.audio_map}",
+            codec=sound.codec_name,
+        )
     picture = info.video
+    if picture is None:
+        raise MediaProblem(unreadable)  # pictures without footage: cover art only
     if is_still(target, info):
         width, height, stream_label = _still_size(target, info, streams)
         if width <= 0 or height <= 0:
             raise MediaProblem(unreadable)
-        return MediaItem(target, label, "photo", width, height, label=stream_label, matrix=_input_matrix("photo", picture.color_space, width, height), codec=picture.codec_name)
+        return MediaItem(
+            target,
+            label,
+            "photo",
+            width,
+            height,
+            label=stream_label,
+            matrix=_input_matrix("photo", picture.color_space, width, height),
+            codec=picture.codec_name,
+        )
     info = with_borders(info)  # the canvas and the fit follow the picture, not its black bars
     width, height = info.display_width, info.display_height
     if width <= 0 or height <= 0 or not math.isfinite(info.duration) or info.duration <= 0:
         raise MediaProblem(unreadable)
     hdr = picture.color_trc in _HDR_TRANSFERS and has_filter("zscale") and has_filter("tonemap")
-    return MediaItem(target, label, "video", width, height, info.duration, info.has_audio, f"0:v:{info.video_map}", f"0:a:{info.audio_map}", hdr,
-                     _input_matrix("video", picture.color_space, width, height), picture.codec_name, info.fps, info.crop)
+    return MediaItem(
+        target,
+        label,
+        "video",
+        width,
+        height,
+        info.duration,
+        info.has_audio,
+        f"0:v:{info.video_map}",
+        f"0:a:{info.audio_map}",
+        hdr,
+        _input_matrix("video", picture.color_space, width, height),
+        picture.codec_name,
+        info.fps,
+        info.crop,
+    )
 
 
 def inspect_clip(path: Path, max_seconds: float) -> MediaItem:
     """One project item: a video or photo, checked to the same bar as a single upload."""
     item = inspect_media(path)
     if item.kind == "audio":
-        raise MediaProblem(f"{item.name} has sound but no picture. Add it after creating the project, or choose a video or photo.")
+        raise MediaProblem(
+            f"{item.name} has sound but no picture. Add it after creating the project, or choose a video or photo."
+        )
     if item.kind == "video":
         info = probe(path)
         problem = source_problem(info, min_seconds=0.0, max_seconds=max_seconds)
@@ -271,8 +369,15 @@ def clip_table(items: list[MediaItem], frames: list[int], rate: float = FPS) -> 
     """Where each item sits on the project clock."""
     clips: list[dict[str, Any]] = []
     cursor = 0
-    for item, count in zip(items, frames):
-        clips.append({"name": item.name, "kind": item.kind, "start": round(cursor / rate, 3), "end": round((cursor + count) / rate, 3)})
+    for item, count in zip(items, frames, strict=True):
+        clips.append(
+            {
+                "name": item.name,
+                "kind": item.kind,
+                "start": round(cursor / rate, 3),
+                "end": round((cursor + count) / rate, 3),
+            }
+        )
         cursor += count
     return clips
 
@@ -287,7 +392,12 @@ def _color_head(spec: dict[str, Any]) -> list[str]:
     if spec.get("hdr"):
         return [*bars, tone_map(), "scale=w=trunc(iw*sar/2)*2:h=ih", "setsar=1"]
     source = f":in_color_matrix={spec['matrix']}" if spec.get("matrix") else ""
-    return [*bars, f"scale=w=trunc(iw*sar/2)*2:h=ih{source}:out_color_matrix=bt709:out_range=tv", "format=yuv420p", "setsar=1"]
+    return [
+        *bars,
+        f"scale=w=trunc(iw*sar/2)*2:h=ih{source}:out_color_matrix=bt709:out_range=tv",
+        "format=yuv420p",
+        "setsar=1",
+    ]
 
 
 def picture_graph(spec: dict[str, Any], width: int, height: int, rate: float = FPS) -> str:
@@ -307,13 +417,17 @@ def picture_graph(spec: dict[str, Any], width: int, height: int, rate: float = F
     if abs((spec["width"] / spec["height"]) / (width / height) - 1) <= ASPECT_TOLERANCE:
         return f"{source}{head},scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,crop={width}:{height},{tail}[v]"
     small_width, small_height = even(width / 8), even(height / 8)
-    return ";".join([
-        f"{source}{head},split=2[back][front]",
-        f"[back]scale={small_width}:{small_height}:force_original_aspect_ratio=increase,crop={small_width}:{small_height},{_BLUR},"
-        f"scale={width}:{height},eq=brightness=-0.06:saturation=0.9[blurred]",
-        f"[front]scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos[fitted]",
-        f"[blurred][fitted]overlay=(W-w)/2:(H-h)/2:format=auto,{tail}[v]",
-    ])
+    return ";".join(
+        [
+            f"{source}{head},split=2[back][front]",
+            (
+                f"[back]scale={small_width}:{small_height}:force_original_aspect_ratio=increase,crop={small_width}:{small_height},{_BLUR},"
+                f"scale={width}:{height},eq=brightness=-0.06:saturation=0.9[blurred]"
+            ),
+            f"[front]scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos[fitted]",
+            f"[blurred][fitted]overlay=(W-w)/2:(H-h)/2:format=auto,{tail}[v]",
+        ]
+    )
 
 
 def item_samples(frames: int, rate: float) -> int:
@@ -347,8 +461,13 @@ def _clean_spec(raw: Any, index: int) -> dict[str, Any]:
     if spec.get("matrix") not in (None, *_INPUT_MATRICES):
         raise CompileError(f"project_source.items[{index}].matrix is not a known color matrix")
     crop = spec.get("crop")
-    if crop is not None and not (isinstance(crop, list) and len(crop) == 4 and all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in crop)
-                                 and crop[0] >= 2 and crop[1] >= 2):
+    if crop is not None and not (
+        isinstance(crop, list)
+        and len(crop) == 4
+        and all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in crop)
+        and crop[0] >= 2
+        and crop[1] >= 2
+    ):
         raise CompileError(f"project_source.items[{index}].crop must be [width, height, x, y] in whole pixels")
     return spec
 
@@ -376,13 +495,51 @@ def compile_project_source(c: Any, op: dict[str, Any]) -> None:
         source = c.resolve_source(spec.get("source"))
         out = c.work_dir / f"clip-{index:02d}.mov"
         graph = picture_graph(spec, width, height, rate) + ";" + sound_graph(spec, rate)
-        argv = c._ffmpeg() + ["-i", str(source), "-filter_complex", graph, "-map", "[v]", "-map", "[a]", "-r", rate_text(rate), "-frames:v", str(spec["frames"])]
-        argv += _encode(rate) + ["-c:a", "pcm_s16le", str(out)]
-        c._pipeline.add(Step(f"normalize_{index:02d}", argv, [str(out)], f"fit {source.name} to the {width}x{height} project frame"))
+        argv = [
+            *c._ffmpeg(),
+            "-i",
+            str(source),
+            "-filter_complex",
+            graph,
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            "-r",
+            rate_text(rate),
+            "-frames:v",
+            str(spec["frames"]),
+            *_encode(rate),
+            "-c:a",
+            "pcm_s16le",
+            str(out),
+        ]
+        c._pipeline.add(
+            Step(f"normalize_{index:02d}", argv, [str(out)], f"fit {source.name} to the {width}x{height} project frame")
+        )
         clips.append(out)
     listing = c.work_dir / "clips.ffconcat"
     listing.write_text("ffconcat version 1.0\n" + "".join(f"file '{clip.name}'\n" for clip in clips), encoding="utf-8")
-    argv = c._ffmpeg() + ["-f", "concat", "-i", str(listing), "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-movflags", "+faststart", str(dest)]
+    argv = [
+        *c._ffmpeg(),
+        "-f",
+        "concat",
+        "-i",
+        str(listing),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        AUDIO_BITRATE,
+        "-movflags",
+        "+faststart",
+        str(dest),
+    ]
     c._pipeline.add(Step("join_clips", argv, [str(dest)], f"join {len(clips)} clips into one project source"))
     c.finals.append(dest)
     c.set_current(dest)
@@ -390,18 +547,35 @@ def compile_project_source(c: Any, op: dict[str, Any]) -> None:
     c.has_video = c.has_audio = True
 
 
-def project_brief(items: list[MediaItem], frames: list[int], canvas: tuple[int, int], *, work_dir: Path, dest: Path, rate: float = FPS) -> Brief:
+def project_brief(
+    items: list[MediaItem], frames: list[int], canvas: tuple[int, int], *, work_dir: Path, dest: Path, rate: float = FPS
+) -> Brief:
     sources = {f"clip{index:02d}": str(item.path) for index, item in enumerate(items, 1)}
     specs = [
-        {"source": key, "name": item.name, "kind": item.kind, "frames": count, "width": item.width, "height": item.height,
-         "has_audio": item.has_audio, "input": item.label, "sound": item.sound, "hdr": item.hdr, "matrix": item.matrix,
-         "crop": list(item.crop) if item.crop else None}
-        for key, item, count in zip(sources, items, frames)
+        {
+            "source": key,
+            "name": item.name,
+            "kind": item.kind,
+            "frames": count,
+            "width": item.width,
+            "height": item.height,
+            "has_audio": item.has_audio,
+            "input": item.label,
+            "sound": item.sound,
+            "hdr": item.hdr,
+            "matrix": item.matrix,
+            "crop": list(item.crop) if item.crop else None,
+        }
+        for key, item, count in zip(sources, items, frames, strict=True)
     ]
     return Brief(
-        name="project-source", sources=sources,
+        name="project-source",
+        sources=sources,
         ops=[{"op": "project_source", "path": str(dest), "items": specs}],
-        canvas=Canvas(width=canvas[0], height=canvas[1], fps=rate, sample_rate=SAMPLE_RATE), hw=False, crf=16, work_dir=str(work_dir),
+        canvas=Canvas(width=canvas[0], height=canvas[1], fps=rate, sample_rate=SAMPLE_RATE),
+        hw=False,
+        crf=16,
+        work_dir=str(work_dir),
     )
 
 
@@ -437,7 +611,14 @@ def build_project(
     rate = choose_rate(items)
     frames = [frame_count(item, photo_seconds, rate) for item in items]
     total = sum(frames) / rate
-    result = {"width": canvas[0], "height": canvas[1], "fps": rate, "duration": round(total, 3), "clips": clip_table(items, frames, rate), "has_audio": any(item.has_audio for item in items)}
+    result = {
+        "width": canvas[0],
+        "height": canvas[1],
+        "fps": rate,
+        "duration": round(total, 3),
+        "clips": clip_table(items, frames, rate),
+        "has_audio": any(item.has_audio for item in items),
+    }
     if dest.is_file():
         if _complete(dest, total):
             return result
@@ -450,10 +631,12 @@ def build_project(
     compiler = compile_brief(brief, work_dir=work_dir)
     write_codegen(compiler.pipeline)
     steps = compiler.pipeline.steps
-    labels = [f"Preparing {item.name} ({index} of {len(items)})" for index, item in enumerate(items, 1)] + ["Joining your clips into one project"]
+    labels = [f"Preparing {item.name} ({index} of {len(items)})" for index, item in enumerate(items, 1)] + [
+        "Joining your clips into one project"
+    ]
     lengths = [count / rate for count in frames] + [total]
     reports: list[StepReport] = []
-    for index, (step, label, seconds) in enumerate(zip(steps, labels, lengths)):
+    for index, (step, label, seconds) in enumerate(zip(steps, labels, lengths, strict=True)):
         if on_step is not None:
             on_step(index, len(steps), label)
         output = Path(step.outputs[0])
@@ -462,7 +645,9 @@ def build_project(
                 reports.append(StepReport(step.name, True, 0, step.outputs, "skipped (outputs exist)"))
                 continue
             output.unlink(missing_ok=True)
-        piece = Pipeline(name=compiler.pipeline.name, work_dir=work_dir / "execution" / f"{index + 1:02d}", steps=[step])
+        piece = Pipeline(
+            name=compiler.pipeline.name, work_dir=work_dir / "execution" / f"{index + 1:02d}", steps=[step]
+        )
         try:
             reports.extend(execute(piece, progress=False, cancel_event=cancel_event))
         except RenderCancelled:
@@ -472,7 +657,9 @@ def build_project(
         # FFmpeg can exit cleanly having written nothing, so the file is the proof.
         if not _complete(output, seconds):
             output.unlink(missing_ok=True)
-            raise MediaProblem(f"{_named(items, index)} could not be prepared. Check that it plays and that the drive has free space, then retry.")
+            raise MediaProblem(
+                f"{_named(items, index)} could not be prepared. Check that it plays and that the drive has free space, then retry."
+            )
     write_report(compiler.pipeline, reports, finals=compiler.finals)
     for step in steps[:-1]:
         Path(step.outputs[0]).unlink(missing_ok=True)
@@ -485,10 +672,26 @@ def filmstrip_layout(duration: float, width: int, height: int) -> dict[str, Any]
     count = max(1, min(MAX_TILES, math.ceil(duration / spacing)))
     tile_width = even(min(240, max(40, TILE_HEIGHT * width / max(1, height))))
     columns = min(count, TILE_COLUMNS)
-    return {"columns": columns, "rows": math.ceil(count / columns), "tile_width": tile_width, "tile_height": TILE_HEIGHT, "count": count, "seconds_per_tile": round(spacing, 3)}
+    return {
+        "columns": columns,
+        "rows": math.ceil(count / columns),
+        "tile_width": tile_width,
+        "tile_height": TILE_HEIGHT,
+        "count": count,
+        "seconds_per_tile": round(spacing, 3),
+    }
 
 
-def make_filmstrip(source: Path, dest: Path, *, duration: float, width: int, height: int, stream: int = 0, cancel_event: threading.Event | None = None) -> dict[str, Any]:
+def make_filmstrip(
+    source: Path,
+    dest: Path,
+    *,
+    duration: float,
+    width: int,
+    height: int,
+    stream: int = 0,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     """Write a JPEG sprite of the source and return its layout.
 
     Each tile is its own seek, so a two-hour file costs about as much as a short
@@ -500,7 +703,9 @@ def make_filmstrip(source: Path, dest: Path, *, duration: float, width: int, hei
     shutil.rmtree(tiles, ignore_errors=True)
     tiles.mkdir(parents=True)
     spacing, last = layout["seconds_per_tile"], max(0.0, duration - 0.05)
-    base = [resolve_ffmpeg(), "-hide_banner", "-y", "-v", "error"] + ([] if duration <= EXACT_SEEK_SECONDS else ["-noaccurate_seek"])
+    base = [resolve_ffmpeg(), "-hide_banner", "-y", "-v", "error"] + (
+        [] if duration <= EXACT_SEEK_SECONDS else ["-noaccurate_seek"]
+    )
     try:
         lead = probe(source).seek_lead_in
     except VeditError:
@@ -514,10 +719,30 @@ def make_filmstrip(source: Path, dest: Path, *, duration: float, width: int, hei
         moment = min((index + 0.5) * spacing, last)
         # A transport stream can seek past the moment; the output-side -ss decodes forward to it.
         begin = max(0.0, moment - lead)
-        seek = ["-ss", f"{begin:.3f}", "-i", str(source)] + (["-ss", f"{moment - begin:.3f}"] if moment > begin else [])
+        seek = ["-ss", f"{begin:.3f}", "-i", str(source)]
+        if moment > begin:
+            seek += ["-ss", f"{moment - begin:.3f}"]
         try:
-            run_command(base + [*seek, "-map", f"0:v:{stream}", "-an", "-frames:v", "1", "-vf", f"scale={layout['tile_width']}:{layout['tile_height']}",
-                                "-q:v", "3", "-update", "1", str(tiles / f"{index:03d}.jpg")], timeout=TILE_TIMEOUT, cancel_event=cancel_event)
+            run_command(
+                [
+                    *base,
+                    *seek,
+                    "-map",
+                    f"0:v:{stream}",
+                    "-an",
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    f"scale={layout['tile_width']}:{layout['tile_height']}",
+                    "-q:v",
+                    "3",
+                    "-update",
+                    "1",
+                    str(tiles / f"{index:03d}.jpg"),
+                ],
+                timeout=TILE_TIMEOUT,
+                cancel_event=cancel_event,
+            )
         except RenderCancelled:
             raise
         except RenderError:
@@ -537,8 +762,31 @@ def make_filmstrip(source: Path, dest: Path, *, duration: float, width: int, hei
                 shutil.copyfile(tiles / f"{nearest:03d}.jpg", tiles / f"{index:03d}.jpg")
         pending = dest.with_suffix(".part.jpg")
         # The pattern is relative because a % in the workspace path would read as part of it.
-        result = run_command([resolve_ffmpeg(), "-hide_banner", "-y", "-v", "error", "-framerate", "1", "-i", "%03d.jpg", "-vf", f"tile={layout['columns']}x{layout['rows']}",
-                              "-frames:v", "1", "-q:v", "5", "-update", "1", str(pending.resolve())], timeout=TILE_TIMEOUT, cwd=tiles, cancel_event=cancel_event)
+        result = run_command(
+            [
+                resolve_ffmpeg(),
+                "-hide_banner",
+                "-y",
+                "-v",
+                "error",
+                "-framerate",
+                "1",
+                "-i",
+                "%03d.jpg",
+                "-vf",
+                f"tile={layout['columns']}x{layout['rows']}",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "5",
+                "-update",
+                "1",
+                str(pending.resolve()),
+            ],
+            timeout=TILE_TIMEOUT,
+            cwd=tiles,
+            cancel_event=cancel_event,
+        )
         if not result.ok or not pending.is_file():
             raise RenderError("the filmstrip could not be assembled")
         pending.replace(dest)
@@ -547,7 +795,15 @@ def make_filmstrip(source: Path, dest: Path, *, duration: float, width: int, hei
     return layout
 
 
-def make_waveform(source: Path, dest: Path, *, duration: float, has_audio: bool = True, stream: int = 0, cancel_event: threading.Event | None = None) -> dict[str, Any]:
+def make_waveform(
+    source: Path,
+    dest: Path,
+    *,
+    duration: float,
+    has_audio: bool = True,
+    stream: int = 0,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     """Write ``{peaks, seconds_per_peak}`` and return it.
 
     FFmpeg decodes to a small low-rate file that is then read in pieces, so a
@@ -560,8 +816,31 @@ def make_waveform(source: Path, dest: Path, *, duration: float, has_audio: bool 
         bucket = max(1, math.ceil(duration * PEAK_SAMPLE_RATE / points))
         pcm = dest.with_suffix(".pcm")
         try:
-            result = run_command([resolve_ffmpeg(), "-hide_banner", "-y", "-v", "error", "-i", str(source), "-map", f"0:a:{stream}", "-vn", "-ac", "1", "-ar", str(PEAK_SAMPLE_RATE),
-                                  "-f", "s16le", "-c:a", "pcm_s16le", str(pcm)], timeout=PEAK_TIMEOUT, cancel_event=cancel_event)
+            result = run_command(
+                [
+                    resolve_ffmpeg(),
+                    "-hide_banner",
+                    "-y",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(source),
+                    "-map",
+                    f"0:a:{stream}",
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(PEAK_SAMPLE_RATE),
+                    "-f",
+                    "s16le",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(pcm),
+                ],
+                timeout=PEAK_TIMEOUT,
+                cancel_event=cancel_event,
+            )
             if not result.ok:
                 raise RenderError("the waveform could not be decoded")
             peaks: list[float] = []
@@ -572,7 +851,8 @@ def make_waveform(source: Path, dest: Path, *, duration: float, has_audio: bool 
                         break
                     samples = array("h")
                     samples.frombytes(raw[: len(raw) // 2 * 2])
-                    peaks.append(round(min(1.0, max(max(samples), -min(samples)) / 32767), 3))
+                    loudest = max(abs(max(samples)), abs(min(samples)))  # the larger swing, either side of zero
+                    peaks.append(round(min(1.0, loudest / 32767), 3))
         finally:
             pcm.unlink(missing_ok=True)
         waveform = {"peaks": peaks[:MAX_PEAKS], "seconds_per_peak": round(bucket / PEAK_SAMPLE_RATE, 4)}
@@ -591,7 +871,7 @@ def _decodes(item: MediaItem) -> bool:
     argv = [resolve_ffmpeg(), "-hide_banner", "-v", "error", "-i", str(item.path)]
     argv += ["-map", item.sound, "-t", "2"] if item.kind == "audio" else ["-frames:v", "1"]
     try:
-        return run_command(argv + ["-f", "null", "-"], timeout=60.0).ok
+        return run_command([*argv, "-f", "null", "-"], timeout=60.0).ok
     except RenderError:
         return False
 
@@ -624,7 +904,23 @@ def store_asset(item: MediaItem, folder: Path, ident: str) -> Path:
         shutil.copyfile(item.path, dest)
         return dest
     dest = folder / f"{ident}.png"
-    result = run_command([resolve_ffmpeg(), "-hide_banner", "-y", "-v", "error", "-i", str(item.path), "-frames:v", "1", "-update", "1", str(dest)], timeout=120.0)
+    result = run_command(
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(item.path),
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            str(dest),
+        ],
+        timeout=120.0,
+    )
     if not result.ok or not dest.is_file():
         dest.unlink(missing_ok=True)
         raise MediaProblem(f"{item.name} could not be converted to an image Briefcut can use.")
@@ -639,21 +935,29 @@ def asset_beats(path: Path) -> list[float] | None:
         return None
     try:
         found: Any = detect_beats(path)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001  the detector is optional decoration; a music asset is still added without beats
+        print(f"briefcut: beat detection skipped for {path.name}: {type(exc).__name__}: {exc}", file=sys.stderr)
         return None
     if isinstance(found, dict):
         found = found.get("beats")
     if not isinstance(found, (list, tuple)):
         return None
-    return [round(float(beat), 3) for beat in found[:MAX_BEATS] if isinstance(beat, (int, float)) and not isinstance(beat, bool) and math.isfinite(float(beat))]
+    return [
+        round(float(beat), 3)
+        for beat in found[:MAX_BEATS]
+        if isinstance(beat, (int, float)) and not isinstance(beat, bool) and math.isfinite(float(beat))
+    ]
 
 
 def asset_record(item: MediaItem, ident: str, beats: Iterable[float] | None = None) -> dict[str, Any]:
     """What ``job.assets`` holds and clients see. Paths stay private."""
     record: dict[str, Any] = {
-        "id": ident, "kind": "audio" if item.kind == "audio" else "image", "name": item.name,
+        "id": ident,
+        "kind": "audio" if item.kind == "audio" else "image",
+        "name": item.name,
         "duration": round(item.duration, 3) if item.kind == "audio" else None,
-        "width": item.width or None, "height": item.height or None,
+        "width": item.width or None,
+        "height": item.height or None,
     }
     if beats is not None:
         record["beats"] = list(beats)

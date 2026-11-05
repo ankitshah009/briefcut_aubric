@@ -28,8 +28,10 @@ from vedit.campaign import CampaignError, CampaignManager
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "vedit" / "studio" / "static"
 # Verbatim from dev.meta.ai/docs/speech-to-text#language-biasing.
-HEARD_BY_META = ("Arabic, Bengali, Dutch, English, French, German, Hebrew, Hindi, Indonesian, Italian, Japanese, Kannada, Korean, "
-                 "Malay, Mandarin Chinese, Marathi, Polish, Portuguese, Spanish, Tagalog, Tamil, Telugu, Thai, Turkish, and Vietnamese")
+HEARD_BY_META = (
+    "Arabic, Bengali, Dutch, English, French, German, Hebrew, Hindi, Indonesian, Italian, Japanese, Kannada, Korean, "
+    "Malay, Mandarin Chinese, Marathi, Polish, Portuguese, Spanish, Tagalog, Tamil, Telugu, Thai, Turkish, and Vietnamese"
+)
 DEMO_WORDS = re.compile(r"\b(?:oak|bowls?|workshop|wooden|lathe|sanding)\b", re.IGNORECASE)
 node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
@@ -39,7 +41,9 @@ def _read(name: str) -> str:
 
 
 def _node(script: str, *args: str) -> Any:
-    return json.loads(subprocess.run(["node", "-e", script, *args], capture_output=True, text=True, check=True, timeout=30).stdout)
+    return json.loads(
+        subprocess.run(["node", "-e", script, *args], capture_output=True, text=True, check=True, timeout=30).stdout
+    )
 
 
 @pytest.fixture
@@ -69,8 +73,12 @@ def test_capabilities_serve_the_list_studio_and_agents_build_from(home: Path) ->
 def test_the_pages_fallback_picker_is_auto_then_every_language_meta_hears() -> None:
     page = _read("index.html")
     select = re.search(r'<select id="language">(.*?)</select>', page, re.DOTALL).group(1)
-    options = [(value, html.unescape(text)) for value, text in re.findall(r'<option value="([^"]*)">([^<]*)</option>', select)]
-    assert options == [("auto", "Detect automatically")] + [(row["code"], row["name"]) for row in meta.languages() if row["heard"]]
+    options = [
+        (value, html.unescape(text)) for value, text in re.findall(r'<option value="([^"]*)">([^<]*)</option>', select)
+    ]
+    assert options == [("auto", "Detect automatically")] + [
+        (row["code"], row["name"]) for row in meta.languages() if row["heard"]
+    ]
 
 
 def test_studio_settings_and_captions_read_the_served_list() -> None:
@@ -97,11 +105,17 @@ def test_auto_is_the_default_and_never_reaches_voice_transcribe_as_a_hint(home: 
 
 
 def test_no_studio_example_names_the_demo_footage() -> None:
-    found = {path.name: sorted({m.group(0) for m in DEMO_WORDS.finditer(path.read_text(encoding="utf-8"))})
-             for path in sorted(STATIC.iterdir()) if path.suffix in {".html", ".js", ".css"}}
+    found = {
+        path.name: sorted({m.group(0) for m in DEMO_WORDS.finditer(path.read_text(encoding="utf-8"))})
+        for path in sorted(STATIC.iterdir())
+        if path.suffix in {".html", ".js", ".css"}
+    }
     assert {name: hits for name, hits in found.items() if hits} == {}
     inspector, page = _read("inspector.js"), _read("index.html")
-    assert 'placeholder: "The person in the red jacket"' in inspector and 'placeholder: "A soft studio backdrop"' in inspector
+    assert (
+        'placeholder: "The person in the red jacket"' in inspector
+        and 'placeholder: "A soft studio backdrop"' in inspector
+    )
     assert 'placeholder="Hold the first shot longer, then cut to the close-up."' in page
     server = (ROOT / "src" / "vedit" / "mcp_server.py").read_text(encoding="utf-8")
     assert not DEMO_WORDS.search(server) and '"subject": "the person"' in server
@@ -116,8 +130,12 @@ def test_studio_says_this_computer_and_uses_the_locale() -> None:
     assert "new Intl.NumberFormat()" in _read("meta-calls.js")
 
 
-@pytest.mark.parametrize(("platform", "said"), [("darwin", "this Mac"), ("linux", "this computer"), ("win32", "this PC")])
-def test_private_mode_names_the_machine_it_runs_on(platform: str, said: str, home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("platform", "said"), [("darwin", "this Mac"), ("linux", "this computer"), ("win32", "this PC")]
+)
+def test_private_mode_names_the_machine_it_runs_on(
+    platform: str, said: str, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(sys, "platform", platform)
     assert meta.this_computer() == said
     assert meta._private_status()["runs_on"] == said + " (llama.cpp)"
@@ -164,16 +182,51 @@ def test_story_description_follows_the_plan_provider_and_transcriber() -> None:
     studio = _read("studio.js")
     source = re.search(r"  function storyDescription\(plan, request\) \{.*?\n  \}\n", studio, re.DOTALL).group(0)
     cases = [
-        [{"provider": "meta", "summary": "Opens on the reveal.", "analysis": {"method": "meta", "transcribed": True, "transcribed_by": "meta-voice-transcribe", "sentences": [{"start": 0, "end": 2, "text": "Hi."}]}}, {"provider": "meta"}],
+        [
+            {
+                "provider": "meta",
+                "summary": "Opens on the reveal.",
+                "analysis": {
+                    "method": "meta",
+                    "transcribed": True,
+                    "transcribed_by": "meta-voice-transcribe",
+                    "sentences": [{"start": 0, "end": 2, "text": "Hi."}],
+                },
+            },
+            {"provider": "meta"},
+        ],
         [{"provider": "meta", "summary": "", "analysis": {"method": "meta", "sentences": []}}, {"provider": "meta"}],
-        [{"provider": "local", "summary": "Local analysis found 3 scene cuts. This is deterministic signal analysis; local mode does not choose a story with AI."}, {"provider": "local"}],
-        [{"provider": "meta", "summary": "A video made from your script: 2 scenes.", "analysis": {"method": "script"}}, {"provider": "meta"}],
+        [
+            {
+                "provider": "local",
+                "summary": "Local analysis found 3 scene cuts. This is deterministic signal analysis; local mode does not choose a story with AI.",
+            },
+            {"provider": "local"},
+        ],
+        [
+            {
+                "provider": "meta",
+                "summary": "A video made from your script: 2 scenes.",
+                "analysis": {"method": "script"},
+            },
+            {"provider": "meta"},
+        ],
     ]
-    said = _node(source + "process.stdout.write(JSON.stringify(" + json.dumps(cases) + ".map(([plan, request]) => storyDescription(plan, request))));")
-    assert said[0] == ("Muse Spark planned this story from the footage and the Meta Voice Transcribe transcript. "
-                       "Each cut ends on a sentence boundary. Opens on the reveal.")
+    said = _node(
+        source
+        + "process.stdout.write(JSON.stringify("
+        + json.dumps(cases)
+        + ".map(([plan, request]) => storyDescription(plan, request))));"
+    )
+    assert said[0] == (
+        "Muse Spark planned this story from the footage and the Meta Voice Transcribe transcript. "
+        "Each cut ends on a sentence boundary. Opens on the reveal."
+    )
     assert said[1] == "Muse Spark planned this story from the footage. Review every moment before you make the video."
-    assert said[2] == "Moments were picked from scene cuts and pauses in the footage. Review every moment before you make the video."
+    assert (
+        said[2]
+        == "Moments were picked from scene cuts and pauses in the footage. Review every moment before you make the video."
+    )
     assert said[3] == "A video made from your script: 2 scenes."
 
 
@@ -186,7 +239,7 @@ def test_failed_meta_calls_say_why_and_released_ones_cost_nothing() -> None:
     assert "call.released === true" in js and "chip.title = reason || hint;" in js
     assert 'el("p", "mc-reason"' in js and ".mc-reason {" in css
     # A released call is not shown as a reserved cost.
-    assert "const reserved = !local && !released && call.cost_kind !== \"actual\";" in js
+    assert 'const reserved = !local && !released && call.cost_kind !== "actual";' in js
 
 
 # --- Words in any script --------------------------------------------------------------------
@@ -239,9 +292,11 @@ def stub(home: Path, monkeypatch: pytest.MonkeyPatch):
             raise NameError("name '_health' is not defined")
 
         def get(self, job_id: str) -> dict[str, Any]:
-            raise RuntimeError("Meta said: Authorization: Bearer sk-live-abc123def456ghi789 failed, api_key=hunter2hunter2 and token: zzz")
+            raise RuntimeError(
+                "Meta said: Authorization: Bearer sk-live-abc123def456ghi789 failed, api_key=hunter2hunter2 and token: zzz"
+            )
 
-    monkeypatch.setattr(mcp_server, "_manager", lambda: Stub())
+    monkeypatch.setattr(mcp_server, "_manager", Stub)
     yield sent
     mcp_server.shutdown()
 
@@ -251,7 +306,9 @@ def test_create_tools_leave_language_and_budget_to_settings(stub: list[tuple[str
         async with Client(mcp_server.build_server()) as client:
             await client.call_tool("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it"})
             await client.call_tool("briefcut_script_to_video", {"script": "One line."})
-            await client.call_tool("briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "language": "ja", "budget_usd": 1.5})
+            await client.call_tool(
+                "briefcut_create_story", {"paths": ["/x.mp4"], "goal": "Show it", "language": "ja", "budget_usd": 1.5}
+            )
 
     asyncio.run(flow())
     (_, story), (_, script), (_, chosen) = stub
@@ -270,7 +327,9 @@ def test_status_carries_the_language_list_and_the_last_problem(stub: list[tuple[
     assert "last_problem" in status["meta"]
 
 
-def test_an_unexpected_error_is_specific_and_carries_no_secret(stub: list[tuple[str, Any]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_unexpected_error_is_specific_and_carries_no_secret(
+    stub: list[tuple[str, Any]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("MODEL_API_KEY", "LLM|meta-key-value-0123456789")
 
     def broken() -> dict[str, Any]:
@@ -278,7 +337,9 @@ def test_an_unexpected_error_is_specific_and_carries_no_secret(stub: list[tuple[
 
     async def flow() -> list[Any]:
         async with Client(mcp_server.build_server()) as client:
-            found = _payload(await client.call_tool("briefcut_find_moments", {"job_id": "a" * 32, "query": "the person"}))
+            found = _payload(
+                await client.call_tool("briefcut_find_moments", {"job_id": "a" * 32, "query": "the person"})
+            )
             got = _payload(await client.call_tool("briefcut_get", {"job_id": "a" * 32}))
             monkeypatch.setattr(mcp_server, "capabilities", broken)
             status = _payload(await client.call_tool("briefcut_status", {}))

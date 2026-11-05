@@ -57,7 +57,9 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
     p = sub.add_parser("doctor", help="check FFmpeg and Meta access")
     p.set_defaults(func=cmd_doctor)
 
-    p = sub.add_parser("setup", help="show what this machine still needs (FFmpeg and a Meta API key), with the exact commands")
+    p = sub.add_parser(
+        "setup", help="show what this machine still needs (FFmpeg and a Meta API key), with the exact commands"
+    )
     p.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("probe", help="print media info as JSON")
@@ -66,7 +68,11 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
 
     p = sub.add_parser("verify", help="re-hash a render's receipts and say exactly what changed (no network)")
     p.add_argument("target", help="campaign.zip, a project or render folder, or receipts.json")
-    p.add_argument("--expect", metavar="EV_ID", help="root evidence id from a trusted place, such as Studio: the full id, or at least ev_ and its first 16 hex digits; a different root fails")
+    p.add_argument(
+        "--expect",
+        metavar="EV_ID",
+        help="root evidence id from a trusted place, such as Studio: the full id, or at least ev_ and its first 16 hex digits; a different root fails",
+    )
     p.add_argument("--json", action="store_true", help="print the full result as JSON")
     p.set_defaults(func=cmd_verify)
 
@@ -83,7 +89,9 @@ def _parser(prog: str = "vedit") -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_plan)
 
     p = sub.add_parser("render", help="compile + execute a brief, or run an existing work dir")
-    p.add_argument("brief", nargs="?", help="brief YAML/JSON, a work dir with project.json, or omit with --resume --work-dir")
+    p.add_argument(
+        "brief", nargs="?", help="brief YAML/JSON, a work dir with project.json, or omit with --resume --work-dir"
+    )
     p.add_argument("--work-dir")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--resume", action="store_true", help="execute existing project.json; skip finished steps")
@@ -188,7 +196,9 @@ def cmd_setup(_args: argparse.Namespace) -> int:
         for step in (item.get("install") or {}).get("steps") or []:
             print(f"    {step['label']}\n    $ {step['command']}")
         if item["id"] == "meta":
-            print(f"    Create a key at {item['key_url']}, then open Settings in Briefcut (run `briefcut`) and paste it.")
+            print(
+                f"    Create a key at {item['key_url']}, then open Settings in Briefcut (run `briefcut`) and paste it."
+            )
             print("    Or set MODEL_API_KEY and VEDIT_META_ENABLED=1 in the environment.")
     return 0 if status["ready"] else 1
 
@@ -252,10 +262,7 @@ def _run_brief(
     execute_it: bool,
     hw_flag: bool | None = None,
 ) -> int:
-    if isinstance(brief_path_or_obj, (str, Path)):
-        brief = load_brief(brief_path_or_obj)
-    else:
-        brief = brief_path_or_obj
+    brief = load_brief(brief_path_or_obj) if isinstance(brief_path_or_obj, (str, Path)) else brief_path_or_obj
     if hw_flag is not None:
         brief.hw = hw_flag
     compiler = compile_brief(brief, work_dir=Path(work_dir) if work_dir else None)
@@ -482,7 +489,10 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
     try:
         from vedit.mcp_server import serve_stdio
     except ImportError as exc:
-        print(f"vedit: the MCP server needs the `mcp` package ({exc}). Install it with `uv sync` or `uv pip install 'vedit[mcp]'`.", file=sys.stderr)
+        print(
+            f"vedit: the MCP server needs the `mcp` package ({exc}). Install it with `uv sync` or `uv pip install 'vedit[mcp]'`.",
+            file=sys.stderr,
+        )
         return 2
     from vedit import settings
 

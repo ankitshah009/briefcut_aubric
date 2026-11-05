@@ -19,16 +19,17 @@ import subprocess
 import tempfile
 import threading
 from collections import deque
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from concurrent.futures import BrokenExecutor, Future, ProcessPoolExecutor
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from vedit.compile import _frame_windows
 from vedit.errors import RenderCancelled, RenderError
 from vedit.media import probe, resolve_ffmpeg
-from vedit.meta import read_mask
+from vedit.meta_sam import read_mask
 
 MAX_GAP_SECONDS = 0.5
 INLINE_FRAMES = 8
@@ -68,7 +69,9 @@ def finished_frames(view: dict[str, Any], fps: float) -> tuple[int, list[int]]:
     return windows[-1][1], [first for first, _ in windows[1:]]
 
 
-def nearest_frames(available: Iterable[int], frames: int, *, cuts: Iterable[int] = (), reach: int = 0) -> list[int | None]:
+def nearest_frames(
+    available: Iterable[int], frames: int, *, cuts: Iterable[int] = (), reach: int = 0
+) -> list[int | None]:
     """For every output frame, the mask frame to show, or None when the subject is gone.
 
     A frame SAM skipped borrows the closest mask up to ``reach`` frames away, but
@@ -78,7 +81,7 @@ def nearest_frames(available: Iterable[int], frames: int, *, cuts: Iterable[int]
     edges = sorted({0, frames, *(cut for cut in cuts if 0 < cut < frames)})
     chosen: list[int | None] = [None] * frames
     cursor = 0
-    for shot, stop in zip(edges, edges[1:]):
+    for shot, stop in pairwise(edges):
         while cursor < len(have) and have[cursor] < shot:
             cursor += 1
         inside = cursor
@@ -86,8 +89,12 @@ def nearest_frames(available: Iterable[int], frames: int, *, cuts: Iterable[int]
             while inside + 1 < len(have) and have[inside + 1] <= frame:
                 inside += 1
             best = None
-            for candidate in have[inside:inside + 2]:
-                if shot <= candidate < stop and abs(candidate - frame) <= reach and (best is None or abs(candidate - frame) < abs(best - frame)):
+            for candidate in have[inside : inside + 2]:
+                if (
+                    shot <= candidate < stop
+                    and abs(candidate - frame) <= reach
+                    and (best is None or abs(candidate - frame) < abs(best - frame))
+                ):
                     best = candidate
             chosen[frame] = best
     return chosen
@@ -106,9 +113,11 @@ def paste(raster: bytes, columns: int, rows: int, box: tuple[int, int, int, int]
     pick = None if columns == across else [(x - left) * columns // across for x in range(x0, x1)]
     for y in range(y0, y1):
         start = (y - top) * rows // down * columns
-        piece = raster[start + x0 - left:start + x1 - left] if pick is None else bytes(raster[start + at] for at in pick)
+        piece = (
+            raster[start + x0 - left : start + x1 - left] if pick is None else bytes(raster[start + at] for at in pick)
+        )
         offset = (y - area.top) * area.width + x0 - area.left
-        canvas[offset:offset + x1 - x0] = piece
+        canvas[offset : offset + x1 - x0] = piece
     return canvas
 
 
@@ -116,7 +125,7 @@ def _workers() -> int:
     return max(1, min(8, (os.cpu_count() or 2) - 1))
 
 
-def _decoded(raw: str, spans: list[tuple[int, int]], workers: int) -> Iterator[tuple[bytes, int, int]]:
+def _decoded(raw: str, spans: list[tuple[int, int]], workers: int) -> Generator[tuple[bytes, int, int]]:
     """Masks in order. Decoding is pure Python, so it runs in processes, a bounded window at a time."""
     if workers <= 1 or len(spans) < INLINE_FRAMES:
         for span in spans:
@@ -161,18 +170,25 @@ def _decoded(raw: str, spans: list[tuple[int, int]], workers: int) -> Iterator[t
 def flicker(areas: list[int], cuts: Iterable[int] = ()) -> float:
     """The 95th percentile of frame-to-frame area change inside a shot, as a share of the area."""
     edges = set(cuts)
-    changes = sorted(abs(now - before) / max(now, before)
-                     for index, (before, now) in enumerate(zip(areas, areas[1:]), 1)
-                     if index not in edges and before and now)
+    changes = sorted(
+        abs(now - before) / max(now, before)
+        for index, (before, now) in enumerate(pairwise(areas), 1)
+        if index not in edges and before and now
+    )
     return changes[int(len(changes) * 0.95)] if changes else 0.0
 
 
-def report(areas: list[int], *, masked: int, filled: int, picture: int, fps: float, cuts: Iterable[int] = ()) -> dict[str, Any]:
+def report(
+    areas: list[int], *, masked: int, filled: int, picture: int, fps: float, cuts: Iterable[int] = ()
+) -> dict[str, Any]:
     """What the receipts need, measured from the masks that really went into the matte."""
     frames = len(areas)
     missing = next((index for index, area in enumerate(areas) if not area), None)
     return {
-        "frames": frames, "masked_frames": masked, "filled_frames": filled, "empty_frames": frames - masked - filled,
+        "frames": frames,
+        "masked_frames": masked,
+        "filled_frames": filled,
+        "empty_frames": frames - masked - filled,
         "coverage": round(masked / frames, 4) if frames else 0.0,
         "flicker": round(flicker(areas, cuts), 4),
         "mean_area": round(sum(areas) / frames / picture, 4) if frames and picture else 0.0,
@@ -180,8 +196,28 @@ def report(areas: list[int], *, masked: int, filled: int, picture: int, fps: flo
     }
 
 
-def build_matte(masks: dict[str, Any], *, path: Path, area: Area, frames: int, cuts: Iterable[int] = (),
-                cancel_event: threading.Event | None = None, filters: str = MATTE_FILTER) -> dict[str, Any]:
+def _check_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RenderCancelled("The render was cancelled.")
+
+
+def _stdin_of(process: subprocess.Popen[bytes]) -> IO[bytes]:
+    """The pipe a process was opened with. ``stdin=PIPE`` always gives one; the type just cannot say so."""
+    if process.stdin is None:
+        raise MatteError("FFmpeg was started without a pipe for the matte frames.")
+    return process.stdin
+
+
+def build_matte(
+    masks: dict[str, Any],
+    *,
+    path: Path,
+    area: Area,
+    frames: int,
+    cuts: Iterable[int] = (),
+    cancel_event: threading.Event | None = None,
+    filters: str = MATTE_FILTER,
+) -> dict[str, Any]:
     """Write ``path`` and return its ``report``. ``masks`` is ``meta.subject_masks``'s result."""
     entries = {entry["frame"]: entry for entry in masks.get("frames") or []}
     if frames <= 0 or not entries:
@@ -193,19 +229,42 @@ def build_matte(masks: dict[str, Any], *, path: Path, area: Area, frames: int, c
     needed = sorted({frame for frame in chosen if frame is not None})
     path.parent.mkdir(parents=True, exist_ok=True)
     pending = path.with_name(path.stem + ".part" + path.suffix)
-    argv = [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
-            "-video_size", f"{area.width}x{area.height}", "-framerate", f"{fps:.6f}", "-i", "pipe:0",
-            "-vf", filters, "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gray", str(pending)]
+    argv = [
+        resolve_ffmpeg(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "gray",
+        "-video_size",
+        f"{area.width}x{area.height}",
+        "-framerate",
+        f"{fps:.6f}",
+        "-i",
+        "pipe:0",
+        "-vf",
+        filters,
+        "-c:v",
+        "ffv1",
+        "-level",
+        "3",
+        "-pix_fmt",
+        "gray",
+        str(pending),
+    ]
     blank = bytes(area.width * area.height)
     areas: list[int] = []
     with tempfile.TemporaryFile() as errors:
         ffmpeg = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors)
+        feed = _stdin_of(ffmpeg)
         decoded = _decoded(masks["raw"], [tuple(entries[frame]["span"]) for frame in needed], _workers())
         try:
             held, held_area, shown = blank, 0, None
             for want in chosen:
-                if cancel_event is not None and cancel_event.is_set():
-                    raise RenderCancelled("The render was cancelled.")
+                _check_cancelled(cancel_event)
                 if want is None:
                     picture, value = blank, 0
                 else:
@@ -215,9 +274,9 @@ def build_matte(masks: dict[str, Any], *, path: Path, area: Area, frames: int, c
                         held_area = len(held) - len(held.translate(None, _OPAQUE))
                         shown = want
                     picture, value = held, held_area
-                ffmpeg.stdin.write(picture)
+                feed.write(picture)
                 areas.append(value)
-            ffmpeg.stdin.close()
+            feed.close()
             code = ffmpeg.wait()
         except BrokenPipeError:
             code = ffmpeg.wait()
@@ -231,7 +290,9 @@ def build_matte(masks: dict[str, Any], *, path: Path, area: Area, frames: int, c
         if code != 0:
             errors.seek(0)
             pending.unlink(missing_ok=True)
-            raise MatteError("FFmpeg could not write the cutout matte: " + errors.read()[-400:].decode("utf-8", "replace").strip())
+            raise MatteError(
+                "FFmpeg could not write the cutout matte: " + errors.read()[-400:].decode("utf-8", "replace").strip()
+            )
     pending.replace(path)
     made = probe(path)
     if (made.width, made.height) != (area.width, area.height) or abs(made.duration - frames / fps) > 2 / fps:

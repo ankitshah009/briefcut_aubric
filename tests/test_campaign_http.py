@@ -111,7 +111,7 @@ def test_campaign_rejects_cross_origin_access(server: int, headers: dict[str, st
     assert json.loads(raw)["jobs"] == []
 
 
-@pytest.mark.parametrize("payload", [b"{", b'\xff', b"null", b"[]"])
+@pytest.mark.parametrize("payload", [b"{", b"\xff", b"null", b"[]"])
 def test_campaign_requires_json_object(server: int, payload: bytes) -> None:
     status, _, raw = request(server, "POST", "/api/campaigns", payload, {"Content-Type": "application/json"})
     assert status == 400
@@ -132,9 +132,7 @@ def test_campaign_rejects_form_and_unknown_resources(server: int) -> None:
 def test_campaign_rejects_local_files_outside_uploads(server: int, tmp_path: Path) -> None:
     private_file = tmp_path / "private.mp4"
     private_file.write_bytes(b"private")
-    status, _, raw = request(
-        server, "POST", "/api/campaigns", {"paths": [str(private_file)], "goal": "Make a short"}
-    )
+    status, _, raw = request(server, "POST", "/api/campaigns", {"paths": [str(private_file)], "goal": "Make a short"})
     assert status == 400
     assert json.loads(raw)["ok"] is False
 
@@ -243,12 +241,18 @@ def test_uploaded_clip_plans_and_streams_after_reload(server: int, tmp_path: Pat
         assert len(bundle.read("video.mp4")) > 1000
 
 
-def test_render_effect_override_validates_before_mutation_and_distinguishes_omission(server: int, tmp_path: Path) -> None:
+def test_render_effect_override_validates_before_mutation_and_distinguishes_omission(
+    server: int, tmp_path: Path
+) -> None:
     clip = make_clip(tmp_path / "effect-source.mp4")
-    status, _, raw = request(server, "POST", "/api/upload?name=effect.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
+    status, _, raw = request(
+        server, "POST", "/api/upload?name=effect.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"}
+    )
     assert status == 201
     recipe = {"preset": "push", "intensity": 0, "start": 0, "duration": 0.5}
-    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False, "effect": recipe})
+    status, _, raw = create_offline(
+        {"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False, "effect": recipe}
+    )
     assert status == 202
     job = json.loads(raw)["job"]
     ident = job["id"]
@@ -292,10 +296,15 @@ def test_render_effect_override_validates_before_mutation_and_distinguishes_omis
     request(server, "POST", f"/api/campaigns/{ident}/cancel", {})
 
 
-
 @pytest.mark.parametrize(
     "method, path",
-    [("POST", "/api/run"), ("POST", "/api/plan"), ("POST", "/api/upload?name=a.mp4"), ("GET", "/api/session?root=x"), ("GET", "/api/media?root=x")],
+    [
+        ("POST", "/api/run"),
+        ("POST", "/api/plan"),
+        ("POST", "/api/upload?name=a.mp4"),
+        ("GET", "/api/session?root=x"),
+        ("GET", "/api/media?root=x"),
+    ],
 )
 def test_legacy_routes_reject_cross_origin_access(server: int, method: str, path: str) -> None:
     """Every /api route applies the Host/Origin check, not only campaigns."""
@@ -314,9 +323,13 @@ def test_run_requires_json_content_type(server: int) -> None:
 
 def test_render_tracking_override_must_be_boolean(server: int, tmp_path: Path) -> None:
     clip = make_clip(tmp_path / "tracking-source.mp4")
-    status, _, raw = request(server, "POST", "/api/upload?name=tracking.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
+    status, _, raw = request(
+        server, "POST", "/api/upload?name=tracking.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"}
+    )
     assert status == 201
-    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False})
+    status, _, raw = create_offline(
+        {"paths": json.loads(raw)["paths"], "goal": "Present the product", "captions": False}
+    )
     assert status == 202
     ident = json.loads(raw)["job"]["id"]
     deadline = time.monotonic() + 30
@@ -347,7 +360,9 @@ def _settle(server: int, ident: str, timeout: float = 90) -> dict:
     pytest.fail("Campaign did not finish within the integration deadline")
 
 
-def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_duration: float, plan_segments: list[dict]) -> dict:
+def _verified_campaign(
+    server: int, tmp_path: Path, *, seconds: float, target_duration: float, plan_segments: list[dict]
+) -> dict:
     helpers = Path(__file__).with_name("test_e2e.py")
     spec = importlib.util.spec_from_file_location("campaign_http_revise_helpers", helpers)
     assert spec and spec.loader
@@ -356,9 +371,18 @@ def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_du
     if not module._have_ffmpeg():
         pytest.skip("ffmpeg required")
     clip = module._make_clip(tmp_path / "revise-source.mp4", seconds=seconds, color="olive")
-    status, _, raw = request(server, "POST", "/api/upload?name=revise.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"})
+    status, _, raw = request(
+        server, "POST", "/api/upload?name=revise.mp4", clip.read_bytes(), {"Content-Type": "application/octet-stream"}
+    )
     assert status == 201
-    status, _, raw = create_offline({"paths": json.loads(raw)["paths"], "goal": "Show the product", "captions": False, "target_duration": target_duration})
+    status, _, raw = create_offline(
+        {
+            "paths": json.loads(raw)["paths"],
+            "goal": "Show the product",
+            "captions": False,
+            "target_duration": target_duration,
+        }
+    )
     assert status == 202, raw
     ident = json.loads(raw)["job"]["id"]
     planned = _settle(server, ident)
@@ -374,13 +398,23 @@ def _verified_campaign(server: int, tmp_path: Path, *, seconds: float, target_du
 def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(server: int, tmp_path: Path) -> None:
     # A 1 s moment of a 3 s clip is far under the length the clip can reach, but a
     # short cut has no footage to add: the lint has nothing deterministic to apply.
-    complete = _verified_campaign(server, tmp_path, seconds=3.0, target_duration=15, plan_segments=[{"start": 0.0, "end": 1.0, "label": "All", "reason": "Everything."}])
+    complete = _verified_campaign(
+        server,
+        tmp_path,
+        seconds=3.0,
+        target_duration=15,
+        plan_segments=[{"start": 0.0, "end": 1.0, "label": "All", "reason": "Everything."}],
+    )
     ident = complete["id"]
     result = complete["result"]
     names = [check["name"] for check in result["checks"]]
     # No transcript and captions off: those checks had nothing to measure, so they are left out. The target is a
     # ceiling (the clip is 3 s), so the short cut passes, with a separate note that states how far under it is.
-    assert names[:3] == ["auto: length fits the target (\u2264 3 s)", "auto: note: the cut is well under the target", "auto: moments inside the source and in order"]
+    assert names[:3] == [
+        "auto: length fits the target (\u2264 3 s)",
+        "auto: note: the cut is well under the target",
+        "auto: moments inside the source and in order",
+    ]
     # The advisory note is shown with the checks but never counted as a pass.
     counted = [check for check in result["checks"] if not check.get("advisory")]
     assert result["total"] == len(counted) == len(result["checks"]) - 1
@@ -390,7 +424,11 @@ def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(ser
     assert len(complete["versions"]) == 1
     version = complete["versions"][0]
     assert version["revision"] == 1 and version["status"] == "verified" and version["source"] == "approved"
-    assert version["proof"] == result["proof"] and version["checks"] == result["checks"] and version["applied_patches"] == []
+    assert (
+        version["proof"] == result["proof"]
+        and version["checks"] == result["checks"]
+        and version["applied_patches"] == []
+    )
     assert version["video_url"].endswith("name=video&v=1") and version["report_url"].endswith("name=report&v=1")
     assert version["timings"]["render_seconds"] > 0
     status, _, raw = request(server, "GET", version["report_url"])
@@ -399,9 +437,14 @@ def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(ser
         status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": mode})
         assert status == 409, raw
         assert json.loads(raw)["error"] == message
-    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "note", "note": "Tighten the opener."})
+    status, _, raw = request(
+        server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "note", "note": "Tighten the opener."}
+    )
     assert status == 409
-    assert json.loads(raw)["error"] == f"Director's notes need Meta mode, or private mode with Muse Glimmer on {meta.this_computer()}."
+    assert (
+        json.loads(raw)["error"]
+        == f"Director's notes need Meta mode, or private mode with Muse Glimmer on {meta.this_computer()}."
+    )
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "sideways"})
     assert status == 400
     status, _, raw = request(server, "GET", f"/api/campaigns/{ident}/revise")
@@ -411,17 +454,34 @@ def test_revise_reports_checks_and_versions_and_refuses_when_nothing_applies(ser
 
 def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int, tmp_path: Path) -> None:
     # A 3 s moment against a 0.5 s target: the lint proposes trimming the end.
-    complete = _verified_campaign(server, tmp_path, seconds=3.0, target_duration=0.5, plan_segments=[{"start": 0.0, "end": 3.0, "label": "All", "reason": "Everything."}])
+    complete = _verified_campaign(
+        server,
+        tmp_path,
+        seconds=3.0,
+        target_duration=0.5,
+        plan_segments=[{"start": 0.0, "end": 3.0, "label": "All", "reason": "Everything."}],
+    )
     ident = complete["id"]
     patches = complete["result"]["patches"]
-    assert patches == [{"op": "trim_end", "segment": 1, "seconds": 0.5, "reason": patches[0]["reason"], "source": "auto", "summary": "Moment 1 ends at 0.5 s."}]
+    assert patches == [
+        {
+            "op": "trim_end",
+            "segment": 1,
+            "seconds": 0.5,
+            "reason": patches[0]["reason"],
+            "source": "auto",
+            "summary": "Moment 1 ends at 0.5 s.",
+        }
+    ]
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/revise", {"mode": "auto"})
     assert status == 202, raw
     queued = json.loads(raw)["job"]
     assert queued["revision"] == 2 and queued["status"] == "queued"
     assert queued["result"]["stale"] is True and queued["result"]["revision"] == 1
     assert queued["revision_source"] == "auto"
-    assert queued["applied_patches"][0]["before"] == {"start": 0.0, "end": 3.0} and queued["applied_patches"][0]["after"] == {"start": 0.0, "end": 0.5}
+    assert queued["applied_patches"][0]["before"] == {"start": 0.0, "end": 3.0} and queued["applied_patches"][0][
+        "after"
+    ] == {"start": 0.0, "end": 0.5}
     assert queued["plan"]["segments"][0]["end"] == 0.5 and queued["plan"]["duration"] == 0.5
     assert "end moved to 0.50 s" in queued["plan"]["segments"][0]["reason"]
     revised = _settle(server, ident)
@@ -431,7 +491,11 @@ def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int,
     assert [version["revision"] for version in revised["versions"]] == [1, 2]
     first, second = revised["versions"]
     assert first["status"] == "verified" and first["video_url"].endswith("&v=1")
-    assert second["source"] == "auto" and second["applied_patches"][0]["op"] == "trim_end" and second["video_url"].endswith("&v=2")
+    assert (
+        second["source"] == "auto"
+        and second["applied_patches"][0]["op"] == "trim_end"
+        and second["video_url"].endswith("&v=2")
+    )
     assert abs(second["proof"]["duration"] - 0.5) < 0.2 and abs(first["proof"]["duration"] - 3.0) < 0.2
     # Both verified files stay downloadable.
     for version in (first, second):
@@ -442,7 +506,13 @@ def test_revise_auto_applies_lint_patches_as_a_new_verified_version(server: int,
 
 
 def test_the_timeline_route_answers_without_saving(server: int, tmp_path: Path) -> None:
-    complete = _verified_campaign(server, tmp_path, seconds=2.0, target_duration=2, plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}])
+    complete = _verified_campaign(
+        server,
+        tmp_path,
+        seconds=2.0,
+        target_duration=2,
+        plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}],
+    )
     ident, plan = complete["id"], complete["plan"]
     draft = dict(plan, segments=[{"start": 0.0, "end": 2.0, "speed": 2}], edit=dict(plan["edit"], removed=[[0.5, 1.0]]))
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": draft})
@@ -450,25 +520,52 @@ def test_the_timeline_route_answers_without_saving(server: int, tmp_path: Path) 
     payload = json.loads(raw)
     assert payload["ok"] is True and payload["timeline"]["duration"] == 0.75
     assert [span["source_start"] for span in payload["timeline"]["spans"]] == [0.0, 1.0]
-    assert json.loads(request(server, "GET", f"/api/campaigns/{ident}")[2])["job"]["plan"]["duration"] == plan["duration"]
-    status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": dict(draft, edit={"look": {"preset": "sparkle"}})})
+    assert (
+        json.loads(request(server, "GET", f"/api/campaigns/{ident}")[2])["job"]["plan"]["duration"] == plan["duration"]
+    )
+    status, _, raw = request(
+        server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": dict(draft, edit={"look": {"preset": "sparkle"}})}
+    )
     assert status == 400 and "choices" in json.loads(raw)["error"]
     assert request(server, "GET", f"/api/campaigns/{ident}/timeline")[0] == 405
     assert request(server, "POST", f"/api/campaigns/{'0' * 32}/timeline", {})[0] == 404
 
 
-TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
 
 
-def test_the_timeline_route_shows_the_captions_that_will_burn(server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_timeline_route_shows_the_captions_that_will_burn(
+    server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def analyze(source: Path, work_dir: Path, **_kwargs) -> dict:
         work_dir.mkdir(parents=True, exist_ok=True)
-        return {"duration": 2.0, "has_audio": True, "scenes": [], "silences": [], "transcribed": True, "warnings": [],
-                "transcript": [{"start": 0.2, "end": 1.6, "text": "So, um, made by hand."}],
-                "words": [{"start": 0.2, "end": 0.4, "text": "So,"}, {"start": 0.5, "end": 0.8, "text": "um,"}, {"start": 0.8, "end": 1.0, "text": "made"}, {"start": 1.0, "end": 1.2, "text": "by"}, {"start": 1.2, "end": 1.6, "text": "hand."}]}
+        return {
+            "duration": 2.0,
+            "has_audio": True,
+            "scenes": [],
+            "silences": [],
+            "transcribed": True,
+            "warnings": [],
+            "transcript": [{"start": 0.2, "end": 1.6, "text": "So, um, made by hand."}],
+            "words": [
+                {"start": 0.2, "end": 0.4, "text": "So,"},
+                {"start": 0.5, "end": 0.8, "text": "um,"},
+                {"start": 0.8, "end": 1.0, "text": "made"},
+                {"start": 1.0, "end": 1.2, "text": "by"},
+                {"start": 1.2, "end": 1.6, "text": "hand."},
+            ],
+        }
 
     monkeypatch.setattr("vedit.story.analyze_source", analyze)
-    complete = _verified_campaign(server, tmp_path, seconds=2.0, target_duration=2, plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}])
+    complete = _verified_campaign(
+        server,
+        tmp_path,
+        seconds=2.0,
+        target_duration=2,
+        plan_segments=[{"start": 0.0, "end": 2.0, "label": "All", "reason": "Everything."}],
+    )
     ident, plan = complete["id"], complete["plan"]
     captions = plan["timeline"]["captions"]
     assert [cue["text"] for cue in captions] == ["So, um, made by hand."] and captions[0]["key"] == "200"
@@ -476,8 +573,12 @@ def test_the_timeline_route_shows_the_captions_that_will_burn(server: int, tmp_p
     draft = dict(plan, edit=dict(plan["edit"], remove_fillers=True))
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": draft})
     assert status == 200, raw
-    assert [cue["text"] for cue in json.loads(raw)["timeline"]["captions"]] == ["So, made by hand."], "a removed filler leaves the preview at once"
-    edited = dict(plan, edit=dict(plan["edit"], captions=dict(plan["edit"]["captions"], edits={"200": "Made by hand."})))
+    assert [cue["text"] for cue in json.loads(raw)["timeline"]["captions"]] == ["So, made by hand."], (
+        "a removed filler leaves the preview at once"
+    )
+    edited = dict(
+        plan, edit=dict(plan["edit"], captions=dict(plan["edit"]["captions"], edits={"200": "Made by hand."}))
+    )
     status, _, raw = request(server, "POST", f"/api/campaigns/{ident}/timeline", {"plan": edited})
     assert status == 200, raw
     cue = json.loads(raw)["timeline"]["captions"][0]
@@ -522,7 +623,9 @@ def test_studio_projects_default_to_meta(server: int, tmp_path: Path, monkeypatc
     seen: list[dict] = []
     manager = get_manager()
     monkeypatch.setattr(manager, "create", lambda value: seen.append(value) or {"id": "f" * 32, "status": "queued"})
-    monkeypatch.setattr(manager, "create_script", lambda value: seen.append(value) or {"id": "e" * 32, "status": "queued"})
+    monkeypatch.setattr(
+        manager, "create_script", lambda value: seen.append(value) or {"id": "e" * 32, "status": "queued"}
+    )
     assert request(server, "POST", "/api/campaigns", {"goal": "Keep it short.", "paths": ["/x.mp4"]})[0] == 202
     assert request(server, "POST", "/api/script", {"script": "One line."})[0] == 202
     assert [(row["provider"], row["caption_provider"]) for row in seen] == [("meta", "meta"), ("meta", "meta")]

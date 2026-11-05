@@ -16,13 +16,13 @@ You should have received a copy of the GNU Affero General Public License along
 with this program, in the LICENSE file. If not, see <https://www.gnu.org/licenses/>.
 """
 
+from vedit.agent.loop import run_session
+from vedit.compile import compile_brief
 from vedit.edit import Edit
 from vedit.ir import Brief, Canvas, load_brief
 from vedit.media import probe
-from vedit.compile import compile_brief
-from vedit.agent.loop import run_session
 
-__all__ = ["Edit", "Brief", "Canvas", "load_brief", "compile_brief", "probe", "run_session"]
+__all__ = ["Brief", "Canvas", "Edit", "compile_brief", "load_brief", "probe", "run_session"]
 __version__ = "1.2.0"
 __license__ = "AGPL-3.0-or-later"
 __copyright__ = "Copyright (C) 2026 Aubric, Inc."

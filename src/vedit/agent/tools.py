@@ -14,10 +14,12 @@ def session_failure(session: dict[str, Any]) -> str:
     """Why a session failed, in the critique's own words, for an error field."""
     critique = session.get("critique")
     findings = critique.get("findings") if isinstance(critique, dict) else None
-    lines = []
-    for item in findings if isinstance(findings, list) else []:
-        if isinstance(item, dict) and item.get("severity", "fail") == "fail" and item.get("message"):
-            lines.append(str(item["message"]) + (f" ({item['fix']})" if item.get("fix") else ""))
+    failures = [
+        item
+        for item in (findings if isinstance(findings, list) else [])
+        if isinstance(item, dict) and item.get("severity", "fail") == "fail" and item.get("message")
+    ]
+    lines = [str(item["message"]) + (f" ({item['fix']})" if item.get("fix") else "") for item in failures]
     return "; ".join(lines) or "The session failed and left no critique."
 
 
@@ -220,7 +222,7 @@ def _int(args: dict[str, Any], key: str, default: int) -> int:
         return default
     value = args[key]
     if isinstance(value, bool):
-        raise ValueError(f"{key} must be an integer")
+        raise TypeError(f"{key} must be an integer")
     if isinstance(value, int):
         return value
     if isinstance(value, str) and value.strip().lstrip("-").isdigit():
@@ -231,7 +233,7 @@ def _int(args: dict[str, Any], key: str, default: int) -> int:
 def _goal(args: dict[str, Any]) -> str:
     value = args.get("goal")
     if not isinstance(value, str):
-        raise ValueError("goal must be a string")
+        raise TypeError("goal must be a string")
     return value
 
 
@@ -251,7 +253,7 @@ def _optional_str(args: dict[str, Any], key: str) -> str | None:
         return None
     value = args[key]
     if not isinstance(value, str):
-        raise ValueError(f"{key} must be a string")
+        raise TypeError(f"{key} must be a string")
     return value
 
 
@@ -265,7 +267,7 @@ def _optional_path(args: dict[str, Any], key: str) -> Path | None:
 def _mapping(args: dict[str, Any], key: str) -> dict[str, Any]:
     value = args.get(key)
     if not isinstance(value, dict):
-        raise ValueError(f"{key} must be an object")
+        raise TypeError(f"{key} must be an object")
     return value
 
 
@@ -389,7 +391,7 @@ def dispatch(name: str, arguments: dict[str, Any] | None = None) -> dict[str, An
         return {"ok": False, "error": f"unknown tool: {name.strip()}"}
     try:
         result = handler(arguments)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  a tool runs renders and probes; whatever fails is answered as an error line
         return {"ok": False, "error": _error_text(exc)}
     if isinstance(result, dict) and result.get("status") == "failed":
         # A plan or render that failed is not a success with a sad payload.
@@ -433,16 +435,12 @@ def serve_stdio(stdin: TextIO | None = None, stdout: TextIO | None = None) -> in
         if name is None:
             _emit(outgoing, {"ok": False, "error": "missing tool name"})
             continue
-        if "arguments" in payload and payload["arguments"] is not None:
-            arguments = payload["arguments"]
-        else:
+        arguments = payload.get("arguments")
+        if arguments is None:
             arguments = {}
         if not isinstance(arguments, dict):
             _emit(outgoing, {"ok": False, "error": "arguments must be an object"})
             continue
-        try:
-            result = dispatch(name, arguments)
-        except Exception as exc:
-            result = {"ok": False, "error": _error_text(exc)}
-        _emit(outgoing, result)
+        # ``dispatch`` answers every handler failure itself, so the loop needs no guard of its own.
+        _emit(outgoing, dispatch(name, arguments))
     return 0

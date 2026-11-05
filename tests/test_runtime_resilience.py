@@ -20,7 +20,7 @@ from vedit.pipeline import Pipeline, Step, execute
 def _running(pid: int) -> bool:
     try:
         result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=2,
+            ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=2, check=False
         )
     except PermissionError as exc:
         pytest.skip(f"the sandbox denied process inspection with ps: {exc}")
@@ -41,10 +41,9 @@ def _tree_script(tmp_path: Path, *, leader_exits: bool = False) -> Path:
         "if mode < 2:\n"
         "    subprocess.Popen([sys.executable, __file__, str(mode + 1), str(root)])\n"
         + (
-            "if mode == 0:\n"
-            "    while not (root / '2.pid').exists(): time.sleep(0.01)\n"
-            "    sys.exit(0)\n"
-            if leader_exits else ""
+            "if mode == 0:\n    while not (root / '2.pid').exists(): time.sleep(0.01)\n    sys.exit(0)\n"
+            if leader_exits
+            else ""
         )
         + "while True: time.sleep(0.05)\n",
         encoding="utf-8",
@@ -76,10 +75,13 @@ def _cleanup_tree(tmp_path: Path) -> None:
 @pytest.mark.parametrize("nested", [False, True])
 def test_capture_keeps_exit_code_and_replaces_invalid_utf8(monkeypatch, nested):
     monkeypatch.setenv(media._MANAGED_COMMAND_ENV, "1" if nested else "0")
-    result = media.run_command([
-        sys.executable, "-c",
-        "import os, sys; os.write(1, b'output\\xff'); os.write(2, b'error\\xfe'); sys.exit(7)",
-    ])
+    result = media.run_command(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys; os.write(1, b'output\\xff'); os.write(2, b'error\\xfe'); sys.exit(7)",
+        ]
+    )
     assert result.returncode == 7
     assert result.ok is False
     assert result.stdout == "output\ufffd"
@@ -231,7 +233,9 @@ def test_cancellable_root_command_dies_when_its_owner_is_hard_killed(tmp_path):
     )
     parent = subprocess.Popen(
         [sys.executable, str(owner), str(command), str(tmp_path)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
     )
     try:
         deadline = time.monotonic() + 4
@@ -257,8 +261,28 @@ def test_pipeline_cancellation_stops_current_step_and_never_starts_next(tmp_path
     unwanted = tmp_path / "next-step"
     event = threading.Event()
     pipe = Pipeline(name="cancel", work_dir=tmp_path / "work")
-    pipe.add(Step("first", [sys.executable, "-c", "import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); time.sleep(30)", str(started)], [], "wait", optional=True))
-    pipe.add(Step("second", [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", str(unwanted)], [str(unwanted)], "must not run"))
+    pipe.add(
+        Step(
+            "first",
+            [
+                sys.executable,
+                "-c",
+                "import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); time.sleep(30)",
+                str(started),
+            ],
+            [],
+            "wait",
+            optional=True,
+        )
+    )
+    pipe.add(
+        Step(
+            "second",
+            [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", str(unwanted)],
+            [str(unwanted)],
+            "must not run",
+        )
+    )
 
     def cancel_when_started():
         deadline = time.monotonic() + 4

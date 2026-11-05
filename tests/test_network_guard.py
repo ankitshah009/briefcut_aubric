@@ -13,15 +13,29 @@ from conftest import NO_NETWORK, loopback_url
 from vedit import meta
 
 
-@pytest.mark.parametrize("url", ["https://api.meta.ai/v1/responses", "https://graph.facebook.com/", "http://10.0.0.1/", "http://127.0.0.2/",
-                                 "http://localhost.example.com/", "http://user@127.0.0.1/", "ftp://127.0.0.1/", "http://[::2]/", "not a url"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.meta.ai/v1/responses",
+        "https://graph.facebook.com/",
+        "http://10.0.0.1/",
+        "http://127.0.0.2/",
+        "http://localhost.example.com/",
+        "http://user@127.0.0.1/",
+        "ftp://127.0.0.1/",
+        "http://[::2]/",
+        "not a url",
+    ],
+)
 def test_anything_but_loopback_is_refused_offline(url: str) -> None:
     assert not loopback_url(url)
     with pytest.raises(URLError, match="tests make no network calls"):
         meta.build_opener().open(Request(url) if "://" in url else url, timeout=1)
 
 
-@pytest.mark.parametrize("url", ["http://127.0.0.1:8080/v1", "http://localhost/v1", "http://[::1]:9/v1", "https://127.0.0.1/"])
+@pytest.mark.parametrize(
+    "url", ["http://127.0.0.1:8080/v1", "http://localhost/v1", "http://[::1]:9/v1", "https://127.0.0.1/"]
+)
 def test_loopback_names_are_allowed(url: str) -> None:
     assert loopback_url(url)
 

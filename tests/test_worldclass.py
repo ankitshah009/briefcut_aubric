@@ -80,7 +80,11 @@ def test_resume_does_not_skip_empty_placeholders(tmp_path: Path):
     assert not output_ready(dest)
     step = Step(
         "captions_transcribe",
-        [sys.executable, "-c", f"from pathlib import Path; Path({str(dest)!r}).write_text('1\\n00:00:00,000 --> 00:00:01,000\\nhello\\n')"],
+        [
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(dest)!r}).write_text('1\\n00:00:00,000 --> 00:00:01,000\\nhello\\n')",
+        ],
         [str(dest)],
         "write srt",
     )

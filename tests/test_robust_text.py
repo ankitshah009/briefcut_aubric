@@ -16,13 +16,38 @@ from pathlib import Path
 import pytest
 
 from vedit import blender_cards, caption_styles, overlays
-from vedit.caption_styles import (LOOKS, LRM, RLM, Stage, caption_font, caption_warnings, direction_mark, fallback_faces, font_face,
-                                  render_ass, strip_emoji, write_styled_ass)
-from vedit.captions import (Cue, Word, burn_filter, cue_key, cues_from_words, heard_cues, interpolate_words, join_words, mend_joined_doubles,
-                            polish_cues, split_words, text_width, wrap_cue_text)
+from vedit.caption_styles import (
+    LOOKS,
+    LRM,
+    RLM,
+    Stage,
+    caption_font,
+    caption_warnings,
+    direction_mark,
+    fallback_faces,
+    font_face,
+    render_ass,
+    strip_emoji,
+    write_styled_ass,
+)
+from vedit.captions import (
+    Cue,
+    Word,
+    burn_filter,
+    cue_key,
+    cues_from_words,
+    heard_cues,
+    interpolate_words,
+    join_words,
+    mend_joined_doubles,
+    polish_cues,
+    split_words,
+    text_width,
+    wrap_cue_text,
+)
+from vedit.edit_spec import EditError, validate_edit, validate_motion_card
 from vedit.emphasis import emphasis_lines, suggest_emphasis, validate_emphasis
 from vedit.media import filter_value, has_filter, resolve_ffmpeg, resolve_font
-from vedit.edit_spec import EditError, validate_edit, validate_motion_card
 from vedit.story import _hashtags, _title_from_goal, reads_english, sentences_from_transcript, tokens
 
 JAPANESE = "今日はついにキッチンのシンクを直します。正直に言うと、三時間もかかりました。"
@@ -44,7 +69,9 @@ def dialogue_text(ass: str) -> list[str]:
 
 def covers(path: Path, text: str) -> bool:
     face = font_face(str(path))
-    return face is not None and all(face.advance(char) is not None for char in text if unicodedata.category(char)[0] in "LN")
+    return face is not None and all(
+        face.advance(char) is not None for char in text if unicodedata.category(char)[0] in "LN"
+    )
 
 
 # --- Word pieces for text written without spaces ---
@@ -118,7 +145,9 @@ def test_polish_does_not_collapse_hindi_words_that_differ_only_by_vowel_sign() -
     assert polish_cues([Cue(0.0, 2.0, "the the bowl")])[0].text == "The bowl"
 
 
-@pytest.mark.parametrize("heard, mended", [("ÜberÜber alles", "Über alles"), ("ЭтоЭто дом", "Это дом"), ("ÉtéÉté chaud", "Été chaud")])
+@pytest.mark.parametrize(
+    "heard, mended", [("ÜberÜber alles", "Über alles"), ("ЭтоЭто дом", "Это дом"), ("ÉtéÉté chaud", "Été chaud")]
+)
 def test_joined_doubles_are_mended_in_any_cased_script(heard: str, mended: str) -> None:
     assert mend_joined_doubles(heard) == mended
 
@@ -130,7 +159,10 @@ def test_reduplication_that_is_a_real_word_stays(word: str) -> None:
 
 def test_a_meta_turn_in_japanese_becomes_lines_at_its_sentence_ends() -> None:
     lines = heard_cues([{"start": 0.0, "end": 6.0, "text": JAPANESE}])
-    assert [line.text for line in lines] == ["今日はついにキッチンのシンクを直します。", "正直に言うと、三時間もかかりました。"]
+    assert [line.text for line in lines] == [
+        "今日はついにキッチンのシンクを直します。",
+        "正直に言うと、三時間もかかりました。",
+    ]
 
 
 # --- Punch words ---
@@ -140,7 +172,9 @@ def test_emphasis_keys_keep_vowel_signs() -> None:
     lines = emphasis_lines([Cue(0.0, 2.0, "का की के")])
     raw = {"picks": [{"cue_key": lines[0]["key"], "word_index": 0, "word": "की", "why": ""}]}
     picks, warnings = validate_emphasis(raw, lines)
-    assert picks[0]["word_index"] == 1 and picks[0]["word"] == "की", "a pick at the wrong place moves to the only matching word"
+    assert picks[0]["word_index"] == 1 and picks[0]["word"] == "की", (
+        "a pick at the wrong place moves to the only matching word"
+    )
     assert caption_styles.word_key("हैं,") == "हैं"
 
 
@@ -148,7 +182,11 @@ def test_emphasis_keys_keep_vowel_signs() -> None:
 def test_a_punch_word_in_any_script_is_drawn_in_the_accent(text: str, index: int) -> None:
     cue = Cue(0.0, 6.0, text)
     word = split_words(text)[index]
-    settings = {"style": "bold", "emphasize": True, "emphasis": [{"cue_key": cue_key(cue), "word_index": index, "word": word}]}
+    settings = {
+        "style": "bold",
+        "emphasize": True,
+        "emphasis": [{"cue_key": cue_key(cue), "word_index": index, "word": word}],
+    }
     ass = render_ass([cue], width=1080, height=1920, settings=settings)
     assert any(f"\\fscx115\\fscy115}}{word}{{" in line for line in dialogue_text(ass)), word
 
@@ -164,7 +202,9 @@ def test_a_non_english_goal_reaches_the_model_prompt_unchanged(tmp_path: Path) -
     result = suggest_emphasis([Cue(0.0, 2.0, HINDI)], goal, "hi", work_dir=tmp_path, ask=ask)
     assert goal in seen["prompt"] and "Hindi" in seen["prompt"] and "[5]सिंक" in seen["prompt"]
     assert result["emphasis"] == []
-    suggest_emphasis([Cue(0.0, 2.0, "Hola a todos")], "Un vídeo corto", "es-419", work_dir=tmp_path, ask=ask)  # a region number is a language
+    suggest_emphasis(
+        [Cue(0.0, 2.0, "Hola a todos")], "Un vídeo corto", "es-419", work_dir=tmp_path, ask=ask
+    )  # a region number is a language
 
 
 # --- Emoji ---
@@ -176,8 +216,15 @@ def test_every_part_of_an_emoji_goes_and_joiners_between_letters_stay() -> None:
 
 
 def test_emoji_leave_no_blank_word_and_a_plain_warning() -> None:
-    cue = Cue(0.0, 3.0, "This sauce is fire 🔥🔥 and we love it ❤️",
-              tuple(Word(index * 0.3, index * 0.3 + 0.3, text) for index, text in enumerate("This sauce is fire 🔥🔥 and we love it ❤️".split())))
+    cue = Cue(
+        0.0,
+        3.0,
+        "This sauce is fire 🔥🔥 and we love it ❤️",
+        tuple(
+            Word(index * 0.3, index * 0.3 + 0.3, text)
+            for index, text in enumerate("This sauce is fire 🔥🔥 and we love it ❤️".split())
+        ),
+    )
     for style in LOOKS:
         ass = render_ass([cue], width=1080, height=1920, settings={"style": style})
         for line in dialogue_text(ass):
@@ -190,13 +237,19 @@ def test_emoji_leave_no_blank_word_and_a_plain_warning() -> None:
 def test_a_punch_word_after_an_emoji_keeps_its_place() -> None:
     text = "🔥 This is huge"
     cue = Cue(0.0, 3.0, text)
-    settings = {"style": "boxed", "emphasize": True, "emphasis": [{"cue_key": cue_key(cue), "word_index": 3, "word": "huge"}]}
+    settings = {
+        "style": "boxed",
+        "emphasize": True,
+        "emphasis": [{"cue_key": cue_key(cue), "word_index": 3, "word": "huge"}],
+    }
     assert "}huge{" in render_ass([cue], width=1080, height=1920, settings=settings)
 
 
 def test_overlay_emoji_warning_names_the_text() -> None:
     warnings = overlays.text_warnings([{"text": "Grand opening 🎉"}, {"text": "No emoji here"}])
-    assert warnings == ['The text "Grand opening" had emoji (🎉). The text renderer cannot draw color emoji, so they were left out; the words are unchanged.']
+    assert warnings == [
+        'The text "Grand opening" had emoji (🎉). The text renderer cannot draw color emoji, so they were left out; the words are unchanged.'
+    ]
 
 
 # --- Right to left ---
@@ -204,7 +257,9 @@ def test_overlay_emoji_warning_names_the_text() -> None:
 
 def test_each_line_of_a_mixed_cue_holds_the_cue_direction() -> None:
     assert direction_mark(MIXED) == LRM and direction_mark(ARABIC) == "" and direction_mark("Hello") == ""
-    assert direction_mark("اشتريت iPhone جديد اليوم") == RLM, "an Arabic sentence that opens with a Latin name still reads right to left"
+    assert direction_mark("اشتريت iPhone جديد اليوم") == RLM, (
+        "an Arabic sentence that opens with a Latin name still reads right to left"
+    )
     ass = render_ass([Cue(0.0, 6.0, MIXED)], width=1080, height=1920, settings={"style": "boxed"})
     for line in dialogue_text(ass):
         body = re.sub(r"\{[^}]*\}", "", line)
@@ -220,13 +275,17 @@ def test_a_right_to_left_lower_third_starts_at_the_right() -> None:
     item = {"text": "مطبخ أحمد", "style": "lower_third", "position": "bottom", "start": 0, "duration": 2}
     event = overlays.text_event(item, width=1920, height=1080, end_limit=None, face=None)
     assert event is not None and "\\an3" in event
-    assert "\\an1" in overlays.text_event({**item, "text": "Ahmed's kitchen"}, width=1920, height=1080, end_limit=None, face=None)
+    assert "\\an1" in overlays.text_event(
+        {**item, "text": "Ahmed's kitchen"}, width=1920, height=1080, end_limit=None, face=None
+    )
 
 
 # --- Fonts ---
 
 
-@pytest.mark.parametrize("text", [JAPANESE, CHINESE, HINDI, THAI, "오늘은 드디어 주방 싱크대를 고칩니다.", ARABIC, "היום אנחנו מתקנים"])
+@pytest.mark.parametrize(
+    "text", [JAPANESE, CHINESE, HINDI, THAI, "오늘은 드디어 주방 싱크대를 고칩니다.", ARABIC, "היום אנחנו מתקנים"]
+)
 def test_the_font_for_a_text_can_draw_every_letter_of_it(text: str) -> None:
     path = resolve_font(text)
     if not covers(path, text):
@@ -256,7 +315,11 @@ def test_letters_the_caption_font_lacks_are_measured_from_the_font_that_draws_th
         pytest.skip("needs a Latin caption font and a Devanagari font")
     plain, fitted = Stage(LOOKS["bold"], 100, 1000, face), Stage(LOOKS["bold"], 100, 1000, face, extra)
     assert fitted.measure(HINDI) != plain.measure(HINDI)
-    assert all(any(other.advance(char) is not None for other in (face, *extra)) for char in HINDI if unicodedata.category(char)[0] == "L")
+    assert all(
+        any(other.advance(char) is not None for other in (face, *extra))
+        for char in HINDI
+        if unicodedata.category(char)[0] == "L"
+    )
 
 
 def test_a_hero_word_in_japanese_does_not_use_a_latin_only_display_font() -> None:
@@ -266,7 +329,10 @@ def test_a_hero_word_in_japanese_does_not_use_a_latin_only_display_font() -> Non
 
 
 def test_titles_without_libass_get_a_font_that_holds_their_letters(tmp_path: Path) -> None:
-    items = [{"text": JAPANESE[:12], "style": "title", "start": 0, "duration": 2}, {"text": "Plain title", "style": "label", "start": 0, "duration": 2}]
+    items = [
+        {"text": JAPANESE[:12], "style": "title", "start": 0, "duration": 2},
+        {"text": "Plain title", "style": "label", "start": 0, "duration": 2},
+    ]
     filters = overlays.drawtext_filters(items, work_dir=tmp_path, width=1080, height=1920)
     japanese, plain = resolve_font(JAPANESE[:12]), resolve_font("Plain title")
     assert filter_value(japanese) in filters[0] and filter_value(plain) in filters[1]
@@ -283,8 +349,14 @@ def test_brief_words_keep_accents_and_vowel_signs() -> None:
 
 def test_a_japanese_title_and_sentences_join_without_spaces() -> None:
     assert " " not in _title_from_goal("キッチンのシンク修理")
-    sentences = sentences_from_transcript([{"start": 0, "end": 1, "text": "正直に言うと"}, {"start": 1, "end": 2, "text": "大変でした。"},
-                                           {"start": 2, "end": 3, "text": "क्या यह ठीक है?"}, {"start": 3, "end": 4, "text": "हाँ।"}])
+    sentences = sentences_from_transcript(
+        [
+            {"start": 0, "end": 1, "text": "正直に言うと"},
+            {"start": 1, "end": 2, "text": "大変でした。"},
+            {"start": 2, "end": 3, "text": "क्या यह ठीक है?"},
+            {"start": 3, "end": 4, "text": "हाँ।"},
+        ]
+    )
     assert [sentence["text"] for sentence in sentences] == ["正直に言うと大変でした。", "क्या यह ठीक है?", "हाँ।"]
 
 
@@ -305,10 +377,33 @@ def ffmpeg() -> str:
 def test_captions_burn_from_a_folder_named_with_spaces_quotes_unicode_and_emoji(tmp_path: Path, ffmpeg: str) -> None:
     folder = tmp_path / "my clip's [final], 日本語 été 🎬"
     folder.mkdir()
-    ass = write_styled_ass([Cue(0.0, 1.0, MIXED)], folder / "captions.ass", width=320, height=240, settings={"style": "bold"})
+    ass = write_styled_ass(
+        [Cue(0.0, 1.0, MIXED)], folder / "captions.ass", width=320, height=240, settings={"style": "bold"}
+    )
     out = folder / "frame 1 🎬.png"
-    result = subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1", "-ss", "0.5",
-                             "-vf", burn_filter(ass), "-frames:v", "1", str(out)], capture_output=True, text=True, env={**os.environ})
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x240:d=1",
+            "-ss",
+            "0.5",
+            "-vf",
+            burn_filter(ass),
+            "-frames:v",
+            "1",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ},
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
     assert out.stat().st_size > 0
 
@@ -328,7 +423,14 @@ def test_thai_keeps_the_spaces_between_its_phrases() -> None:
 
 # --- Motion cards, pause levels and the brief's language ---
 
-CARD = {"kind": "intro_title", "text": "台所の修理", "subtitle": "", "style": "soft_clay", "palette": "rose", "duration": 1.5}
+CARD = {
+    "kind": "intro_title",
+    "text": "台所の修理",
+    "subtitle": "",
+    "style": "soft_clay",
+    "palette": "rose",
+    "duration": 1.5,
+}
 
 
 def test_a_japanese_card_takes_a_font_that_can_draw_it() -> None:
@@ -342,7 +444,9 @@ def test_a_japanese_card_takes_a_font_that_can_draw_it() -> None:
     if font is None or not covers(Path(font), CARD["text"]):
         pytest.skip("no installed font covers Japanese")
     assert font not in blender_cards.STYLE_FONTS["soft_clay"], "the Latin style font would draw boxes"
-    latin = blender_cards.render_spec(validate_motion_card({**CARD, "text": "Kitchen Fix"}), width=192, height=108, fps=12)
+    latin = blender_cards.render_spec(
+        validate_motion_card({**CARD, "text": "Kitchen Fix"}), width=192, height=108, fps=12
+    )
     assert latin["fonts"]["title"] == blender_cards._first_file(blender_cards.STYLE_FONTS["soft_clay"])
 
 
@@ -377,24 +481,47 @@ def test_blender_draws_japanese_card_text_with_the_chosen_font(tmp_path: Path) -
     spec["duration"] = 0.5  # the template's shortest card: a few frames are enough to see the letters
     (tmp_path / "frames").mkdir()
     (tmp_path / "spec.json").write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
-    result = subprocess.run([blender_cards.blender_path(), "-b", "--factory-startup", "--python-exit-code", "1", "--python", str(blender_cards.TEMPLATE),
-                             "--", str(tmp_path / "spec.json"), str(tmp_path / "frames")], capture_output=True, text=True, timeout=300)
+    result = subprocess.run(
+        [
+            blender_cards.blender_path(),
+            "-b",
+            "--factory-startup",
+            "--python-exit-code",
+            "1",
+            "--python",
+            str(blender_cards.TEMPLATE),
+            "--",
+            str(tmp_path / "spec.json"),
+            str(tmp_path / "frames"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr[-800:]
     drawn = json.loads((tmp_path / "frames" / "card.json").read_text(encoding="utf-8"))
     assert drawn.get("title_body", CARD["text"]).replace("\n", "") == CARD["text"]
     last = sorted((tmp_path / "frames").glob("frame_*.png"))[-1]
-    alpha = subprocess.run([resolve_ffmpeg(), "-v", "error", "-i", str(last), "-vf", "alphaextract,format=gray", "-f", "rawvideo", "-"],
-                           check=True, capture_output=True).stdout
+    alpha = subprocess.run(
+        [resolve_ffmpeg(), "-v", "error", "-i", str(last), "-vf", "alphaextract,format=gray", "-f", "rawvideo", "-"],
+        check=True,
+        capture_output=True,
+    ).stdout
     assert len(alpha) == 192 * 108 and max(alpha) > 200
 
 
-def test_the_local_planner_lets_silence_detection_place_its_own_line(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_local_planner_lets_silence_detection_place_its_own_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from types import SimpleNamespace
 
     from vedit.story import plan_local_story
 
     asked: list[dict[str, object]] = []
-    monkeypatch.setattr("vedit.story.probe", lambda _source: SimpleNamespace(has_video=True, duration=30.0, has_audio=True, audio_map=1))
+    monkeypatch.setattr(
+        "vedit.story.probe", lambda _source: SimpleNamespace(has_video=True, duration=30.0, has_audio=True, audio_map=1)
+    )
     monkeypatch.setattr("vedit.story.detect_scenes_fast", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("vedit.story.detect_silence", lambda *_args, **kwargs: asked.append(kwargs) or [])
     monkeypatch.setattr("vedit.story.audible", lambda *_args, **_kwargs: True)
@@ -404,9 +531,14 @@ def test_the_local_planner_lets_silence_detection_place_its_own_line(monkeypatch
 
 def test_english_hints_are_not_applied_to_other_languages() -> None:
     assert reads_english("Make a 20-second story about the oak bowl")
-    assert not reads_english("Haz un vídeo a la playa con mi perro") and not reads_english("Mach ein Video an der Küste")
+    assert not reads_english("Haz un vídeo a la playa con mi perro") and not reads_english(
+        "Mach ein Video an der Küste"
+    )
     assert _title_from_goal("Haz un vídeo a la playa con mi perro") == "Haz un vídeo a la playa con mi perro"
-    assert _title_from_goal("Haz un vídeo", [{"start": 0, "end": 1, "text": "Hoy vamos a la playa."}]) == "Hoy vamos a la playa"
+    assert (
+        _title_from_goal("Haz un vídeo", [{"start": 0, "end": 1, "text": "Hoy vamos a la playa."}])
+        == "Hoy vamos a la playa"
+    )
 
 
 def test_the_cutout_example_names_no_one_subject() -> None:
@@ -417,24 +549,43 @@ def test_the_cutout_example_names_no_one_subject() -> None:
 # --- Phrases said twice ---
 
 
-@pytest.mark.parametrize("cues, expected", [
-    (["this is the bowl the bowl we made"], ["This is the bowl we made"]),
-    (["this is the bowl", "the bowl we made"], ["This is the bowl we made"]),  # across a turn edge, as Meta splits them
-    (["THE BOWL the bowl."], ["THE BOWL."]),  # case-insensitive; the closing punctuation is kept
-    (["dijo que que vendría"], ["Dijo que vendría"]),  # a Spanish stutter collapses like "the the"
-    (["It is the bowl. The bowl is oak."], ["It is the bowl. The bowl is oak."]),  # a repeat across a sentence end is meant
-    (["the bowl, the bowl, the bowl"], ["The bowl, the bowl, the bowl"]),  # so is a list said for effect
-    (["谢谢 谢谢 你好你好"], ["谢谢 谢谢 你好你好"]),  # Chinese doubles words on purpose, with or without spaces
-    (["היום סוף סוף מתקנים"], ["היום סוף סוף מתקנים"]),
-])
+@pytest.mark.parametrize(
+    "cues, expected",
+    [
+        (["this is the bowl the bowl we made"], ["This is the bowl we made"]),
+        (
+            ["this is the bowl", "the bowl we made"],
+            ["This is the bowl we made"],
+        ),  # across a turn edge, as Meta splits them
+        (["THE BOWL the bowl."], ["THE BOWL."]),  # case-insensitive; the closing punctuation is kept
+        (["dijo que que vendría"], ["Dijo que vendría"]),  # a Spanish stutter collapses like "the the"
+        (
+            ["It is the bowl. The bowl is oak."],
+            ["It is the bowl. The bowl is oak."],
+        ),  # a repeat across a sentence end is meant
+        (["the bowl, the bowl, the bowl"], ["The bowl, the bowl, the bowl"]),  # so is a list said for effect
+        (["谢谢 谢谢 你好你好"], ["谢谢 谢谢 你好你好"]),  # Chinese doubles words on purpose, with or without spaces
+        (["היום סוף סוף מתקנים"], ["היום סוף סוף מתקנים"]),
+    ],
+)
 def test_a_phrase_said_twice_in_a_row_is_burned_once(cues: list[str], expected: list[str]) -> None:
-    assert [cue.text for cue in polish_cues([Cue(index, index + 1, text) for index, text in enumerate(cues)])] == expected
+    assert [
+        cue.text for cue in polish_cues([Cue(index, index + 1, text) for index, text in enumerate(cues)])
+    ] == expected
 
 
 def test_a_collapsed_phrase_keeps_its_words_and_time() -> None:
-    words = tuple(Word(index * 0.3, index * 0.3 + 0.3, text) for index, text in enumerate("look at the bowl the bowl now".split()))
+    words = tuple(
+        Word(index * 0.3, index * 0.3 + 0.3, text) for index, text in enumerate("look at the bowl the bowl now".split())
+    )
     cue = polish_cues([Cue(0.0, 2.1, "look at the bowl the bowl now", words)])[0]
-    assert cue.text == "Look at the bowl now" and [word.text for word in cue.words] == ["Look", "at", "the", "bowl", "now"]
+    assert cue.text == "Look at the bowl now" and [word.text for word in cue.words] == [
+        "Look",
+        "at",
+        "the",
+        "bowl",
+        "now",
+    ]
     assert cue.words[3].end == pytest.approx(1.8), "the kept 'bowl' covers the copy that went"
 
 
@@ -467,7 +618,9 @@ def test_a_wordless_line_split_between_reordered_moments_keeps_each_part_with_it
     from vedit.timeline import Span, map_cues
 
     line = {"start": 0.0, "end": 2.0, "text": "first half here second half there"}
-    moved = map_cues([line], [Span(1, 1.0, 2.0, 0.0, 1.0), Span(2, 0.0, 1.0, 5.0, 6.0)])  # the story plays the tail first
+    moved = map_cues(
+        [line], [Span(1, 1.0, 2.0, 0.0, 1.0), Span(2, 0.0, 1.0, 5.0, 6.0)]
+    )  # the story plays the tail first
     assert [(cue["segment"], cue["text"]) for cue in moved] == [(1, "second half there"), (2, "first half here")]
 
 
@@ -475,5 +628,10 @@ def test_japanese_words_rejoin_on_the_output_clock_without_spaces() -> None:
     from vedit.timeline import Span, map_cues
 
     cue = interpolate_words(Cue(0.0, 2.0, "今日はついにキッチンの"))
-    record = {"start": 0.0, "end": 2.0, "text": cue.text, "words": [{"start": w.start, "end": w.end, "text": w.text} for w in cue.words]}
+    record = {
+        "start": 0.0,
+        "end": 2.0,
+        "text": cue.text,
+        "words": [{"start": w.start, "end": w.end, "text": w.text} for w in cue.words],
+    }
     assert map_cues([record], [Span(1, 0.0, 2.0, 0.0, 2.0)])[0]["text"] == "今日はついにキッチンの"

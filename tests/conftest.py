@@ -26,9 +26,11 @@ def _isolated_settings(tmp_path_factory: pytest.TempPathFactory, monkeypatch: py
 
 # Caption pages measured with Arial's widths. Liberation Sans shares them and Noto Sans is close. DejaVu Sans,
 # the usual Linux default, is about a tenth wider, so the same line breaks into more pages there.
-_ARIAL_WIDTH_FONTS = ("/System/Library/Fonts/Supplemental/Arial.ttf",
-                      "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                      "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")
+_ARIAL_WIDTH_FONTS = (
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+)
 
 
 @pytest.fixture
@@ -69,7 +71,12 @@ def loopback_url(url: str) -> bool:
         host = parts.hostname
     except ValueError:
         return False
-    return parts.scheme in {"http", "https"} and host in LOOPBACK_HOSTS and parts.username is None and parts.password is None
+    return (
+        parts.scheme in {"http", "https"}
+        and host in LOOPBACK_HOSTS
+        and parts.username is None
+        and parts.password is None
+    )
 
 
 class _LoopbackOnly:

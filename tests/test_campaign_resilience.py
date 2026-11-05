@@ -34,7 +34,13 @@ def uploaded_clip(tmp_path: Path) -> Path:
 
 
 def request(source: Path, **overrides) -> dict:
-    return {"paths": [str(source)], "goal": "Make a clear short", "target_duration": 0.5, "captions": False, **overrides}
+    return {
+        "paths": [str(source)],
+        "goal": "Make a clear short",
+        "target_duration": 0.5,
+        "captions": False,
+        **overrides,
+    }
 
 
 def wait_until(predicate, *, timeout: float = 15):
@@ -48,7 +54,7 @@ def wait_until(predicate, *, timeout: float = 15):
 
 
 def wait_status(manager: CampaignManager, ident: str, statuses: set[str], *, timeout: float = 20) -> dict:
-    return wait_until(lambda: (job if (job := manager.get(ident))["status"] in statuses else None), timeout=timeout)
+    return wait_until(lambda: job if (job := manager.get(ident))["status"] in statuses else None, timeout=timeout)
 
 
 def process_is_alive(pid: int) -> bool:
@@ -102,7 +108,9 @@ def kill_fixture_process(marker: Path) -> None:
                 pass
 
 
-def test_cancelling_an_encode_stops_its_process_and_releases_worker(tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cancelling_an_encode_stops_its_process_and_releases_worker(
+    tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     marker = slow_encoder(tmp_path, monkeypatch)
     manager = CampaignManager(tmp_path)
     try:
@@ -133,7 +141,9 @@ def test_cancelling_an_encode_stops_its_process_and_releases_worker(tmp_path: Pa
         manager.close()
 
 
-def test_failed_cancelled_and_interrupted_revisions_keep_verified_downloads(tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_cancelled_and_interrupted_revisions_keep_verified_downloads(
+    tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = CampaignManager(tmp_path, start_worker=False)
     ident = None
     try:
@@ -188,7 +198,9 @@ def test_failed_cancelled_and_interrupted_revisions_keep_verified_downloads(tmp_
         manager.close()
 
 
-def test_low_disk_blocks_cloud_analysis_before_upload(tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_low_disk_blocks_cloud_analysis_before_upload(
+    tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MODEL_API_KEY", "test-key-never-sent")
     monkeypatch.setenv("VEDIT_META_ENABLED", "1")
     monkeypatch.setattr("shutil.disk_usage", lambda _: DiskUsage(1024, 1024, 0))
@@ -215,8 +227,10 @@ def test_low_disk_blocks_cloud_analysis_before_upload(tmp_path: Path, uploaded_c
         manager.close()
 
 
-def test_disk_safety_margin_is_configurable_without_blocking_tiny_edits(tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    gib = 1024 ** 3
+def test_disk_safety_margin_is_configurable_without_blocking_tiny_edits(
+    tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gib = 1024**3
     monkeypatch.setattr("shutil.disk_usage", lambda _: DiskUsage(2 * gib, gib, gib))
     monkeypatch.setenv("VEDIT_MIN_FREE_DISK_MB", "2048")
     manager = CampaignManager(tmp_path, start_worker=False)
@@ -235,7 +249,9 @@ def test_disk_safety_margin_is_configurable_without_blocking_tiny_edits(tmp_path
         manager.close()
 
 
-def test_close_keeps_workspace_lease_until_active_encoder_stops(tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_keeps_workspace_lease_until_active_encoder_stops(
+    tmp_path: Path, uploaded_clip: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     marker = slow_encoder(tmp_path, monkeypatch, delay_termination=True)
     manager = CampaignManager(tmp_path)
     replacement = None
@@ -282,7 +298,9 @@ def test_verified_artifact_revisions_never_switch_to_newer_bytes(tmp_path: Path,
         assert "&v=1" in first["result"]["video_url"]
         first_video = manager.artifact(ident, "video", revision=1).read_bytes()
         first_report = manager.artifact(ident, "report", revision=1).read_bytes()
-        plan = dict(first["plan"], segments=[{"start": 0, "end": 0.8, "label": "Longer", "reason": "Selected by the editor."}])
+        plan = dict(
+            first["plan"], segments=[{"start": 0, "end": 0.8, "label": "Longer", "reason": "Selected by the editor."}]
+        )
         manager.render(ident, {"plan": plan})
         manager.process(ident)
         second = manager.get(ident)
@@ -303,4 +321,3 @@ def test_verified_artifact_revisions_never_switch_to_newer_bytes(tmp_path: Path,
         assert error.value.status == 404
     finally:
         manager.close()
-

@@ -20,6 +20,22 @@ This package is the NLE. You do not write FFmpeg by hand.
 - Always end with `export`. Pick a preset: `youtube_1080p`, `shorts_9x16`, `podcast_audio`, `web_preview`.
 - Relative paths resolve against the brief file.
 
+## Quality bar
+
+Every change must leave these clean; CI runs all three, with all cores:
+
+```text
+uv run ruff format --check src tests
+uv run ruff check src tests        # includes C901, max complexity 15
+uv run pyright                     # basic mode, zero errors
+uv run pytest -n auto
+```
+
+- Catch the exceptions a call can raise. A catch-all is allowed only where the code must survive anything (a worker loop, a best-effort cleanup); it carries `# noqa: BLE001` with the reason, and it records the error.
+- No `# type: ignore` to hide a defect. Fix the defect and add a test.
+- A function over complexity 15 is split into named helpers that each do one thing.
+- A bug fix ships with a test that failed before it.
+
 ## Never
 
 - Call paid caption / enhance / “AI editor” APIs.

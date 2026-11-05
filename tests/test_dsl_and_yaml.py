@@ -4,7 +4,7 @@ import pytest
 
 from vedit.cli import _peel_do_flags
 from vedit.dsl import parse_do
-from vedit.ir import brief_from_mapping, load_brief, parse_hw
+from vedit.ir import brief_from_mapping, parse_hw
 from vedit.yamlio import loads
 
 
@@ -75,6 +75,13 @@ def test_dsl_english():
     assert brief.sources["main"].endswith("interview.mp4")
 
 
+def test_one_quoted_english_sentence_in_a_list_is_parsed_as_english():
+    """argparse hands ``vedit do "cut silence from talk.mp4; captions"`` over as a one-element list."""
+    brief = parse_do(["cut silence from talk.mp4; captions"])
+    assert [o["op"] for o in brief.ops] == ["cut_silence", "captions", "export"]
+    assert brief.sources["main"].endswith("talk.mp4")
+
+
 def test_cli_version():
     from vedit.cli import main
 
@@ -104,3 +111,11 @@ def test_load_example_podcast(tmp_path: Path):
     # File paths in the example are relative; load_brief should not crash on YAML shape.
     data = loads(text)
     assert data["ops"][0]["op"] == "cut_silence"
+
+
+def test_a_missing_brief_is_a_brief_error_not_a_traceback(tmp_path: Path) -> None:
+    from vedit.errors import BriefError
+    from vedit.ir import load_brief
+
+    with pytest.raises(BriefError, match="brief not found"):
+        load_brief(tmp_path / "missing.yaml")

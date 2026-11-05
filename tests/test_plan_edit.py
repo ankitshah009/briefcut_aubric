@@ -47,7 +47,13 @@ def manager(tmp_path: Path):
 
 
 def request(clip: Path, **overrides) -> dict:
-    return {"paths": [str(clip)], "goal": "Show the product clearly", "target_duration": 1, "captions": False, **overrides}
+    return {
+        "paths": [str(clip)],
+        "goal": "Show the product clearly",
+        "target_duration": 1,
+        "captions": False,
+        **overrides,
+    }
 
 
 def test_a_plan_always_holds_a_complete_edit_and_its_timeline() -> None:
@@ -55,7 +61,14 @@ def test_a_plan_always_holds_a_complete_edit_and_its_timeline() -> None:
     assert plan["edit"] == default_edit()
     assert plan["duration"] == 3.0
     assert plan["timeline"]["duration"] == 3.0 and plan["timeline"]["transition_seconds"] == 0
-    assert plan["timeline"]["spans"][1] == {"segment": 2, "source_start": 4.0, "source_end": 5.0, "output_start": 2.0, "output_end": 3.0, "speed": 1.0}
+    assert plan["timeline"]["spans"][1] == {
+        "segment": 2,
+        "source_start": 4.0,
+        "source_end": 5.0,
+        "output_start": 2.0,
+        "output_end": 3.0,
+        "speed": 1.0,
+    }
     json.dumps(plan, allow_nan=False)
 
 
@@ -75,8 +88,18 @@ def test_per_segment_fields_are_bounded() -> None:
     assert plan["segments"][0]["speed"] == 2 and plan["segments"][0]["volume"] == 0.5
     assert plan["segments"][0]["motion"]["to"] == {"scale": 1.4, "x": 0.25, "y": 0.75}
     assert plan["duration"] == 2.0
-    for bad in ({"speed": 0.1}, {"speed": 5}, {"speed": "fast"}, {"speed": float("nan")}, {"volume": -1}, {"volume": 3},
-                {"motion": "zoom"}, {"motion": {"from": {}, "to": {"scale": 4}}}, {"motion": {"from": {"x": 2}, "to": {}}}, {"motion": {"to": {}}}):
+    for bad in (
+        {"speed": 0.1},
+        {"speed": 5},
+        {"speed": "fast"},
+        {"speed": float("nan")},
+        {"volume": -1},
+        {"volume": 3},
+        {"motion": "zoom"},
+        {"motion": {"from": {}, "to": {"scale": 4}}},
+        {"motion": {"from": {"x": 2}, "to": {}}},
+        {"motion": {"to": {}}},
+    ):
         with pytest.raises(CampaignError):
             validate_plan(story(segments=[{"start": 0, "end": 4, **bad}]), 10)
 
@@ -100,7 +123,17 @@ def test_the_story_limit_reads_the_finished_length() -> None:
         validate_plan(story(segments=[{"start": 0, "end": 100, "speed": 0.25}]), 400)
 
 
-@pytest.mark.parametrize("edit", [{"look": {"preset": "sparkle"}}, {"transition": {"type": "wipe;rm"}}, {"fade": {"out": 99}}, {"texts": "words"}, "not an object", {"captions": {"color": "red"}}])
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"look": {"preset": "sparkle"}},
+        {"transition": {"type": "wipe;rm"}},
+        {"fade": {"out": 99}},
+        {"texts": "words"},
+        "not an object",
+        {"captions": {"color": "red"}},
+    ],
+)
 def test_a_bad_edit_is_a_plain_400(edit) -> None:
     with pytest.raises(CampaignError) as caught:
         validate_plan(story(edit=edit), 10)
@@ -124,8 +157,10 @@ def test_assets_must_belong_to_the_project() -> None:
 
 
 def test_timed_items_stay_inside_a_shorter_story() -> None:
-    edit = {"texts": [{"text": "Early", "start": 1, "duration": 2}, {"text": "Late", "start": 20, "duration": 3}],
-            "overlays": [{"asset": "a" * 8, "start": 30, "duration": 40}]}
+    edit = {
+        "texts": [{"text": "Early", "start": 1, "duration": 2}, {"text": "Late", "start": 20, "duration": 3}],
+        "overlays": [{"asset": "a" * 8, "start": 30, "duration": 40}],
+    }
     plan = validate_plan(story((0.0, 5.0), edit=edit), 10)
     assert plan["edit"]["texts"][0] == {**plan["edit"]["texts"][0], "start": 1, "duration": 2}
     assert plan["edit"]["texts"][1]["start"] == 2.0 and plan["edit"]["texts"][1]["duration"] == 3
@@ -138,14 +173,28 @@ def test_a_title_card_follows_the_story_title_until_it_is_rewritten() -> None:
     saved = validate_plan(story(title="Old name", edit={"texts": [card]}), 10)
     renamed = validate_plan(dict(saved, title="New name"), 10, original=saved)
     assert renamed["edit"]["texts"][0]["text"] == "New name"
-    rewritten = validate_plan(dict(saved, title="New name", edit=dict(saved["edit"], texts=[dict(card, text="My own words")])), 10, original=saved)
+    rewritten = validate_plan(
+        dict(saved, title="New name", edit=dict(saved["edit"], texts=[dict(card, text="My own words")])),
+        10,
+        original=saved,
+    )
     assert rewritten["edit"]["texts"][0]["text"] == "My own words"
 
 
 def test_timeline_captions_are_mapped_onto_the_output_clock() -> None:
-    sentences = [{"start": 0.5, "end": 1.5, "text": "First thought."}, {"start": 6.5, "end": 7.5, "text": "Second thought."}]
-    plan = validate_plan(story((0.0, 8.0), edit={"removed": [[2.0, 6.0]]}), 10, original={"analysis": {"sentences": sentences, "speech": SPEECH}})
-    assert [(cue["start"], cue["text"]) for cue in plan["timeline"]["captions"]] == [(0.5, "First thought."), (2.5, "Second thought.")]
+    sentences = [
+        {"start": 0.5, "end": 1.5, "text": "First thought."},
+        {"start": 6.5, "end": 7.5, "text": "Second thought."},
+    ]
+    plan = validate_plan(
+        story((0.0, 8.0), edit={"removed": [[2.0, 6.0]]}),
+        10,
+        original={"analysis": {"sentences": sentences, "speech": SPEECH}},
+    )
+    assert [(cue["start"], cue["text"]) for cue in plan["timeline"]["captions"]] == [
+        (0.5, "First thought."),
+        (2.5, "Second thought."),
+    ]
     assert plan["timeline"]["captions"][1]["source_start"] == 6.5  # what an edit of that line is stored under
 
 
@@ -154,21 +203,45 @@ def test_capabilities_offer_the_editor_with_what_this_machine_can_run() -> None:
     assert [row["id"] for row in editor["transitions"]] == [row[0] for row in TRANSITIONS]
     assert all(isinstance(row["available"], bool) for row in editor["transitions"])
     assert editor["defaults"] == default_edit()
-    assert set(editor["features"]) >= {"transitions", "text", "captions", "overlays", "cutout", "zoom", "stabilize", "look", "voice", "music"}
-    assert all(isinstance(row["available"], bool) for rows in ("zoom_modes", "cutout_modes", "looks") for row in editor[rows])
+    assert set(editor["features"]) >= {
+        "transitions",
+        "text",
+        "captions",
+        "overlays",
+        "cutout",
+        "zoom",
+        "stabilize",
+        "look",
+        "voice",
+        "music",
+    }
+    assert all(
+        isinstance(row["available"], bool) for rows in ("zoom_modes", "cutout_modes", "looks") for row in editor[rows]
+    )
     assert next(row for row in editor["looks"] if row["id"] == "none")["available"] is True
 
 
 def test_a_machine_without_a_filter_is_told_so(monkeypatch) -> None:
     monkeypatch.setattr("vedit.campaign.has_filter", lambda name: name not in {"xfade", "perspective"})
     editor = capabilities()["editor"]
-    assert editor["features"]["transitions"] is False and editor["features"]["zoom"] is False and editor["features"]["text"] is True
+    assert (
+        editor["features"]["transitions"] is False
+        and editor["features"]["zoom"] is False
+        and editor["features"]["text"] is True
+    )
     assert {row["id"]: row["available"] for row in editor["transitions"]}["none"] is True
     assert {row["id"]: row["available"] for row in editor["transitions"]}["fade"] is False
 
 
 def test_request_takes_a_template_and_a_partial_edit_over_the_brief(manager, clip) -> None:
-    job = manager.create(request(clip, goal="Fade out at the end", template="cinematic", edit={"look": {"intensity": 0.5}, "zoom": {"mode": "none"}}))
+    job = manager.create(
+        request(
+            clip,
+            goal="Fade out at the end",
+            template="cinematic",
+            edit={"look": {"intensity": 0.5}, "zoom": {"mode": "none"}},
+        )
+    )
     manager.process(job["id"])
     edit = manager.get(job["id"])["plan"]["edit"]
     assert edit["template"] == "cinematic"
@@ -179,13 +252,21 @@ def test_request_takes_a_template_and_a_partial_edit_over_the_brief(manager, cli
 
 
 def test_request_rejects_an_unknown_template_or_bad_edit(manager, clip) -> None:
-    for bad in ({"template": "sparkle"}, {"template": 3}, {"edit": "warm"}, {"edit": {"look": {"preset": "sparkle"}}}, {"edit": {"fade": {"in": float("nan")}}}):
+    for bad in (
+        {"template": "sparkle"},
+        {"template": 3},
+        {"edit": "warm"},
+        {"edit": {"look": {"preset": "sparkle"}}},
+        {"edit": {"fade": {"in": float("nan")}}},
+    ):
         with pytest.raises(CampaignError):
             manager.create(request(clip, **bad))
 
 
 def test_request_drops_unknown_edit_keys(manager, clip) -> None:
-    job = manager.create(request(clip, edit={"look": {"preset": "warm", "shell": "rm"}, "command": "rm", "weird": float("nan")}))
+    job = manager.create(
+        request(clip, edit={"look": {"preset": "warm", "shell": "rm"}, "command": "rm", "weird": float("nan")})
+    )
     assert job["request"]["edit"] == {"look": {"preset": "warm"}}
 
 
@@ -202,7 +283,11 @@ def test_the_timeline_route_resolves_a_draft_without_saving(manager, clip, monke
 
     monkeypatch.setattr("vedit.campaign.probe", no_process)
     monkeypatch.setattr("subprocess.run", no_process)
-    draft = dict(planned["plan"], segments=[{"start": 0.1, "end": 1.1, "speed": 2}], edit=dict(planned["plan"]["edit"], removed=[[0.3, 0.5]]))
+    draft = dict(
+        planned["plan"],
+        segments=[{"start": 0.1, "end": 1.1, "speed": 2}],
+        edit=dict(planned["plan"]["edit"], removed=[[0.3, 0.5]]),
+    )
     timeline = manager.timeline(job["id"], {"plan": draft})
     assert set(timeline) == {"spans", "duration", "transition_seconds", "captions"}
     assert timeline["duration"] == pytest.approx(0.4) and len(timeline["spans"]) == 2
@@ -217,12 +302,17 @@ def test_the_timeline_route_resolves_a_draft_without_saving(manager, clip, monke
     assert caught.value.status == 404
 
 
-@pytest.mark.parametrize("choice, suffix, size, rate, sound", [
-    ({"quality": "720p", "fps": 24, "format": "webm"}, ".webm", (1280, 720), 24, True),
-    ({"quality": "720p", "format": "mov"}, ".mov", (1280, 720), 30, True),
-    ({"format": "gif"}, ".gif", (960, 540), 15, False),
-])
-def test_the_chosen_export_is_what_is_delivered_and_verified(manager, clip, monkeypatch, choice, suffix, size, rate, sound) -> None:
+@pytest.mark.parametrize(
+    "choice, suffix, size, rate, sound",
+    [
+        ({"quality": "720p", "fps": 24, "format": "webm"}, ".webm", (1280, 720), 24, True),
+        ({"quality": "720p", "format": "mov"}, ".mov", (1280, 720), 30, True),
+        ({"format": "gif"}, ".gif", (960, 540), 15, False),
+    ],
+)
+def test_the_chosen_export_is_what_is_delivered_and_verified(
+    manager, clip, monkeypatch, choice, suffix, size, rate, sound
+) -> None:
     job = manager.create(request(clip, aspect="16:9", edit={"export": choice}))
     manager.process(job["id"])
     manager.render(job["id"], {})
@@ -239,8 +329,10 @@ def test_the_chosen_export_is_what_is_delivered_and_verified(manager, clip, monk
 
 
 def test_the_tracking_proxy_runs_on_the_finished_clock(manager, clip, tmp_path) -> None:
-    plan = {"segments": [{"start": 0.1, "end": 0.9, "speed": 2.0}, {"start": 1.0, "end": 1.4}],
-            "edit": {"removed": [[0.3, 0.5]], "transition": {"type": "fade", "seconds": 0.1}}}
+    plan = {
+        "segments": [{"start": 0.1, "end": 0.9, "speed": 2.0}, {"start": 1.0, "end": 1.4}],
+        "edit": {"removed": [[0.3, 0.5]], "transition": {"type": "fade", "seconds": 0.1}},
+    }
     view = plan_timeline(plan)
     proxy = manager._analysis_proxy(tmp_path / "project", clip, probe(clip), assembly_op(view, plan["edit"]))
     assert probe(proxy).duration == pytest.approx(view["duration"], abs=0.07)
@@ -250,19 +342,59 @@ def test_every_setting_renders_together_on_one_clock(manager, clip, monkeypatch)
     """The whole editor at once: if two stages disagree about the clock, the probe shows it."""
     inbox = clip.parent
     ffmpeg = resolve_ffmpeg()
-    subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=4", str(inbox / "bed.wav")], check=True)
-    subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=orange:s=120x60:d=0.04", "-frames:v", "1", str(inbox / "logo.png")], check=True)
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=220:sample_rate=48000:duration=4",
+            str(inbox / "bed.wav"),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=orange:s=120x60:d=0.04",
+            "-frames:v",
+            "1",
+            str(inbox / "logo.png"),
+        ],
+        check=True,
+    )
     job = manager.create(request(clip))
     manager.process(job["id"])
     bed = manager.add_asset(job["id"], {"path": str(inbox / "bed.wav")})
     logo = manager.add_asset(job["id"], {"path": str(inbox / "logo.png")})
     plan = manager.get(job["id"])["plan"]
-    edit = dict(plan["edit"], look={**plan["edit"]["look"], "preset": "warm", "vignette": 0.3}, transition={"type": "fade", "seconds": 0.15},
-                zoom={"mode": "slow", "strength": 0.5}, stabilize=True, denoise_picture=True, audio={**plan["edit"]["audio"], "enhance_voice": True, "denoise": True},
-                texts=[{"text": "Made by hand", "start": 0, "duration": 0.5, "style": "title", "position": "center"}],
-                logo={"asset": logo["id"]}, overlays=[{"asset": logo["id"], "start": 0.1, "duration": 0.3, "position": "center"}],
-                music={"asset": bed["id"], "volume_db": -20}, fade={"in": 0.1, "out": 0.1}, removed=[[0.5, 0.65]])
-    draft = dict(plan, edit=edit, segments=[{"start": 0.0, "end": 0.9, "speed": 1.25}, {"start": 1.0, "end": 1.4, "volume": 0.8}])
+    edit = dict(
+        plan["edit"],
+        look={**plan["edit"]["look"], "preset": "warm", "vignette": 0.3},
+        transition={"type": "fade", "seconds": 0.15},
+        zoom={"mode": "slow", "strength": 0.5},
+        stabilize=True,
+        denoise_picture=True,
+        audio={**plan["edit"]["audio"], "enhance_voice": True, "denoise": True},
+        texts=[{"text": "Made by hand", "start": 0, "duration": 0.5, "style": "title", "position": "center"}],
+        logo={"asset": logo["id"]},
+        overlays=[{"asset": logo["id"], "start": 0.1, "duration": 0.3, "position": "center"}],
+        music={"asset": bed["id"], "volume_db": -20},
+        fade={"in": 0.1, "out": 0.1},
+        removed=[[0.5, 0.65]],
+    )
+    draft = dict(
+        plan, edit=edit, segments=[{"start": 0.0, "end": 0.9, "speed": 1.25}, {"start": 1.0, "end": 1.4, "volume": 0.8}]
+    )
     manager.render(job["id"], {"plan": draft})
     manager.process(job["id"])
     done = manager.get(job["id"])
@@ -272,7 +404,22 @@ def test_every_setting_renders_together_on_one_clock(manager, clip, monkeypatch)
     assert output.duration == pytest.approx(approved["timeline"]["duration"], abs=0.07)
     assert approved["timeline"]["duration"] == approved["duration"] < 1.2
     brief = manager.artifact(job["id"], "brief").read_text()
-    order = ["select_ranges", "stabilize", "denoise", "zoom", "look", "voice", "text", "logo", "overlay", "fade_in", "fade_out", "music", "loudnorm", "export"]
+    order = [
+        "select_ranges",
+        "stabilize",
+        "denoise",
+        "zoom",
+        "look",
+        "voice",
+        "text",
+        "logo",
+        "overlay",
+        "fade_in",
+        "fade_out",
+        "music",
+        "loudnorm",
+        "export",
+    ]
     positions = [brief.index(f"op: {name}\n") for name in order]
     assert positions == sorted(positions)
     assert bed["id"] in brief and logo["id"] in brief

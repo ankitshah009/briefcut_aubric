@@ -141,9 +141,7 @@ class Critique:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Critique:
         raw = _pick(cls, data)
-        findings = tuple(
-            item if isinstance(item, Finding) else Finding.from_dict(item) for item in raw["findings"]
-        )
+        findings = tuple(item if isinstance(item, Finding) else Finding.from_dict(item) for item in raw["findings"])
         failed = any(item.severity == "fail" for item in findings)
         ok = False if failed else raw["ok"]
         return cls(ok=ok, findings=findings)

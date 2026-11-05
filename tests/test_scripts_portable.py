@@ -30,5 +30,5 @@ def test_scripts_name_no_private_or_mac_only_path() -> None:
     assert "Downloads" not in baseline, "user clips in ~/Downloads must never be sent to an API"
     assert "--provider local" not in baseline, "demo_run is Meta-only and rejects --provider local"
     assert '"/2026' not in baseline, "evidence files are found by their stamp, not by the year"
-    assert "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg\"\n" not in (ROOT / "scripts" / "make_music_beds.py").read_text()
+    assert '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"\n' not in (ROOT / "scripts" / "make_music_beds.py").read_text()
     assert "google-chrome" in (ROOT / "scripts" / "shoot_studio.py").read_text()

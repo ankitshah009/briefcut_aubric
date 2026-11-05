@@ -90,26 +90,45 @@ def test_studio_health_and_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             assert status == 400
 
 
-def test_a_failed_session_is_a_422_with_the_critique_as_the_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_failed_session_is_a_422_with_the_critique_as_the_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     with _studio_server() as port:
-        status, raw = _exchange("POST", port, "/api/run", {"goal": "edit the board video", "paths": [], "render": False, "analyze": False}, timeout=20)
+        status, raw = _exchange(
+            "POST",
+            port,
+            "/api/run",
+            {"goal": "edit the board video", "paths": [], "render": False, "analyze": False},
+            timeout=20,
+        )
     payload = json.loads(raw.decode())
     assert status == 422, payload
     assert payload["ok"] is False and payload["session"]["status"] == "failed"
     assert payload["error"].startswith("no media paths")
-    assert Path(payload["session"]["root"]).parent == tmp_path / "vedit-sessions", "the failed session is still saved in the workspace"
+    assert Path(payload["session"]["root"]).parent == tmp_path / "vedit-sessions", (
+        "the failed session is still saved in the workspace"
+    )
 
 
 @pytest.mark.parametrize("route", ["/api/run", "/api/plan"])
-def test_a_session_root_outside_the_workspace_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str) -> None:
+def test_a_session_root_outside_the_workspace_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str
+) -> None:
     """The server writes session.json, brief.yaml and uploads into root, so root is confined to vedit-sessions."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     elsewhere = tmp_path / "elsewhere"
     monkeypatch.chdir(workspace)
-    bad_roots = [str(elsewhere), str(workspace), str(workspace / "vedit-sessions"), str(workspace / "vedit-sessions" / "campaigns"),
-                 str(workspace / "vedit-sessions" / "a" / "deep"), str(workspace / "vedit-sessions" / ".hidden"), "../elsewhere"]
+    bad_roots = [
+        str(elsewhere),
+        str(workspace),
+        str(workspace / "vedit-sessions"),
+        str(workspace / "vedit-sessions" / "campaigns"),
+        str(workspace / "vedit-sessions" / "a" / "deep"),
+        str(workspace / "vedit-sessions" / ".hidden"),
+        "../elsewhere",
+    ]
     with _studio_server() as port:
         for root in bad_roots:
             status, raw = _exchange("POST", port, route, {"goal": "keep it", "paths": [], "root": root}, timeout=20)
@@ -119,7 +138,13 @@ def test_a_session_root_outside_the_workspace_is_refused(tmp_path: Path, monkeyp
         status, raw = _exchange("GET", port, "/api/media?root=" + quote(str(elsewhere), safe=""))
         assert status == 400, raw
         # Inside the workspace the same request is served: it fails only for want of media.
-        status, raw = _exchange("POST", port, route, {"goal": "keep it", "paths": [], "root": str(workspace / "vedit-sessions" / "mine")}, timeout=20)
+        status, raw = _exchange(
+            "POST",
+            port,
+            route,
+            {"goal": "keep it", "paths": [], "root": str(workspace / "vedit-sessions" / "mine")},
+            timeout=20,
+        )
         assert status == 422 and json.loads(raw)["session"]["root"] == str(workspace / "vedit-sessions" / "mine"), raw
     assert not elsewhere.exists() and not list(workspace.glob("*.json"))
     assert (workspace / "vedit-sessions" / "mine" / "session.json").is_file()
@@ -135,8 +160,14 @@ def test_media_paths_must_be_uploads_in_the_workspace(tmp_path: Path, monkeypatc
     secret = tmp_path / "secret.mp4"
     secret.write_bytes(b"x")
     monkeypatch.chdir(workspace)
-    bad_paths = [str(secret), str(workspace / "vedit-sessions" / "source-1" / "clip.mp4"), str(inbox / "missing.mp4"),
-                 str(workspace / "vedit-sessions" / "campaigns" / "inbox" / "clip.mp4"), "clip.mp4", str(inbox / ".hidden.mp4")]
+    bad_paths = [
+        str(secret),
+        str(workspace / "vedit-sessions" / "source-1" / "clip.mp4"),
+        str(inbox / "missing.mp4"),
+        str(workspace / "vedit-sessions" / "campaigns" / "inbox" / "clip.mp4"),
+        "clip.mp4",
+        str(inbox / ".hidden.mp4"),
+    ]
     with _studio_server() as port:
         for path in bad_paths:
             status, raw = _exchange("POST", port, "/api/plan", {"goal": "keep it", "paths": [path]}, timeout=20)
@@ -231,7 +262,9 @@ def test_studio_holds_a_burst_of_connections() -> None:
         try:
             barrier.wait()
             with socket.create_connection(("127.0.0.1", port), timeout=20) as connection:
-                connection.sendall(f"GET /studio.css HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode())
+                connection.sendall(
+                    f"GET /studio.css HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode()
+                )
                 assert connection.recv(16).startswith(b"HTTP/1.")
         except (OSError, AssertionError) as exc:
             failures.append(type(exc).__name__)

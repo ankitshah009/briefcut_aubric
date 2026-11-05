@@ -13,17 +13,21 @@ path, so Studio shows what will burn.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import unicodedata
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from vedit.analyze import Range, audible
-from vedit.errors import CaptionError
+from vedit.errors import CaptionError, VeditError
 from vedit.media import filter_value, has_filter, probe, resolve_font, run_ffmpeg
 from vedit.timeline import Span, concat_spans, concat_to_source, map_cues, output_duration, plan_timeline, to_source
+
+_log = logging.getLogger(__name__)
 
 MAX_WORDS = 4000
 MAX_WORD_CHARS = 64
@@ -34,8 +38,15 @@ PHANTOM_WORDS = 2
 
 # Scripts written without spaces between words.
 _TIGHT_RANGES = (
-    (0x0E00, 0x0EFF), (0x1000, 0x109F), (0x1780, 0x17FF), (0x3000, 0x30FF), (0x3400, 0x4DBF),
-    (0x4E00, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF), (0x20000, 0x2FFFF),
+    (0x0E00, 0x0EFF),
+    (0x1000, 0x109F),
+    (0x1780, 0x17FF),
+    (0x3000, 0x30FF),
+    (0x3400, 0x4DBF),
+    (0x4E00, 0x9FFF),
+    (0xF900, 0xFAFF),
+    (0xFF00, 0xFFEF),
+    (0x20000, 0x2FFFF),
 )
 # Line splitting can cut a note in two, so an unclosed start or a closing tail counts as well.
 _ANNOTATION = re.compile(r"\[[^\]]*(?:\]|$)|\([^)]*(?:\)|$)|^[a-z][a-z ]{0,30}[\])]|\*[^*]{1,40}\*|[♪♫♬]+")
@@ -76,9 +87,11 @@ _TERMINAL_END = re.compile(f"[{re.escape(SENTENCE_ENDS)}][{re.escape(CLOSERS)}]*
 
 # Line-breaking rules for text with no spaces (Japanese kinsoku, Thai and Lao vowel order).
 # These never begin a line: small kana, the long-vowel mark, iteration marks, and vowels written after their consonant.
-_NO_START = frozenset("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿーゝゞヽヾ々〻ゟ" "ะาำๅๆฯ" "ະາຳໆ")
+_NO_START = frozenset(
+    "ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿーゝゞヽヾ々〻ゟะาำๅๆฯະາຳໆ"
+)
 # These never end a line: Thai and Lao vowels written before their consonant.
-_NO_END = frozenset("เแโใไ" "ເແໂໃໄ")
+_NO_END = frozenset("เแโใไເແໂໃໄ")
 _THAI_CLUSTER = (frozenset("กขคตปพผบด"), frozenset("รลว"))  # กร, ปล, คว... begin one syllable
 
 
@@ -102,7 +115,7 @@ def text_width(text: str) -> int:
 def edge_stripped(text: str) -> str:
     """A word without the punctuation and symbols around it. Marks stay: "हैं," keeps its vowel signs, unlike ``\\W`` stripping."""
     letters = [index for index, char in enumerate(text) if unicodedata.category(char)[0] in "LNM"]
-    return text[letters[0]:letters[-1] + 1] if letters else ""
+    return text[letters[0] : letters[-1] + 1] if letters else ""
 
 
 def _kind(char: str) -> str:
@@ -111,7 +124,13 @@ def _kind(char: str) -> str:
         return "hira"
     if 0x30A0 <= code <= 0x30FF or 0x31F0 <= code <= 0x31FF or 0xFF66 <= code <= 0xFF9F:
         return "kata"
-    if 0x3400 <= code <= 0x4DBF or 0x4E00 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF or 0x20000 <= code <= 0x2FFFF or char in "々〆〇":
+    if (
+        0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xF900 <= code <= 0xFAFF
+        or 0x20000 <= code <= 0x2FFFF
+        or char in "々〆〇"
+    ):
         return "han"
     if 0x0E00 <= code <= 0x0E7F:
         return "thai"
@@ -135,7 +154,11 @@ def _thai_break(text: str, index: int) -> bool:
     if char in "เแโใไ" or before in "ะำๆฯ":
         return True
     following = text[index + 1] if index + 1 < len(text) else ""
-    if not (0x0E01 <= ord(char) <= 0x0E2E and following and (unicodedata.category(following)[0] == "M" or following in "ะาำ")):
+    if not (
+        0x0E01 <= ord(char) <= 0x0E2E
+        and following
+        and (unicodedata.category(following)[0] == "M" or following in "ะาำ")
+    ):
         return False
     return not (char in _THAI_CLUSTER[1] and before in _THAI_CLUSTER[0])
 
@@ -175,7 +198,12 @@ def _tight_words(chunk: str, run: int) -> list[str]:
             first = next((_kind(char) for char in piece if _kind(char) != "punct"), "punct")
             opens = unicodedata.category(piece[0]) in ("Ps", "Pi")
             if japanese:
-                turn = (last == "hira" and first in ("han", "kata", "other")) or {last, first} == {"han", "kata"} or last == "punct" or opens
+                turn = (
+                    (last == "hira" and first in ("han", "kata", "other"))
+                    or {last, first} == {"han", "kata"}
+                    or last == "punct"
+                    or opens
+                )
                 full = text_width(current + piece) > limit
             else:
                 turn = (last == "punct" and first != "punct") or opens
@@ -204,9 +232,9 @@ def join_words(parts: Iterable[str]) -> str:
     """Words back into a line: a space between them, except inside scripts that use none."""
     line = ""
     for part in parts:
-        part = part.strip()
-        if part:
-            line += part if not line or (is_tight(line[-1]) and is_tight(part[0])) else " " + part
+        word = part.strip()
+        if word:
+            line += word if not line or (is_tight(line[-1]) and is_tight(word[0])) else " " + word
     return line
 
 
@@ -286,7 +314,9 @@ def word_records(words: Iterable[Any], duration: float = math.inf) -> list[dict[
         if text:
             start = max(0.0, word.start)
             # Some tokens report no length. A word must still have one, or a bound downstream drops it.
-            records.append(word_record(replace(word, start=start, end=min(duration, max(word.end, start + 0.01)), text=text)))
+            records.append(
+                word_record(replace(word, start=start, end=min(duration, max(word.end, start + 0.01)), text=text))
+            )
             if len(records) >= MAX_WORDS:
                 break
     return records
@@ -308,7 +338,9 @@ def interpolate_words(cue: Any) -> Any:
     for part in parts:
         begin = timed.start + (timed.end - timed.start) * spent / total
         spent += len(part)
-        words.append(Word(round(begin, 3), round(timed.start + (timed.end - timed.start) * spent / total, 3), part, True))
+        words.append(
+            Word(round(begin, 3), round(timed.start + (timed.end - timed.start) * spent / total, 3), part, True)
+        )
     if isinstance(cue, Cue):
         return replace(timed, words=tuple(words))
     return {**cue, "words": [word_record(word) for word in words], "estimated": True}
@@ -319,12 +351,12 @@ def format_ts(seconds: float, *, srt: bool = True) -> str:
     a three-digit fraction as centiseconds, so ".380" would mean 3.8 s."""
     total = max(0.0, float(seconds))
     if srt:
-        ms = int(round(total * 1000))
+        ms = round(total * 1000)
         h, rem = divmod(ms, 3_600_000)
         m, rem = divmod(rem, 60_000)
         s, ms = divmod(rem, 1000)
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-    cs = int(round(total * 100))
+    cs = round(total * 100)
     h, rem = divmod(cs, 360_000)
     m, rem = divmod(rem, 6_000)
     s, cs = divmod(rem, 100)
@@ -351,7 +383,9 @@ def _capitalize(text: str) -> str:
 
 
 def _tokens(cue: Cue) -> list[Word | str]:
-    return list(cue.words) if cue.words else cue.text.split()
+    if cue.words:
+        return list(cue.words)
+    return list(cue.text.split())
 
 
 def _token_text(token: Word | str) -> str:
@@ -402,9 +436,11 @@ def _collapse_phrases(cues: list[Cue], longest: int = REPEAT_WORDS) -> list[Cue]
         size = 0
         for n in range(min(longest, len(kept), len(stream) - position), 1, -1):
             first, second = kept[-n:], list(range(position, position + n))
-            if (all(keys[a] and keys[a] == keys[b] and _cased_key(keys[a]) for a, b in zip(first, second))
-                    and len({cues[stream[at][0]].segment for at in (*first, *second)}) == 1
-                    and not any(texts[at][-1] in PHRASE_ENDS for at in (*first, *second[:-1]))):
+            if (
+                all(keys[a] and keys[a] == keys[b] and _cased_key(keys[a]) for a, b in zip(first, second, strict=True))
+                and len({cues[stream[at][0]].segment for at in (*first, *second)}) == 1
+                and not any(texts[at][-1] in PHRASE_ENDS for at in (*first, *second[:-1]))
+            ):
                 size = n
                 break
         if not size:
@@ -415,7 +451,7 @@ def _collapse_phrases(cues: list[Cue], longest: int = REPEAT_WORDS) -> list[Cue]
         token = tokens.get(last, stream[last][1])
         merged = _absorb(token, stream[gone][1], False)  # the kept word, holding the time of the copy that went
         stripped = edge_stripped(texts[gone])
-        tail = texts[gone][texts[gone].rfind(stripped) + len(stripped):] if stripped else ""
+        tail = texts[gone][texts[gone].rfind(stripped) + len(stripped) :] if stripped else ""
         if tail and _token_text(token) == edge_stripped(_token_text(token)):
             merged = replace(merged, text=merged.text + tail) if isinstance(merged, Word) else merged + tail
         tokens[last] = merged
@@ -425,7 +461,9 @@ def _collapse_phrases(cues: list[Cue], longest: int = REPEAT_WORDS) -> list[Cue]
         return cues
     out: list[Cue] = []
     for index, cue in enumerate(cues):
-        left = [tokens.get(at, token) for at, (owner, token) in enumerate(stream) if owner == index and at not in dropped]
+        left = [
+            tokens.get(at, token) for at, (owner, token) in enumerate(stream) if owner == index and at not in dropped
+        ]
         if left:
             out.append(_rebuilt(cue, left))
         elif out and out[-1].segment == cue.segment:
@@ -477,9 +515,16 @@ def polish_cues(cues: list[Cue], *, max_chars: int = 84, max_gap: float = 0.35) 
                 previous = None
             key = _word_key(word)
             # Only in scripts with case: Hebrew "סוף סוף" (finally) or Hindi "धीरे धीरे" (slowly) double on purpose.
-            if previous is not None and key and key[0].upper() != key[0].lower() and key == _word_key(_token_text(previous)):
+            if (
+                previous is not None
+                and key
+                and key[0].upper() != key[0].lower()
+                and key == _word_key(_token_text(previous))
+            ):
                 # Keep whichever copy carries the punctuation ("lathe lathe," -> "lathe,").
-                punctuation = edge_stripped(word) != word and edge_stripped(_token_text(previous)) == _token_text(previous)
+                punctuation = edge_stripped(word) != word and edge_stripped(_token_text(previous)) == _token_text(
+                    previous
+                )
                 if kept:
                     kept[-1] = _absorb(kept[-1], token, punctuation)
                 else:
@@ -504,7 +549,11 @@ def polish_cues(cues: list[Cue], *, max_chars: int = 84, max_gap: float = 0.35) 
             gap = cue.start - previous.end
             # Thai, Lao, Khmer and Myanmar put a space between phrases, so two lines join with one.
             spaced = _phrase_spaced(previous.text[-1]) and _phrase_spaced(cue.text[0])
-            joined = f"{previous.text} {cue.text}" if spaced and not (previous.words and cue.words) else join_words((previous.text, cue.text))
+            joined = (
+                f"{previous.text} {cue.text}"
+                if spaced and not (previous.words and cue.words)
+                else join_words((previous.text, cue.text))
+            )
             fits = text_width(joined) <= max_chars and gap <= max_gap
             open_ended = not _TERMINAL_END.search(previous.text)
             short_trailer = (cue.end - cue.start) <= 0.8 or len(split_words(cue.text)) <= 2
@@ -516,8 +565,12 @@ def polish_cues(cues: list[Cue], *, max_chars: int = 84, max_gap: float = 0.35) 
 
     # A line takes a capital only where a sentence starts: the first line, the first line of a story moment, or
     # after a line that ended a sentence. "on the lathe." after "I put the blank" is the same sentence and stays as spoken.
-    return [_capitalized(cue) if index == 0 or cue.segment != merged[index - 1].segment or _TERMINAL_END.search(merged[index - 1].text) else cue
-            for index, cue in enumerate(merged)]
+    return [
+        _capitalized(cue)
+        if index == 0 or cue.segment != merged[index - 1].segment or _TERMINAL_END.search(merged[index - 1].text)
+        else cue
+        for index, cue in enumerate(merged)
+    ]
 
 
 def wrap_cue_text(text: str, *, max_line: int = 42) -> list[str]:
@@ -545,7 +598,7 @@ def wrap_cue_text(text: str, *, max_line: int = 42) -> list[str]:
         at = starts[-1] + len(word)
     best: tuple[float, list[str]] | None = None
     for index in range(1, len(words)):
-        left, right = " ".join(text[:starts[index]].split()), " ".join(text[starts[index]:].split())
+        left, right = " ".join(text[: starts[index]].split()), " ".join(text[starts[index] :].split())
         score = abs(text_width(left) - text_width(right))
         if left[-1] in PHRASE_ENDS:
             score -= 1.5
@@ -598,7 +651,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 _SRT_BLOCK = re.compile(
     r"(\d+)\s+(\d{2}:\d{2}:\d{2}[,.]\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}[,.]\d{3})\s+(.*?)(?=\n\d+\s+\d{2}:|\Z)",
-    re.S,
+    re.DOTALL,
 )
 
 
@@ -666,7 +719,9 @@ _JOINED_DOUBLE = re.compile(r"(?<![\w'’])([^\W\d_][\w'’]*?)\1(?![\w'’])")
 def _mended(match: re.Match[str]) -> str:
     half = match.group(1)
     rest = half[1:]
-    capitalised = half[0].isupper() and any(char.islower() for char in rest) and not any(char.isupper() for char in rest)
+    capitalised = (
+        half[0].isupper() and any(char.islower() for char in rest) and not any(char.isupper() for char in rest)
+    )
     return half if capitalised else match.group(0)
 
 
@@ -685,8 +740,7 @@ def heard_cues(records: Iterable[Any]) -> list[Cue]:
     """
     lines: list[Cue] = []
     for cue in clean_transcript([cue for cue in map(_as_cue, records) if cue is not None]):
-        cue = replace(cue, text=mend_joined_doubles(cue.text))
-        spread = interpolate_words(cue)
+        spread = interpolate_words(replace(cue, text=mend_joined_doubles(cue.text)))
         lines.extend(replace(line, words=()) for line in cues_from_words(list(spread.words), text=spread.text))
     return lines
 
@@ -706,7 +760,7 @@ def _pause_in(wav: Path, low: float, high: float) -> float:
     size = max(1, round(_QUIET_WINDOW * SPEECH_RATE))
     levels = []
     for begin in range(0, len(samples) - size + 1, size):
-        chunk = samples[begin:begin + size]
+        chunk = samples[begin : begin + size]
         levels.append(10 * math.log10(max(1.0, sum(map(mul, chunk, chunk)) / size)))
     if not levels:
         return high
@@ -750,32 +804,61 @@ def _hear(wav: Path, work_dir: Path, *, language: str, budget_usd: float, ledger
     seconds = probe(wav).duration
     pieces = _pieces(wav, seconds)
     if len(pieces) > 1:
-        pieces = [(start, end) for start, end in pieces if end - start >= _SHORTEST_PIECE and audible(wav, start=start, seconds=end - start)]
+        pieces = [
+            (start, end)
+            for start, end in pieces
+            if end - start >= _SHORTEST_PIECE and audible(wav, start=start, seconds=end - start)
+        ]
     elif seconds < _SHORTEST_PIECE:
         return []
     # Said before anything is sent: a budget that cannot cover every piece would otherwise pay for a transcript it cannot finish.
     most = sum(math.ceil(end - start) for start, end in pieces) / 3600 * meta._TRANSCRIBE_PRICE_PER_HOUR
     if most > budget_usd + 1e-9:
         minutes = sum(end - start for start, end in pieces) / 60
-        raise meta.MetaError(f"Transcribing {minutes:.0f} minutes of speech costs up to ${most:.2f}, more than this project's ${budget_usd:.2f} Meta budget. "
-                             "Raise the budget, or shorten the source.")
+        raise meta.MetaError(
+            f"Transcribing {minutes:.0f} minutes of speech costs up to ${most:.2f}, more than this project's ${budget_usd:.2f} Meta budget. "
+            "Raise the budget, or shorten the source."
+        )
     heard: list[dict[str, Any]] = []
     for index, (start, end) in enumerate(pieces):
         piece = wav
         if len(pieces) > 1 or (start, end) != (0.0, seconds):
             piece = work_dir / f"{wav.stem}-{index:02d}.wav"
-            run_ffmpeg(["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(wav), "-c:a", "pcm_s16le", "-ar", str(SPEECH_RATE), "-ac", "1", str(piece)])
+            run_ffmpeg(
+                [
+                    "-ss",
+                    f"{start:.3f}",
+                    "-t",
+                    f"{end - start:.3f}",
+                    "-i",
+                    str(wav),
+                    "-c:a",
+                    "pcm_s16le",
+                    "-ar",
+                    str(SPEECH_RATE),
+                    "-ac",
+                    "1",
+                    str(piece),
+                ]
+            )
         try:
-            result = meta.transcribe_audio(piece, duration=probe(piece).duration, work_dir=ledger, language=language, budget_usd=budget_usd)
+            result = meta.transcribe_audio(
+                piece, duration=probe(piece).duration, work_dir=ledger, language=language, budget_usd=budget_usd
+            )
         finally:
             if piece is not wav:
                 # Meta's cache is keyed by the audio itself, so a later run cuts the same bytes and pays nothing.
                 piece.unlink(missing_ok=True)
-        heard.extend({"start": float(cue["start"]) + start, "end": float(cue["end"]) + start, "text": cue["text"]} for cue in result.get("cues") or [])
+        heard.extend(
+            {"start": float(cue["start"]) + start, "end": float(cue["end"]) + start, "text": cue["text"]}
+            for cue in result.get("cues") or []
+        )
     return heard
 
 
-def transcribe(media: Path, work_dir: Path, *, language: str = "auto", budget_usd: float = .25, meta_dir: Path | None = None) -> list[Cue]:
+def transcribe(
+    media: Path, work_dir: Path, *, language: str = "auto", budget_usd: float = 0.25, meta_dir: Path | None = None
+) -> list[Cue]:
     """Speech to timed lines with Meta Voice Transcribe, the only transcriber Briefcut calls.
 
     The audio track the editor plays (``MediaInfo.audio_map``) is heard as
@@ -792,7 +875,22 @@ def transcribe(media: Path, work_dir: Path, *, language: str = "auto", budget_us
         return []
     wav = work_dir / "speech-16k.wav"
     try:
-        run_ffmpeg(["-i", str(media), "-map", f"0:a:{info.audio_map}", "-vn", "-ac", "1", "-ar", str(SPEECH_RATE), "-c:a", "pcm_s16le", str(wav)])
+        run_ffmpeg(
+            [
+                "-i",
+                str(media),
+                "-map",
+                f"0:a:{info.audio_map}",
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                str(SPEECH_RATE),
+                "-c:a",
+                "pcm_s16le",
+                str(wav),
+            ]
+        )
         ledger = Path(meta_dir) if meta_dir is not None else work_dir / "meta"
         return heard_cues(_hear(wav, work_dir, language=language, budget_usd=budget_usd, ledger=ledger))
     finally:
@@ -800,8 +898,15 @@ def transcribe(media: Path, work_dir: Path, *, language: str = "auto", budget_us
         wav.unlink(missing_ok=True)
 
 
-def transcribe_kept(source: Path, spans: list[Span], work_dir: Path, *, language: str = "auto", budget_usd: float = .25,
-                    meta_dir: Path | None = None) -> list[Cue]:
+def transcribe_kept(
+    source: Path,
+    spans: list[Span],
+    work_dir: Path,
+    *,
+    language: str = "auto",
+    budget_usd: float = 0.25,
+    meta_dir: Path | None = None,
+) -> list[Cue]:
     """Meta hears only the kept story audio, on the concat clock, for ``concat_cues``.
 
     The same rules as ``transcribe``: silence is never sent, a story over 10
@@ -834,7 +939,9 @@ def _pauses_in(wav: Path) -> list[tuple[float, float]]:
 
     try:
         return [(float(r.start), float(r.end)) for r in detect_silence(wav, min_silence=PAUSE_SECONDS)]
-    except Exception:  # a missing measurement only skips the alignment; the captions stand as heard
+    except (VeditError, OSError) as exc:
+        # A missing measurement only skips the alignment; the captions stand as heard.
+        _log.info("caption pauses were not measured for %s: %s", wav.name, exc)
         return []
 
 
@@ -843,7 +950,9 @@ def _onset(point: float, quiet: list[tuple[float, float]]) -> float | None:
     for low, high in quiet:
         if low <= point < high:
             return max(low, high - EDGE_LEAD)
-    near = [(abs((low + high) / 2 - point), low, high) for low, high in quiet if abs((low + high) / 2 - point) <= EDGE_SHIFT]
+    near = [
+        (abs((low + high) / 2 - point), low, high) for low, high in quiet if abs((low + high) / 2 - point) <= EDGE_SHIFT
+    ]
     if not near:
         return None
     _, low, high = min(near)
@@ -899,7 +1008,9 @@ def attach_words(cues: list[Cue], words: list[Word]) -> list[Cue]:
             if cue.start - 0.5 <= middle <= cue.end + 0.5:
                 owned.append(pending[index])
             index += 1
-        attached.append(replace(cue, text=join_words(word.text for word in owned), words=tuple(owned)) if owned else cue)
+        attached.append(
+            replace(cue, text=join_words(word.text for word in owned), words=tuple(owned)) if owned else cue
+        )
     return attached
 
 
@@ -916,7 +1027,9 @@ def _word_spans(text: str, words: list[Word]) -> list[tuple[int, int]] | None:
     return spans
 
 
-def cues_from_words(words: list[Word], *, max_chars: int = CUE_CHARS, max_gap: float = 0.8, text: str | None = None) -> list[Cue]:
+def cues_from_words(
+    words: list[Word], *, max_chars: int = CUE_CHARS, max_gap: float = 0.8, text: str | None = None
+) -> list[Cue]:
     """Lines from bare words, closing at sentence ends, long gaps, and the line length.
 
     With ``text``, the line the words were split from, each line keeps that
@@ -930,13 +1043,20 @@ def cues_from_words(words: list[Word], *, max_chars: int = CUE_CHARS, max_gap: f
     def close() -> None:
         nonlocal taken
         if current:
-            line = text[spans[taken][0]:spans[taken + len(current) - 1][1]] if spans and text is not None else join_words(word.text for word in current)
+            line = (
+                text[spans[taken][0] : spans[taken + len(current) - 1][1]]
+                if spans and text is not None
+                else join_words(word.text for word in current)
+            )
             cues.append(Cue(current[0].start, max(current[-1].end, current[0].start + 0.01), line, tuple(current)))
             taken += len(current)
             current.clear()
 
     for word in words:
-        if current and (word.start - current[-1].end > max_gap or text_width(join_words(item.text for item in (*current, word))) > max_chars):
+        if current and (
+            word.start - current[-1].end > max_gap
+            or text_width(join_words(item.text for item in (*current, word))) > max_chars
+        ):
             close()
         current.append(word)
         if _TERMINAL_END.search(word.text):
@@ -956,15 +1076,39 @@ def extract_kept_audio(source: Path, spans: list[Span], wav: Path) -> None:
     track = probe(source).audio_map
     for index, span in enumerate(spans):
         length = span.source_end - span.source_start
-        parts.append(f"[0:a:{track}]atrim=start={span.source_start:.6f}:end={span.source_end:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={length:.6f},atrim=end={length:.6f}[a{index}]")
+        parts.append(
+            f"[0:a:{track}]atrim=start={span.source_start:.6f}:end={span.source_end:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={length:.6f},atrim=end={length:.6f}[a{index}]"
+        )
     chain = "".join(f"[a{index}]" for index in range(len(spans)))
-    graph = ";".join(parts) + f";{chain}concat=n={len(spans)}:v=0:a=1,aformat=sample_fmts=s16:channel_layouts=mono,aresample={SPEECH_RATE}[out]"
-    run_ffmpeg(["-i", str(source), "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_s16le", "-ar", str(SPEECH_RATE), "-ac", "1", str(wav)])
+    graph = (
+        ";".join(parts)
+        + f";{chain}concat=n={len(spans)}:v=0:a=1,aformat=sample_fmts=s16:channel_layouts=mono,aresample={SPEECH_RATE}[out]"
+    )
+    run_ffmpeg(
+        [
+            "-i",
+            str(source),
+            "-filter_complex",
+            graph,
+            "-map",
+            "[out]",
+            "-c:a",
+            "pcm_s16le",
+            "-ar",
+            str(SPEECH_RATE),
+            "-ac",
+            "1",
+            str(wav),
+        ]
+    )
 
 
 def _view_spans(view: dict[str, Any]) -> list[Span]:
     fields = ("segment", "source_start", "source_end", "output_start", "output_end", "speed")
-    return [span if isinstance(span, Span) else Span(**{name: span[name] for name in fields}) for span in view.get("spans") or []]
+    return [
+        span if isinstance(span, Span) else Span(**{name: span[name] for name in fields})
+        for span in view.get("spans") or []
+    ]
 
 
 def _edit_of(plan: dict[str, Any]) -> dict[str, Any]:
@@ -975,8 +1119,17 @@ def _drop_phantoms(cues: list[Cue], speech: Any) -> list[Cue]:
     """A recognizer can invent a word or two on silence. A longer line stands even where the meter heard quiet speech as silence."""
     if not isinstance(speech, list):
         return cues
-    bands = [(float(band["start"]), float(band["end"])) for band in speech if isinstance(band, dict) and _seconds(band.get("start")) is not None and _seconds(band.get("end")) is not None]
-    return [cue for cue in cues if len(split_words(cue.text)) > PHANTOM_WORDS or any(min(high, cue.end) > max(low, cue.start) for low, high in bands)]
+    bands = [
+        (float(band["start"]), float(band["end"]))
+        for band in speech
+        if isinstance(band, dict) and _seconds(band.get("start")) is not None and _seconds(band.get("end")) is not None
+    ]
+    return [
+        cue
+        for cue in cues
+        if len(split_words(cue.text)) > PHANTOM_WORDS
+        or any(min(high, cue.end) > max(low, cue.start) for low, high in bands)
+    ]
 
 
 def source_cues(analysis: dict[str, Any]) -> list[Cue]:
@@ -1007,7 +1160,7 @@ def _placed(cues: list[Cue], spans: list[Span], *, on_source: Callable[[float], 
 
 def cue_key(cue: Cue) -> str:
     """What ``edit.captions.edits`` is keyed by: the cue's source start in milliseconds."""
-    return str(int(round((cue.start if cue.source_start is None else cue.source_start) * 1000)))
+    return str(round((cue.start if cue.source_start is None else cue.source_start) * 1000))
 
 
 def _with_edits(cues: list[Cue], edits: Any) -> list[Cue]:
@@ -1079,19 +1232,24 @@ def preview_cues(plan: dict[str, Any], view: dict[str, Any] | None = None) -> li
 
 
 def _translated(cues: list[Cue], language: str, ctx: Any) -> list[Cue]:
-    from vedit import meta
-
-    from vedit import open_weights
+    from vedit import meta, open_weights
 
     status = meta.capabilities()
     # Private mode translates on Muse Glimmer on this computer, so it needs no Meta key.
     if not status["available"] and not open_weights.enabled():
-        raise meta.MetaError(f"Translated captions use Meta, which is not available here. {status['reason']} Or clear the caption language to render without translating.")
+        raise meta.MetaError(
+            f"Translated captions use Meta, which is not available here. {status['reason']} Or clear the caption language to render without translating."
+        )
     # The speech is in the language the request or the plan names; when neither does, the model reads it from the lines.
     plan = getattr(ctx, "plan", None)
     source = str(ctx.request.get("language") or (plan.get("language") if isinstance(plan, dict) else "") or "auto")
-    result = meta.translate_cues([cue_record(replace(cue, words=())) for cue in cues], language, work_dir=Path(ctx.work).parent / "meta", budget_usd=ctx.request.get("budget_usd", 0.25),
-                                 source_language=source)
+    result = meta.translate_cues(
+        [cue_record(replace(cue, words=())) for cue in cues],
+        language,
+        work_dir=Path(ctx.work).parent / "meta",
+        budget_usd=ctx.request.get("budget_usd", 0.25),
+        source_language=source,
+    )
     return [cue for cue in map(_as_cue, result["cues"]) if cue is not None]
 
 
@@ -1107,9 +1265,16 @@ _COMMON_WORDS = {
 }
 _COMMON = {code: frozenset(words.split()) for code, words in _COMMON_WORDS.items()}
 # A script that names one language on its own.
-_SCRIPT_LANGUAGE = (("ja", ((0x3040, 0x30FF),)), ("ko", ((0xAC00, 0xD7AF), (0x1100, 0x11FF))), ("ar", ((0x0600, 0x06FF),)),
-                    ("he", ((0x0590, 0x05FF),)), ("hi", ((0x0900, 0x097F),)), ("th", ((0x0E00, 0x0E7F),)), ("el", ((0x0370, 0x03FF),)),
-                    ("zh", ((0x4E00, 0x9FFF),)))
+_SCRIPT_LANGUAGE = (
+    ("ja", ((0x3040, 0x30FF),)),
+    ("ko", ((0xAC00, 0xD7AF), (0x1100, 0x11FF))),
+    ("ar", ((0x0600, 0x06FF),)),
+    ("he", ((0x0590, 0x05FF),)),
+    ("hi", ((0x0900, 0x097F),)),
+    ("th", ((0x0E00, 0x0E7F),)),
+    ("el", ((0x0370, 0x03FF),)),
+    ("zh", ((0x4E00, 0x9FFF),)),
+)
 
 
 def guess_language(texts: Iterable[str]) -> str | None:
@@ -1129,7 +1294,10 @@ def guess_language(texts: Iterable[str]) -> str | None:
     words = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)?", text.lower())
     if len(words) < 6:
         return None
-    scores = sorted(((sum(1 for word in words if word in common) / len(words), code) for code, common in _COMMON.items()), reverse=True)
+    scores = sorted(
+        ((sum(1 for word in words if word in common) / len(words), code) for code, common in _COMMON.items()),
+        reverse=True,
+    )
     (best, code), (second, _) = scores[0], scores[1]
     return code if best >= 0.12 and best >= 1.5 * second else None
 
@@ -1138,7 +1306,9 @@ def _base_language(code: Any) -> str:
     return str(code or "").strip().lower().replace("_", "-").split("-", 1)[0]
 
 
-def translation_target(settings: Any, request: Any, *, plan: Any = None, heard: Iterable[str] | None = None) -> str | None:
+def translation_target(
+    settings: Any, request: Any, *, plan: Any = None, heard: Iterable[str] | None = None
+) -> str | None:
     """The language the burned captions are translated into, or None when they show the words as spoken.
 
     ``edit.captions.language`` names it. The project's own spoken language means no translation. With the
@@ -1151,8 +1321,9 @@ def translation_target(settings: Any, request: Any, *, plan: Any = None, heard: 
     spoken = request.get("language") if isinstance(request, dict) else None
     if _base_language(spoken) == "auto":
         if heard is None and isinstance(plan, dict):
-            analysis = plan.get("analysis") if isinstance(plan.get("analysis"), dict) else {}
-            heard = [item.get("text", "") for item in analysis.get("transcript") or [] if isinstance(item, dict)]
+            analysis = plan.get("analysis")
+            transcript = analysis.get("transcript") if isinstance(analysis, dict) else None
+            heard = [item.get("text", "") for item in transcript or [] if isinstance(item, dict)]
         spoken = guess_language(heard or [])
     if spoken and _base_language(language) == _base_language(spoken):
         return None
@@ -1273,7 +1444,7 @@ def transcribe_to_files(
     keeps_path: Path | None = None,
     width: int = 1920,
     height: int = 1080,
-    budget_usd: float = .25,
+    budget_usd: float = 0.25,
 ) -> list[Cue]:
     """Hear the media with Meta Voice Transcribe and write SRT/ASS. The ``captions`` brief step (`python -m vedit.captions`)."""
     cues = transcribe(media, work_dir, language=language, budget_usd=budget_usd)
@@ -1291,7 +1462,9 @@ def transcribe_to_files(
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(prog="vedit.captions", description="Caption step: Meta Voice Transcribe to SRT/ASS")
+    parser = argparse.ArgumentParser(
+        prog="vedit.captions", description="Caption step: Meta Voice Transcribe to SRT/ASS"
+    )
     parser.add_argument("--media", required=True)
     parser.add_argument("--work-dir", required=True)
     parser.add_argument("--srt", required=True)
@@ -1300,7 +1473,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--language", default="auto", help='the spoken language, or "auto" to let Meta decide')
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
-    parser.add_argument("--budget", type=float, default=.25, help="most this step may spend on Meta, in USD")
+    parser.add_argument("--budget", type=float, default=0.25, help="most this step may spend on Meta, in USD")
     args = parser.parse_args(argv)
     transcribe_to_files(
         Path(args.media),

@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import make_demo  # noqa: E402
+
 from vedit.media import resolve_ffmpeg  # noqa: E402
 
 
@@ -34,9 +35,23 @@ pytestmark = pytest.mark.skipif(not _have_ffmpeg(), reason="ffmpeg required")
 
 def _plane(path: Path, pix_fmt: str, stride: int, offset: int) -> bytes:
     raw = subprocess.run(
-        [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", "-i", str(path),
-         "-f", "rawvideo", "-pix_fmt", pix_fmt, "-frames:v", "1", "-"],
-        capture_output=True, check=True,
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            pix_fmt,
+            "-frames:v",
+            "1",
+            "-",
+        ],
+        capture_output=True,
+        check=True,
     ).stdout
     return raw[offset::stride]
 
@@ -52,6 +67,7 @@ def test_scene_table_has_no_baked_titles() -> None:
         assert label and "[[slnc 1000]]" in line
     # Nothing in the picture pipeline draws text.
     import inspect
+
     for fn in (make_demo._bowl_scene, make_demo._blank_scene, make_demo._write_textures):
         assert "drawtext" not in inspect.getsource(fn)
 
@@ -77,13 +93,29 @@ def test_bowl_mask_is_a_filled_ellipse(textures: dict[str, Path]) -> None:
 
 def test_blank_has_bark_edge_and_lighter_core(textures: dict[str, Path]) -> None:
     rgba = subprocess.run(
-        [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", "-i", str(textures["blank"]),
-         "-f", "rawvideo", "-pix_fmt", "rgba", "-frames:v", "1", "-"],
-        capture_output=True, check=True,
+        [
+            resolve_ffmpeg(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(textures["blank"]),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-frames:v",
+            "1",
+            "-",
+        ],
+        capture_output=True,
+        check=True,
     ).stdout
     w = 880
+
     def red(x: int, y: int) -> int:
         return rgba[(y * w + x) * 4]
+
     core = sum(red(440 + dx, 280) for dx in range(-40, 40, 8)) / 10
     edge = sum(red(20 + dx, 280) for dx in range(0, 24, 4)) / 6
     assert core > edge + 30, (core, edge)

@@ -29,21 +29,48 @@ def upload(root: Path, name: str = "clip.mp4", folder: str | None = None, data: 
     return path.resolve()
 
 
-def add_job(manager: CampaignManager, clip: Path | str, *, status: str = "planned", stage: str = "review", **fields: object) -> str:
+def add_job(
+    manager: CampaignManager, clip: Path | str, *, status: str = "planned", stage: str = "review", **fields: object
+) -> str:
     ident = uuid.uuid4().hex
     now = "2026-10-31T00:00:00.000+00:00"
     job = {
-        "id": ident, "status": status, "stage": stage, "progress": 1, "message": "", "created_at": now, "updated_at": now,
-        "request": {"paths": [str(clip)], "goal": "A brief", "budget_usd": 0.5, "provider": "local", "target_duration": 5},
-        "plan": {"title": "The bowl", "duration": 4.0, "segments": [{"start": 0, "end": 4, "label": "All", "reason": "All"}]},
-        "result": None, "source": {"name": "clip.mp4", "duration": 8.0, "has_video": True},
-        "error": None, "source_url": f"/api/campaigns/{ident}/artifact?name=source", "cancel_requested": False, "revision": 0,
-        "verified_revision": None, "budget": {"cap_usd": 0.5, "reserved_usd": 0.2, "remaining_usd": 0.3},
-        "_action": "plan", "_artifacts": {}, "_fingerprint": ident,
+        "id": ident,
+        "status": status,
+        "stage": stage,
+        "progress": 1,
+        "message": "",
+        "created_at": now,
+        "updated_at": now,
+        "request": {
+            "paths": [str(clip)],
+            "goal": "A brief",
+            "budget_usd": 0.5,
+            "provider": "local",
+            "target_duration": 5,
+        },
+        "plan": {
+            "title": "The bowl",
+            "duration": 4.0,
+            "segments": [{"start": 0, "end": 4, "label": "All", "reason": "All"}],
+        },
+        "result": None,
+        "source": {"name": "clip.mp4", "duration": 8.0, "has_video": True},
+        "error": None,
+        "source_url": f"/api/campaigns/{ident}/artifact?name=source",
+        "cancel_requested": False,
+        "revision": 0,
+        "verified_revision": None,
+        "budget": {"cap_usd": 0.5, "reserved_usd": 0.2, "remaining_usd": 0.3},
+        "_action": "plan",
+        "_artifacts": {},
+        "_fingerprint": ident,
     }
     job.update(fields)
     with manager._connect() as connection:
-        connection.execute("INSERT INTO jobs VALUES (?,?,?,?,?,?)", (ident, ident, job["status"], now, now, json.dumps(job)))
+        connection.execute(
+            "INSERT INTO jobs VALUES (?,?,?,?,?,?)", (ident, ident, job["status"], now, now, json.dumps(job))
+        )
     (manager.root / ident).mkdir()
     return ident
 
@@ -52,19 +79,35 @@ def add_render(manager: CampaignManager, ident: str, revision: int, *, size: int
     folder = manager.root / ident / f"render-{revision}"
     folder.mkdir()
     artifacts = {}
-    for name, file in (("video", "video.mp4"), ("cover", "cover.jpg"), ("report", "report.json"), ("brief", "brief.yaml"), ("bundle", "campaign.zip")):
+    for name, file in (
+        ("video", "video.mp4"),
+        ("cover", "cover.jpg"),
+        ("report", "report.json"),
+        ("brief", "brief.yaml"),
+        ("bundle", "campaign.zip"),
+    ):
         (folder / file).write_bytes(b"x" * size)
         artifacts[name] = f"render-{revision}/{file}"
     return artifacts
 
 
 def verified_job(manager: CampaignManager, source: Path, revisions: int = 3) -> str:
-    ident = add_job(manager, source, status="complete", stage="complete", revision=revisions, verified_revision=revisions)
+    ident = add_job(
+        manager, source, status="complete", stage="complete", revision=revisions, verified_revision=revisions
+    )
     history = {str(revision): add_render(manager, ident, revision) for revision in range(1, revisions + 1)}
-    versions = [{"revision": revision, "status": "verified", "source": "approved", "proof": {"duration": 4.0}} for revision in range(1, revisions + 1)]
+    versions = [
+        {"revision": revision, "status": "verified", "source": "approved", "proof": {"duration": 4.0}}
+        for revision in range(1, revisions + 1)
+    ]
     with manager._lock, manager._connect() as connection:
         job = manager._load(connection, ident)
-        job.update(_artifacts=history[str(revisions)], _verified_artifacts=history, versions=versions, result={"proof": {"duration": 4.0, "has_video": True}, "revision": revisions})
+        job.update(
+            _artifacts=history[str(revisions)],
+            _verified_artifacts=history,
+            versions=versions,
+            result={"proof": {"duration": 4.0, "has_video": True}, "revision": revisions},
+        )
         manager._save(connection, job)
     return ident
 
@@ -177,7 +220,16 @@ def test_duplicate_is_a_fresh_project_on_the_same_source(manager: CampaignManage
     (manager.root / ident / "meta").mkdir()
     (manager.root / ident / "meta" / "meta-usage.json").write_text('{"calls": []}', encoding="utf-8")
     (manager.root / ident / "cover-3.json").write_text("{}", encoding="utf-8")
-    tampered(manager, ident, source={"name": "clip.mp4", "duration": 8.0, "has_video": True, "filmstrip": {"url": f"/api/campaigns/{ident}/filmstrip"}})
+    tampered(
+        manager,
+        ident,
+        source={
+            "name": "clip.mp4",
+            "duration": 8.0,
+            "has_video": True,
+            "filmstrip": {"url": f"/api/campaigns/{ident}/filmstrip"},
+        },
+    )
     copy = projects.duplicate(manager, ident)
     assert copy["id"] != ident and copy["status"] == "planned" and copy["revision"] == 0
     assert copy["name"] == "The bowl copy" and copy["duplicated_from"] == ident
@@ -189,13 +241,17 @@ def test_duplicate_is_a_fresh_project_on_the_same_source(manager: CampaignManage
     assert copy["source_url"].startswith(f"/api/campaigns/{copy['id']}/")
     folder = manager.root / copy["id"]
     assert (folder / "assets" / "logo.png").read_bytes() == b"logo"
-    assert not list(folder.glob("render-*")) and not (folder / "meta").exists() and not (folder / "cover-3.json").exists()
+    assert (
+        not list(folder.glob("render-*")) and not (folder / "meta").exists() and not (folder / "cover-3.json").exists()
+    )
     assert manager.get(copy["id"])["id"] == copy["id"]
     with pytest.raises(CampaignError, match="after the render"):
         manager.artifact(copy["id"], "video")
 
 
-def test_duplicate_can_be_rendered_and_deleted_without_touching_the_original(manager: CampaignManager, workspace: Path) -> None:
+def test_duplicate_can_be_rendered_and_deleted_without_touching_the_original(
+    manager: CampaignManager, workspace: Path
+) -> None:
     source = upload(workspace)
     ident = add_job(manager, source)
     copy = projects.duplicate(manager, ident)
@@ -326,7 +382,10 @@ def test_worker_survives_a_job_deleted_while_queued(tmp_path: Path) -> None:
 # ---- Deletion cannot leave the workspace ----
 
 
-@pytest.mark.parametrize("ident", ["", "..", "../..", "..%2f..", "abc", "A" * 32, "0" * 31, "0" * 33, "g" * 32, "/etc/passwd", "0" * 32 + "/../.."])
+@pytest.mark.parametrize(
+    "ident",
+    ["", "..", "../..", "..%2f..", "abc", "A" * 32, "0" * 31, "0" * 33, "g" * 32, "/etc/passwd", "0" * 32 + "/../.."],
+)
 def test_a_bad_id_is_refused_before_any_path_is_built(manager: CampaignManager, outside: Path, ident: str) -> None:
     with pytest.raises(CampaignError) as caught:
         projects.delete(manager, ident)
@@ -334,22 +393,29 @@ def test_a_bad_id_is_refused_before_any_path_is_built(manager: CampaignManager, 
     assert (outside / "keep.txt").is_file()
 
 
-def test_a_tampered_source_path_outside_the_workspace_survives(manager: CampaignManager, workspace: Path, outside: Path) -> None:
+def test_a_tampered_source_path_outside_the_workspace_survives(
+    manager: CampaignManager, workspace: Path, outside: Path
+) -> None:
     ident = add_job(manager, outside / "keep.txt")
     result = projects.delete(manager, ident)
     assert result["source_removed"] == 0 and result["source_kept"] == 1
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "precious"
 
 
-@pytest.mark.parametrize("build", [
-    lambda root, out: root / "vedit-sessions" / "a" / "inbox" / ".." / ".." / ".." / ".." / "outside" / "keep.txt",
-    lambda root, out: root / "vedit-sessions" / "campaigns" / "inbox" / "campaigns.sqlite3",
-    lambda root, out: root / "vedit-sessions" / "campaigns" / "campaigns.sqlite3",
-    lambda root, out: root / "vedit-sessions" / "x" / "keep.txt",
-    lambda root, out: root / "vedit-sessions" / "x" / "inbox" / "deep" / "keep.txt",
-    lambda root, out: root / "vedit-sessions" / "x" / "inbox" / "..",
-])
-def test_a_tampered_path_with_traversal_survives(manager: CampaignManager, workspace: Path, outside: Path, build) -> None:
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda root, out: root / "vedit-sessions" / "a" / "inbox" / ".." / ".." / ".." / ".." / "outside" / "keep.txt",
+        lambda root, out: root / "vedit-sessions" / "campaigns" / "inbox" / "campaigns.sqlite3",
+        lambda root, out: root / "vedit-sessions" / "campaigns" / "campaigns.sqlite3",
+        lambda root, out: root / "vedit-sessions" / "x" / "keep.txt",
+        lambda root, out: root / "vedit-sessions" / "x" / "inbox" / "deep" / "keep.txt",
+        lambda root, out: root / "vedit-sessions" / "x" / "inbox" / "..",
+    ],
+)
+def test_a_tampered_path_with_traversal_survives(
+    manager: CampaignManager, workspace: Path, outside: Path, build
+) -> None:
     raw = str(build(workspace, outside))
     for folder in (workspace / "vedit-sessions" / "a" / "inbox", workspace / "vedit-sessions" / "x" / "inbox" / "deep"):
         folder.mkdir(parents=True, exist_ok=True)
@@ -432,7 +498,9 @@ def test_an_id_for_a_folder_with_no_job_touches_nothing(manager: CampaignManager
     assert (manager.root / ident / "file").is_file()
 
 
-def test_deleted_files_stay_inside_the_expected_folders(manager: CampaignManager, workspace: Path, tmp_path: Path, outside: Path) -> None:
+def test_deleted_files_stay_inside_the_expected_folders(
+    manager: CampaignManager, workspace: Path, tmp_path: Path, outside: Path
+) -> None:
     """Snapshot everything outside the two allowed folders; delete; compare."""
     source = upload(workspace)
     ident = verified_job(manager, source)
@@ -480,7 +548,9 @@ def test_cleanup_twice_is_a_no_op(manager: CampaignManager, workspace: Path) -> 
     assert projects.cleanup(manager) == {"freed_bytes": 0, "removed": [], "orphans": [], "dry_run": False}
 
 
-def test_cleanup_moves_each_render_aside_under_the_lock_and_removes_it_after(manager: CampaignManager, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cleanup_moves_each_render_aside_under_the_lock_and_removes_it_after(
+    manager: CampaignManager, workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A multi-gigabyte rmtree must not hold the lock every poll and worker update takes."""
     ident = verified_job(manager, upload(workspace))
     seen: list[tuple[str, bool]] = []
@@ -496,7 +566,9 @@ def test_cleanup_moves_each_render_aside_under_the_lock_and_removes_it_after(man
     monkeypatch.setattr(projects.shutil, "rmtree", observed)
     result = projects.cleanup(manager)
     assert result["freed_bytes"] == 10000
-    assert sorted(seen) == [(f".deleting-{ident}-1", True), (f".deleting-{ident}-2", True)], "rmtree runs on the moved folder, with the lock free"
+    assert sorted(seen) == [(f".deleting-{ident}-1", True), (f".deleting-{ident}-2", True)], (
+        "rmtree runs on the moved folder, with the lock free"
+    )
     assert not list(manager.root.glob(".deleting-*"))
     assert (manager.root / ident / "render-3" / "video.mp4").is_file()
 
@@ -544,14 +616,26 @@ def test_an_upload_no_project_names_is_reclaimed_after_a_day(manager: CampaignMa
 def test_a_script_projects_pictures_are_not_orphans(manager: CampaignManager, workspace: Path) -> None:
     picture = upload(workspace, "scene.png", folder="source-picture", data=b"\x89PNG" * 10)
     ident = add_job(manager, upload(workspace, folder="source-clip"))
-    tampered(manager, ident, request={"paths": [], "goal": "A script", "budget_usd": 0.5, "provider": "meta", "script": {"text": "One.", "scenes": [], "voice": None, "images": [str(picture)]}})
+    tampered(
+        manager,
+        ident,
+        request={
+            "paths": [],
+            "goal": "A script",
+            "budget_usd": 0.5,
+            "provider": "meta",
+            "script": {"text": "One.", "scenes": [], "voice": None, "images": [str(picture)]},
+        },
+    )
     _age(picture.parent.parent, 48)
     assert projects.cleanup(manager)["orphans"] == []
     assert picture.is_file()
 
 
 @pytest.mark.parametrize("shape", ["session_files", "subfolder", "linked_folder", "hidden"])
-def test_only_a_bare_inbox_folder_counts_as_an_orphan(manager: CampaignManager, workspace: Path, outside: Path, shape: str) -> None:
+def test_only_a_bare_inbox_folder_counts_as_an_orphan(
+    manager: CampaignManager, workspace: Path, outside: Path, shape: str
+) -> None:
     if shape == "linked_folder":
         (sessions(workspace) / "source-linked").symlink_to(outside, target_is_directory=True)
         (outside / "inbox").mkdir()
@@ -652,7 +736,9 @@ def test_thumbnail_is_made_once_from_the_source(manager: CampaignManager, worksp
 # ---- HTTP ----
 
 
-def call(port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None) -> tuple[int, dict, bytes]:
+def call(
+    port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None
+) -> tuple[int, dict, bytes]:
     outgoing = dict(headers or {})
     body = None
     if payload is not None:
@@ -722,10 +808,18 @@ def test_http_delete_is_refused_while_active(studio: tuple[int, Path]) -> None:
     assert status == 409 and "Cancel" in json.loads(raw)["error"]
 
 
-@pytest.mark.parametrize("path", [
-    "/api/campaigns/..%2F..%2F..%2Fetc", "/api/campaigns/%2e%2e", "/api/campaigns/..", "/api/campaigns/" + "0" * 32 + "/extra",
-    "/api/campaigns", "/api/campaigns/", "/api/projects/" + "0" * 32,
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/campaigns/..%2F..%2F..%2Fetc",
+        "/api/campaigns/%2e%2e",
+        "/api/campaigns/..",
+        "/api/campaigns/" + "0" * 32 + "/extra",
+        "/api/campaigns",
+        "/api/campaigns/",
+        "/api/projects/" + "0" * 32,
+    ],
+)
 def test_http_delete_of_anything_else_is_not_found(studio: tuple[int, Path], path: str) -> None:
     port, root = studio
     sentinel = root.parent / "sentinel.txt"
@@ -734,16 +828,23 @@ def test_http_delete_of_anything_else_is_not_found(studio: tuple[int, Path], pat
     assert sentinel.is_file()
 
 
-@pytest.mark.parametrize(("method", "suffix", "payload"), [
-    ("GET", "/api/projects", None),
-    ("GET", "/api/projects/{id}/thumbnail", None),
-    ("POST", "/api/projects/{id}/rename", {"title": "x"}),
-    ("POST", "/api/projects/{id}/duplicate", {}),
-    ("POST", "/api/projects/cleanup", {}),
-    ("DELETE", "/api/campaigns/{id}", None),
-])
-@pytest.mark.parametrize("headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}])
-def test_http_routes_refuse_other_origins(studio: tuple[int, Path], method: str, suffix: str, payload: object, headers: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    ("method", "suffix", "payload"),
+    [
+        ("GET", "/api/projects", None),
+        ("GET", "/api/projects/{id}/thumbnail", None),
+        ("POST", "/api/projects/{id}/rename", {"title": "x"}),
+        ("POST", "/api/projects/{id}/duplicate", {}),
+        ("POST", "/api/projects/cleanup", {}),
+        ("DELETE", "/api/campaigns/{id}", None),
+    ],
+)
+@pytest.mark.parametrize(
+    "headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}]
+)
+def test_http_routes_refuse_other_origins(
+    studio: tuple[int, Path], method: str, suffix: str, payload: object, headers: dict[str, str]
+) -> None:
     port, root = studio
     manager = get_manager()
     source = upload(root)
@@ -779,9 +880,26 @@ def test_retry_after_a_killed_render_replaces_its_partial_files(tmp_path: Path) 
     root.mkdir()
     source = root / "vedit-sessions" / "s" / "inbox" / "clip.mp4"
     source.parent.mkdir(parents=True)
-    run_ffmpeg(["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=2", "-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-shortest", "-pix_fmt", "yuv420p", str(source)])
+    run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=15:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=330:duration=2",
+            "-shortest",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ]
+    )
     first = CampaignManager(root, start_worker=False)
-    job = first.create({"paths": [str(source)], "goal": "A short cut", "target_duration": 1.5, "captions": False, "aspect": "16:9"})
+    job = first.create(
+        {"paths": [str(source)], "goal": "A short cut", "target_duration": 1.5, "captions": False, "aspect": "16:9"}
+    )
     first.process(job["id"])
     assert first.get(job["id"])["status"] == "planned"
     queued = first.render(job["id"], {})
@@ -812,10 +930,27 @@ def test_a_retry_never_clears_a_verified_version(tmp_path: Path) -> None:
     root.mkdir()
     source = root / "vedit-sessions" / "s" / "inbox" / "clip.mp4"
     source.parent.mkdir(parents=True)
-    run_ffmpeg(["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=2", "-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-shortest", "-pix_fmt", "yuv420p", str(source)])
+    run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=15:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=330:duration=2",
+            "-shortest",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ]
+    )
     manager = CampaignManager(root, start_worker=False)
     try:
-        job = manager.create({"paths": [str(source)], "goal": "A short cut", "target_duration": 1.5, "captions": False, "aspect": "16:9"})
+        job = manager.create(
+            {"paths": [str(source)], "goal": "A short cut", "target_duration": 1.5, "captions": False, "aspect": "16:9"}
+        )
         manager.process(job["id"])
         manager.render(job["id"], {})
         manager.process(job["id"])
@@ -862,7 +997,12 @@ def test_duplicate_rewrites_asset_paths_and_leaves_the_family(manager: CampaignM
     asset = manager.root / job / "assets" / "logo.png"
     asset.parent.mkdir()
     asset.write_bytes(b"logo")
-    tampered(manager, job, assets={"a1": {"path": str(asset), "kind": "image"}}, request={"paths": [str(source)], "goal": "x", "budget_usd": 0.25, "short": {"parent": "1" * 32}})
+    tampered(
+        manager,
+        job,
+        assets={"a1": {"path": str(asset), "kind": "image"}},
+        request={"paths": [str(source)], "goal": "x", "budget_usd": 0.25, "short": {"parent": "1" * 32}},
+    )
     copy = projects.duplicate(manager, job)
     stored = job_row(manager, copy["id"])
     assert Path(stored["assets"]["a1"]["path"]) == manager.root.resolve() / copy["id"] / "assets" / "logo.png"
@@ -874,7 +1014,9 @@ def test_a_parent_waits_for_its_running_shorts(manager: CampaignManager, workspa
     source = upload(workspace)
     parent = add_job(manager, source)
     short = add_job(manager, source, status="analyzing")
-    tampered(manager, short, request={"paths": [str(source)], "goal": "x", "budget_usd": 0.25, "short": {"parent": parent}})
+    tampered(
+        manager, short, request={"paths": [str(source)], "goal": "x", "budget_usd": 0.25, "short": {"parent": parent}}
+    )
     with pytest.raises(CampaignError) as caught:
         projects.delete(manager, parent)
     assert caught.value.status == 409 and "shorts" in str(caught.value)
@@ -884,8 +1026,22 @@ def test_a_deleted_short_leaves_its_family(manager: CampaignManager, workspace: 
     source = upload(workspace)
     parent = add_job(manager, source)
     short = add_job(manager, source, family=[{"id": parent, "role": "source", "index": 0, "title": "Original"}])
-    other = add_job(manager, source, family=[{"id": parent, "role": "source", "index": 0, "title": "Original"}, {"id": short, "role": "short", "index": 1, "title": "Short 1"}])
-    tampered(manager, parent, family=[{"id": short, "role": "short", "index": 1, "title": "Short 1"}, {"id": other, "role": "short", "index": 2, "title": "Short 2"}])
+    other = add_job(
+        manager,
+        source,
+        family=[
+            {"id": parent, "role": "source", "index": 0, "title": "Original"},
+            {"id": short, "role": "short", "index": 1, "title": "Short 1"},
+        ],
+    )
+    tampered(
+        manager,
+        parent,
+        family=[
+            {"id": short, "role": "short", "index": 1, "title": "Short 1"},
+            {"id": other, "role": "short", "index": 2, "title": "Short 2"},
+        ],
+    )
     projects.delete(manager, short)
     assert [row["id"] for row in job_row(manager, parent)["family"]] == [other]
     assert [row["id"] for row in job_row(manager, other)["family"]] == [parent]

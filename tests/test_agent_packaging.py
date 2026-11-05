@@ -33,9 +33,20 @@ REPOSITORY = "ankitshah009/briefcut_aubric"
 
 # The tools every Briefcut MCP server has had since `vedit mcp` shipped.
 CORE_TOOLS = {
-    "briefcut_import_clip", "briefcut_create_story", "briefcut_find_moments", "briefcut_make_shorts",
-    "briefcut_script_to_video", "briefcut_get", "briefcut_list", "briefcut_wait", "briefcut_render",
-    "briefcut_revise", "briefcut_receipts", "briefcut_artifact_path", "briefcut_cancel", "briefcut_retry",
+    "briefcut_import_clip",
+    "briefcut_create_story",
+    "briefcut_find_moments",
+    "briefcut_make_shorts",
+    "briefcut_script_to_video",
+    "briefcut_get",
+    "briefcut_list",
+    "briefcut_wait",
+    "briefcut_render",
+    "briefcut_revise",
+    "briefcut_receipts",
+    "briefcut_artifact_path",
+    "briefcut_cancel",
+    "briefcut_retry",
 }
 # One server start can install packages into a fresh .venv; later starts take about a second.
 FIRST_START_SECONDS = 300
@@ -172,10 +183,14 @@ def test_license_prose_matches_the_package_metadata():
     """
     spdx = _pyproject()["project"]["license"]
     assert spdx == "AGPL-3.0-or-later"
-    assert (ROOT / "LICENSE").read_text(encoding="utf-8").startswith("                    GNU AFFERO GENERAL PUBLIC LICENSE\n                       Version 3")
+    assert (
+        (ROOT / "LICENSE")
+        .read_text(encoding="utf-8")
+        .startswith("                    GNU AFFERO GENERAL PUBLIC LICENSE\n                       Version 3")
+    )
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    license_section = readme[readme.index("## License"):]
+    license_section = readme[readme.index("## License") :]
     assert f"`{spdx}`" in license_section, "README's License section must name the SPDX id from pyproject.toml"
     assert "version 3 or (at your option) any later version" in license_section
 
@@ -187,7 +202,11 @@ def test_license_prose_matches_the_package_metadata():
     assert re.search(r'^__version__ = "' + re.escape(_pyproject()["project"]["version"]) + '"$', package, re.MULTILINE)
 
     tracked = subprocess.run(
-        ["git", "ls-files", "*.md", ":(exclude)docs/evidence"], cwd=ROOT, capture_output=True, text=True, check=True,
+        ["git", "ls-files", "*.md", ":(exclude)docs/evidence"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.split()
     stale = re.compile(r"source-available|MIT License|AGPL-3\.0(?!-or-later)|AGPLv3|GPL v3(?!\.0 or)", re.IGNORECASE)
     allowed_history = {"CHANGELOG.md"}
@@ -219,9 +238,11 @@ def test_install_script_installs_the_mcp_extra():
     if bash is None:
         pytest.skip("bash is not installed")
     subprocess.run([bash, "-n", str(INSTALL)], check=True)
-    plan = subprocess.run([bash, str(INSTALL), "--dry-run"], capture_output=True, text=True, timeout=60, check=True).stdout
+    plan = subprocess.run(
+        [bash, str(INSTALL), "--dry-run"], capture_output=True, text=True, timeout=60, check=True
+    ).stdout
     assert f"'vedit[mcp,sam] @ {ROOT}'" in plan, plan
-    assert "briefcut\" mcp" in plan
+    assert 'briefcut" mcp' in plan
 
 
 # --- the server over stdio --------------------------------------------------------
@@ -231,8 +252,16 @@ class _Stdio:
     """A JSON-RPC peer on a child's stdin and stdout, newline-delimited as MCP's stdio transport is."""
 
     def __init__(self, command: list[str], *, cwd: Path, env: dict[str, str]):
-        self.proc = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, encoding="utf-8")
+        self.proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
         self.lines: queue.Queue[str | None] = queue.Queue()
         self.stderr: list[str] = []
         threading.Thread(target=self._read_stdout, daemon=True).start()
@@ -255,7 +284,9 @@ class _Stdio:
             self.proc.stdin.flush()
         except BrokenPipeError:
             self.proc.wait(timeout=30)
-            pytest.fail(f"the server exited (status {self.proc.returncode}) before it read a request. stderr:\n{self.stderr_tail()}")
+            pytest.fail(
+                f"the server exited (status {self.proc.returncode}) before it read a request. stderr:\n{self.stderr_tail()}"
+            )
 
     def reply(self, ident: int, timeout: float) -> dict[str, Any]:
         while True:
@@ -265,7 +296,9 @@ class _Stdio:
                 pytest.fail(f"no reply to request {ident} in {timeout:g}s. stderr:\n{self.stderr_tail()}")
             if line is None:
                 self.proc.wait(timeout=30)
-                pytest.fail(f"the server exited (status {self.proc.returncode}) before replying to {ident}. stderr:\n{self.stderr_tail()}")
+                pytest.fail(
+                    f"the server exited (status {self.proc.returncode}) before replying to {ident}. stderr:\n{self.stderr_tail()}"
+                )
             message = json.loads(line)  # anything else on stdout would corrupt the MCP channel
             if message.get("id") == ident:
                 assert "error" not in message, message
@@ -283,7 +316,11 @@ class _Stdio:
 
 def _client_env(workspace: Path) -> dict[str, str]:
     # A client starts the server with its own environment: no virtualenv of ours, and no Meta switch.
-    env = {key: value for key, value in os.environ.items() if key not in {"VIRTUAL_ENV", "MODEL_API_KEY", "VEDIT_META_ENABLED", "VEDIT_WORKSPACE"}}
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"VIRTUAL_ENV", "MODEL_API_KEY", "VEDIT_META_ENABLED", "VEDIT_WORKSPACE"}
+    }
     env["VEDIT_WORKSPACE"] = str(workspace)
     return env
 
@@ -309,8 +346,18 @@ def test_configured_command_serves_briefcut_over_stdio(config: str, tmp_path: Pa
 
     peer = _Stdio(command, cwd=cwd, env=_client_env(workspace))
     try:
-        peer.send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                   "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "packaging-test", "version": "0"}}})
+        peer.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "packaging-test", "version": "0"},
+                },
+            }
+        )
         init = peer.reply(1, FIRST_START_SECONDS)
         assert init["serverInfo"]["name"] == "briefcut"
         assert init["serverInfo"]["version"] == _pyproject()["project"]["version"]
@@ -324,7 +371,9 @@ def test_configured_command_serves_briefcut_over_stdio(config: str, tmp_path: Pa
 
         # Starting the server writes nothing; the first manager call claims the workspace.
         assert not (workspace / "vedit-sessions").exists()
-        peer.send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "briefcut_list", "arguments": {}}})
+        peer.send(
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "briefcut_list", "arguments": {}}}
+        )
         listed = peer.reply(3, REPLY_SECONDS)
         assert listed.get("isError") is not True, listed
         assert json.loads(listed["content"][0]["text"]) == {"jobs": []}

@@ -8,9 +8,21 @@ from pathlib import Path
 import pytest
 
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "vedit"
-RUNTIME = ("captions.py", "story.py", "campaign.py", "director.py", "media.py", "compile.py", "render_plan.py", "lint.py", "meta.py")
+RUNTIME = (
+    "captions.py",
+    "story.py",
+    "campaign.py",
+    "director.py",
+    "media.py",
+    "compile.py",
+    "render_plan.py",
+    "lint.py",
+    "meta.py",
+)
 # A local speech model, a local speech synthesizer, or any other model runtime.
-FORBIDDEN = re.compile(r"faster_whisper|WhisperModel|whisper-cli\"|\"-ojf\"|which\(\"say\"\)|\[say\b|import (?:torch|onnxruntime|transformers|whisper)\b")
+FORBIDDEN = re.compile(
+    r"faster_whisper|WhisperModel|whisper-cli\"|\"-ojf\"|which\(\"say\"\)|\[say\b|import (?:torch|onnxruntime|transformers|whisper)\b"
+)
 
 
 @pytest.mark.parametrize("name", RUNTIME)

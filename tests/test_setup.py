@@ -71,10 +71,12 @@ def test_doctor_has_no_whisper_row(meta_ready: None) -> None:
     assert "whisper-cli" not in names
 
 
-def test_cli_setup_points_to_the_key_page(no_meta: None, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_setup_points_to_the_key_page(
+    no_meta: None, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     from vedit.cli import main
 
-    monkeypatch.setattr(settings, "load_checkout_env", lambda: [])  # this checkout may hold real secrets
+    monkeypatch.setattr(settings, "load_checkout_env", list)  # this checkout may hold real secrets
     assert main(["setup"]) == 1
     out = capsys.readouterr().out
     assert "https://dev.meta.ai" in out and "whisper" not in out.lower() and "speech model" not in out.lower()
@@ -82,7 +84,9 @@ def test_cli_setup_points_to_the_key_page(no_meta: None, capsys: pytest.CaptureF
         main(["setup", "--speech-model"])
 
 
-def http_call(port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+def http_call(
+    port: int, method: str, path: str, payload: object = None, headers: dict[str, str] | None = None
+) -> tuple[int, dict]:
     outgoing = dict(headers or {})
     body = None
     if payload is not None:
@@ -119,13 +123,16 @@ def fake_ffmpeg(folder: Path, *filters: str, encoders: tuple[str, ...] = ("libx2
     listing = "\\n".join(f" .. {name} V->V x" for name in filters)
     encoder_listing = "\\n".join(f" V..... {name} x" for name in encoders)
     tool = folder / "ffmpeg"
-    tool.write_text(f"""#!/bin/sh
+    tool.write_text(
+        f"""#!/bin/sh
 case "$*" in
   *-filters*) printf '{listing}\\n' ;;
   *-encoders*) printf '{encoder_listing}\\n' ;;
   *) echo 'ffmpeg version test' ;;
 esac
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     tool.chmod(0o755)
     (folder / "ffprobe").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     (folder / "ffprobe").chmod(0o755)
@@ -143,14 +150,18 @@ def item_named(status: dict, name: str) -> dict:
     return next(row for row in status["items"] if row["id"] == name)
 
 
-def test_setup_is_ready_with_a_full_ffmpeg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None, meta_ready: None) -> None:
+def test_setup_is_ready_with_a_full_ffmpeg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None, meta_ready: None
+) -> None:
     monkeypatch.setenv("VEDIT_FFMPEG", str(fake_ffmpeg(tmp_path / "ff", *onboarding.STUDIO_FILTERS)))
     status = onboarding.setup_status(refresh=True)
     assert status["ready"] is True
     assert item_named(status, "ffmpeg")["ok"] is True
 
 
-def test_setup_names_missing_filters_and_gives_the_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None) -> None:
+def test_setup_names_missing_filters_and_gives_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None
+) -> None:
     monkeypatch.setenv("VEDIT_FFMPEG", str(fake_ffmpeg(tmp_path / "ff", "silencedetect", "loudnorm")))
     status = onboarding.setup_status(refresh=True)
     item = item_named(status, "ffmpeg")
@@ -165,7 +176,9 @@ def test_setup_needs_an_h264_encoder(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert status["ready"] is False and "libx264" in item_named(status, "ffmpeg")["summary"]
 
 
-def test_setup_with_no_ffmpeg_gives_the_command_and_does_not_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None) -> None:
+def test_setup_with_no_ffmpeg_gives_the_command_and_does_not_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None
+) -> None:
     monkeypatch.setenv("VEDIT_FFMPEG", str(tmp_path / "missing" / "ffmpeg"))
     status = onboarding.setup_status(refresh=True)
     item = item_named(status, "ffmpeg")
@@ -173,7 +186,9 @@ def test_setup_with_no_ffmpeg_gives_the_command_and_does_not_crash(tmp_path: Pat
     assert any("ffmpeg" in step["command"] for step in item["install"]["steps"])
 
 
-def test_check_again_sees_a_fresh_install_without_a_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None, meta_ready: None) -> None:
+def test_check_again_sees_a_fresh_install_without_a_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_tool_cache: None, meta_ready: None
+) -> None:
     tool = fake_ffmpeg(tmp_path / "ff", "loudnorm")
     monkeypatch.setenv("VEDIT_FFMPEG", str(tool))
     assert onboarding.setup_status(refresh=True)["ready"] is False
@@ -235,16 +250,27 @@ def test_setup_route_shape(studio: int) -> None:
     assert "whisper" not in json.dumps(body).lower()
 
 
-@pytest.mark.parametrize(("method", "path", "payload"), [
-    ("GET", "/api/setup", None), ("POST", "/api/settings", {}), ("GET", "/api/diagnostics", None),
-])
-@pytest.mark.parametrize("headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}])
-def test_setup_routes_refuse_other_origins(studio: int, method: str, path: str, payload: object, headers: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("GET", "/api/setup", None),
+        ("POST", "/api/settings", {}),
+        ("GET", "/api/diagnostics", None),
+    ],
+)
+@pytest.mark.parametrize(
+    "headers", [{"Host": "evil.example"}, {"Origin": "https://evil.example"}, {"Sec-Fetch-Site": "cross-site"}]
+)
+def test_setup_routes_refuse_other_origins(
+    studio: int, method: str, path: str, payload: object, headers: dict[str, str]
+) -> None:
     status, _body = http_call(studio, method, path, payload, headers)
     assert status == 403
 
 
-@pytest.mark.parametrize(("method", "path"), [("GET", "/api/setup/model"), ("POST", "/api/setup/model"), ("POST", "/api/setup/model/cancel")])
+@pytest.mark.parametrize(
+    ("method", "path"), [("GET", "/api/setup/model"), ("POST", "/api/setup/model"), ("POST", "/api/setup/model/cancel")]
+)
 def test_the_model_download_route_is_gone(studio: int, method: str, path: str) -> None:
     status, _body = http_call(studio, method, path, {} if method == "POST" else None)
     assert status == 404
@@ -263,13 +289,30 @@ def test_diagnostics_hold_no_paths_keys_or_transcript(monkeypatch: pytest.Monkey
     monkeypatch.setenv("MODEL_API_KEY", key)
     home = str(Path.home())
     job = {
-        "status": "failed", "stage": "failed", "revision": 2, "request": {"provider": "meta", "goal": "A secret client brief", "paths": [f"{home}/Movies/client.mp4"]},
-        "plan": {"title": "Secret title", "analysis": {"transcript": [{"start": 0, "end": 1, "text": "words nobody should paste"}]}},
+        "status": "failed",
+        "stage": "failed",
+        "revision": 2,
+        "request": {"provider": "meta", "goal": "A secret client brief", "paths": [f"{home}/Movies/client.mp4"]},
+        "plan": {
+            "title": "Secret title",
+            "analysis": {"transcript": [{"start": 0, "end": 1, "text": "words nobody should paste"}]},
+        },
         "source": {"name": "client.mp4"},
         "error": f"Could not read {home}/Movies/my client/final cut.mp4 with key {key} and Authorization: Bearer abc.def and api_key=xyz",
     }
     text = onboarding.diagnostics(job)
-    for leak in (home, "Movies", "client", "final cut", key, "abc.def", "xyz", "Secret title", "A secret client brief", "words nobody should paste"):
+    for leak in (
+        home,
+        "Movies",
+        "client",
+        "final cut",
+        key,
+        "abc.def",
+        "xyz",
+        "Secret title",
+        "A secret client brief",
+        "words nobody should paste",
+    ):
         assert leak not in text, leak
     assert "Briefcut " in text and "Python " in text and "FFmpeg " in text
     assert "Last job: status failed" in text and "[path removed]" in text
@@ -277,17 +320,27 @@ def test_diagnostics_hold_no_paths_keys_or_transcript(monkeypatch: pytest.Monkey
 
 
 def test_diagnostics_never_copy_doctor_detail(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(onboarding, "doctor_dict", lambda: {"ok": True, "checks": [{"name": "python", "ok": True, "detail": "/Users/someone/.venv/bin/python", "required": True}]})
+    monkeypatch.setattr(
+        onboarding,
+        "doctor_dict",
+        lambda: {
+            "ok": True,
+            "checks": [{"name": "python", "ok": True, "detail": "/Users/someone/.venv/bin/python", "required": True}],
+        },
+    )
     assert "someone" not in onboarding.diagnostics(None)
 
 
-@pytest.mark.parametrize(("text", "gone"), [
-    ("failed at /home/ana/My Videos/a b.mp4 now", "My Videos"),
-    ("failed at /private/var/folders/x/y/z.mp4", "folders"),
-    ("failed at ~/Movies/a.mp4", "Movies"),
-    ("token=abcdef123", "abcdef123"),
-    ("PASSWORD: hunter2", "hunter2"),
-])
+@pytest.mark.parametrize(
+    ("text", "gone"),
+    [
+        ("failed at /home/ana/My Videos/a b.mp4 now", "My Videos"),
+        ("failed at /private/var/folders/x/y/z.mp4", "folders"),
+        ("failed at ~/Movies/a.mp4", "Movies"),
+        ("token=abcdef123", "abcdef123"),
+        ("PASSWORD: hunter2", "hunter2"),
+    ],
+)
 def test_scrub(text: str, gone: str) -> None:
     assert gone not in onboarding.scrub(text)
 
@@ -301,7 +354,9 @@ def test_diagnostics_route_is_plain_text_in_json(studio: int) -> None:
 # ---- The briefcut command ----
 
 
-def test_briefcut_with_no_arguments_opens_studio_in_the_default_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_briefcut_with_no_arguments_opens_studio_in_the_default_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from vedit import cli
     from vedit.studio import server
 
@@ -311,7 +366,7 @@ def test_briefcut_with_no_arguments_opens_studio_in_the_default_workspace(tmp_pa
     monkeypatch.delenv("VEDIT_WORKSPACE", raising=False)
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "load_checkout_env", lambda: [])  # this checkout may hold real secrets
+    monkeypatch.setattr(settings, "load_checkout_env", list)  # this checkout may hold real secrets
     seen: list[Path] = []
     monkeypatch.setattr(server, "open_studio", lambda: seen.append(Path.cwd()) or 0)
     assert cli.briefcut_main([]) == 0
@@ -327,7 +382,9 @@ def test_briefcut_with_arguments_is_the_same_tool(capsys: pytest.CaptureFixture[
     assert capsys.readouterr().out.strip() == f"briefcut {__version__}"
 
 
-def test_open_studio_joins_one_already_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio: int, capsys: pytest.CaptureFixture[str]) -> None:
+def test_open_studio_joins_one_already_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio: int, capsys: pytest.CaptureFixture[str]
+) -> None:
     from vedit.studio import server
 
     opened: list[str] = []
@@ -337,7 +394,9 @@ def test_open_studio_joins_one_already_running(tmp_path: Path, monkeypatch: pyte
     assert "already running" in capsys.readouterr().out
 
 
-def test_open_studio_takes_a_free_port_when_something_else_holds_the_default(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_open_studio_takes_a_free_port_when_something_else_holds_the_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     import socket
 
     from vedit.studio import server
@@ -366,11 +425,14 @@ INSTALL = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
 def install_stubs(folder: Path) -> Path:
     """A uv that records its arguments, and an FFmpeg that has what Briefcut needs."""
     folder.mkdir(parents=True)
-    (folder / "uv").write_text(f"""#!/bin/sh
+    (folder / "uv").write_text(
+        f"""#!/bin/sh
 printf '%s\\n' "$*" >> {folder}/uv.log
 [ "$1 $2" = "tool dir" ] && echo "{folder}"
 exit 0
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     (folder / "ffmpeg").write_text("#!/bin/sh\nprintf ' .. drawtext x\\n .. subtitles x\\n'\n", encoding="utf-8")
     for name in ("uv", "ffmpeg"):
         (folder / name).chmod(0o755)
@@ -384,7 +446,15 @@ def run_install(tmp_path: Path, *arguments: str) -> subprocess.CompletedProcess[
     if not stubs.exists():
         install_stubs(stubs)
     environment = {"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin", "VEDIT_FFMPEG": str(stubs / "ffmpeg")}
-    return subprocess.run(["bash", str(INSTALL), *arguments], env=environment, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL, check=False)
+    return subprocess.run(
+        ["bash", str(INSTALL), *arguments],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
 
 
 def test_a_dry_run_shows_the_plan_and_changes_nothing(tmp_path: Path) -> None:
@@ -440,16 +510,35 @@ def test_the_bundle_leaves_out_what_an_editor_never_loads(tmp_path: Path) -> Non
     from vedit import packaging
 
     source = tmp_path / "cpython"
-    for name in ("bin/python3.13", "bin/pip3", "lib/libpython3.13.dylib", "lib/libtcl9.0.dylib", "lib/python3.13/os.py", "lib/python3.13/test/test_os.py",
-                 "lib/python3.13/idlelib/idle.py", "lib/python3.13/site-packages/pip/x.py", "lib/python3.13/lib-dynload/_tkinter.cpython-313-darwin.so",
-                 "lib/python3.13/lib-dynload/_ssl.cpython-313-darwin.so", "include/python3.13/Python.h"):
+    for name in (
+        "bin/python3.13",
+        "bin/pip3",
+        "lib/libpython3.13.dylib",
+        "lib/libtcl9.0.dylib",
+        "lib/python3.13/os.py",
+        "lib/python3.13/test/test_os.py",
+        "lib/python3.13/idlelib/idle.py",
+        "lib/python3.13/site-packages/pip/x.py",
+        "lib/python3.13/lib-dynload/_tkinter.cpython-313-darwin.so",
+        "lib/python3.13/lib-dynload/_ssl.cpython-313-darwin.so",
+        "include/python3.13/Python.h",
+    ):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
     resources = tmp_path / "Resources"
     (resources / "src").mkdir(parents=True)
     packaging._bundle_python(resources, source)
-    bundled = {path.relative_to(resources / "python").as_posix() for path in (resources / "python").rglob("*") if path.is_file()}
-    assert bundled == {"bin/python3.13", "lib/libpython3.13.dylib", "lib/python3.13/os.py", "lib/python3.13/lib-dynload/_ssl.cpython-313-darwin.so"}
+    bundled = {
+        path.relative_to(resources / "python").as_posix()
+        for path in (resources / "python").rglob("*")
+        if path.is_file()
+    }
+    assert bundled == {
+        "bin/python3.13",
+        "lib/libpython3.13.dylib",
+        "lib/python3.13/os.py",
+        "lib/python3.13/lib-dynload/_ssl.cpython-313-darwin.so",
+    }
     assert (resources / "src" / "yaml" / "__init__.py").is_file(), "PyYAML travels with the package"
     assert not list((resources / "src" / "yaml").rglob("*.so"))

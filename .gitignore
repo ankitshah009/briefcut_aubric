@@ -22,3 +22,8 @@ vedit-sessions/
 .vedit-models/
 .env.local
 .env
+
+# coverage data
+.coverage
+coverage.json
+htmlcov/

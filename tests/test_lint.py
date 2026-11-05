@@ -17,7 +17,9 @@ SENTENCES = [
 
 
 def plan(*ranges: tuple[float, float], **extra):
-    segments = [{"start": s, "end": e, "label": f"Moment {i}", "reason": "Chosen."} for i, (s, e) in enumerate(ranges, 1)]
+    segments = [
+        {"start": s, "end": e, "label": f"Moment {i}", "reason": "Chosen."} for i, (s, e) in enumerate(ranges, 1)
+    ]
     return {"title": "Bowl", "segments": segments, "duration": round(sum(e - s for s, e in ranges), 3), **extra}
 
 
@@ -26,7 +28,11 @@ LENGTH = "auto: length fits the target"
 
 def named(result: dict, name: str) -> dict:
     # The length check names its ceiling ("auto: length fits the target (≤ 8 s)"), so it is matched by its stem.
-    return next(check for check in result["checks"] if check["name"] == name or (name == LENGTH and check["name"].startswith(LENGTH + " (")))
+    return next(
+        check
+        for check in result["checks"]
+        if check["name"] == name or (name == LENGTH and check["name"].startswith(LENGTH + " ("))
+    )
 
 
 def test_checks_come_in_contract_order_and_pass_a_clean_plan() -> None:
@@ -58,7 +64,8 @@ def test_mid_sentence_cut_fails_with_output_time_and_snaps_to_the_nearest_bounda
     assert "2 cuts" in check["note"]
     patches = result["patches"]
     assert [(p["op"], p["segment"], p["seconds"], p["source"]) for p in patches] == [
-        ("trim_start", 2, 4.2, "auto"), ("trim_end", 2, 12.0, "auto"),
+        ("trim_start", 2, 4.2, "auto"),
+        ("trim_end", 2, 12.0, "auto"),
     ]
     assert all("mid-sentence" in p["reason"] for p in patches)
     fixed, applied = apply_patches(plan((0.0, 4.0), (5.2, 11.5)), patches, duration=20)
@@ -69,7 +76,10 @@ def test_mid_sentence_cut_fails_with_output_time_and_snaps_to_the_nearest_bounda
 
 def test_boundary_within_tolerance_or_too_far_to_snap_is_handled() -> None:
     # 0.1 s inside: within the 0.15 s tolerance, passes.
-    assert named(lint_plan(plan((0.1, 4.0)), target_duration=4, duration=20, sentences=SENTENCES), "auto: cuts land on sentence boundaries")["passed"]
+    assert named(
+        lint_plan(plan((0.1, 4.0)), target_duration=4, duration=20, sentences=SENTENCES),
+        "auto: cuts land on sentence boundaries",
+    )["passed"]
     # 2.0 s inside a sentence: extending costs 2.0 (> 1.6) and shrinking costs 2.0 (> 0.8): fails without a patch.
     result = lint_plan(plan((2.0, 4.0)), target_duration=2, duration=20, sentences=SENTENCES)
     assert named(result, "auto: cuts land on sentence boundaries")["passed"] is False
@@ -82,8 +92,12 @@ def test_duration_window_and_trim_patches_for_an_overlong_cut() -> None:
     assert named(lint_plan(plan((0.0, 11.0)), target_duration=10, duration=20), LENGTH)["passed"] is False
     over = lint_plan(plan((0.0, 4.0), (6.0, 16.0)), target_duration=10, duration=20)
     check = named(over, LENGTH)
-    assert check["passed"] is False and "14.0 s cut, 4.0 s over the 10.0 s target" in check["note"] and check["at"] == 10.0
-    assert over["patches"] == [{"op": "trim_end", "segment": 2, "seconds": 12.0, "reason": over["patches"][0]["reason"], "source": "auto"}]
+    assert (
+        check["passed"] is False and "14.0 s cut, 4.0 s over the 10.0 s target" in check["note"] and check["at"] == 10.0
+    )
+    assert over["patches"] == [
+        {"op": "trim_end", "segment": 2, "seconds": 12.0, "reason": over["patches"][0]["reason"], "source": "auto"}
+    ]
     fixed, _ = apply_patches(plan((0.0, 4.0), (6.0, 16.0)), over["patches"], duration=20)
     assert fixed["duration"] == 10.0
     # A moment too short to absorb the excess is kept; a longer one is shortened instead.
@@ -106,9 +120,20 @@ def test_bounds_check_flags_order_bounds_length_and_overlap() -> None:
     result = lint_plan(plan((0.0, 4.0), (3.0, 7.0), (18.0, 22.0), (9.0, 9.2)), target_duration=12, duration=20)
     check = named(result, "auto: moments inside the source and in order")
     assert check["passed"] is False
-    assert "moment 3 leaves" in check["note"] and "moment 4 is shorter" in check["note"] and "moment 2 overlaps" in check["note"]
-    assert sorted((p["op"], p["segment"]) for p in result["patches"] if p["op"] == "remove") == [("remove", 2), ("remove", 3), ("remove", 4)]
-    assert named(lint_plan(plan((3.0, 7.0), (0.0, 2.0)), target_duration=6, duration=20), "auto: moments inside the source and in order")["passed"]
+    assert (
+        "moment 3 leaves" in check["note"]
+        and "moment 4 is shorter" in check["note"]
+        and "moment 2 overlaps" in check["note"]
+    )
+    assert sorted((p["op"], p["segment"]) for p in result["patches"] if p["op"] == "remove") == [
+        ("remove", 2),
+        ("remove", 3),
+        ("remove", 4),
+    ]
+    assert named(
+        lint_plan(plan((3.0, 7.0), (0.0, 2.0)), target_duration=6, duration=20),
+        "auto: moments inside the source and in order",
+    )["passed"]
 
 
 def test_bounds_check_never_proposes_removing_the_only_moment() -> None:
@@ -121,14 +146,22 @@ def test_caption_coverage_is_measured_on_the_output_clock() -> None:
     speech = [{"start": 1.0, "end": 3.0}, {"start": 10.0, "end": 12.0}]
     story = plan((0.0, 4.0), (9.0, 13.0))
     # Both speech bands fully covered: band one plays at 1–3 s, band two at 5–7 s.
-    full = lint_plan(story, target_duration=8, duration=20, captions=[{"start": 0.8, "end": 3.2}, {"start": 4.9, "end": 7.1}], speech=speech)
+    full = lint_plan(
+        story,
+        target_duration=8,
+        duration=20,
+        captions=[{"start": 0.8, "end": 3.2}, {"start": 4.9, "end": 7.1}],
+        speech=speech,
+    )
     check = named(full, "auto: captions cover the speech")
     assert check["passed"] and check["note"].startswith("100% of 4.0 s")
     half = lint_plan(story, target_duration=8, duration=20, captions=[{"start": 0.8, "end": 3.2}], speech=speech)
     check = named(half, "auto: captions cover the speech")
     assert check["passed"] is False and check["at"] == 5.0 and check["note"].startswith("50%")
     silent = lint_plan(story, target_duration=8, duration=20, captions=[], speech=[])
-    assert named(silent, "auto: captions cover the speech")["note"].startswith("Captions were requested. The transcript holds no speech in this cut")
+    assert named(silent, "auto: captions cover the speech")["note"].startswith(
+        "Captions were requested. The transcript holds no speech in this cut"
+    )
 
 
 def test_output_time_sums_previous_segments() -> None:
@@ -156,10 +189,26 @@ def test_apply_patches_skips_unsafe_edits_and_never_raises() -> None:
     ]
     fixed, applied = apply_patches(story, patches, duration=20)
     assert [item["skipped"] for item in applied] == [
-        "would be shorter than 0.5 s", "would overlap another moment", "outside the source", "outside the source",
-        "unknown moment", "unknown patch operation", "missing seconds", None,
+        "would be shorter than 0.5 s",
+        "would overlap another moment",
+        "outside the source",
+        "outside the source",
+        "unknown moment",
+        "unknown patch operation",
+        "missing seconds",
+        None,
     ]
-    assert applied[-1] == {"op": "trim_end", "segment": 1, "before": {"start": 0.0, "end": 4.0}, "after": {"start": 0.0, "end": 3.0}, "reason": "fine", "source": "director", "skipped": None, "seconds": 3.0, "summary": "Moment 1 ends at 3.0 s."}
+    assert applied[-1] == {
+        "op": "trim_end",
+        "segment": 1,
+        "before": {"start": 0.0, "end": 4.0},
+        "after": {"start": 0.0, "end": 3.0},
+        "reason": "fine",
+        "source": "director",
+        "skipped": None,
+        "seconds": 3.0,
+        "summary": "Moment 1 ends at 3.0 s.",
+    }
     assert fixed["segments"][0]["end"] == 3.0 and fixed["segments"][1] == story["segments"][1]
     assert fixed["segments"][0]["reason"].endswith("(end moved to 3.00 s)")
     assert fixed["duration"] == 7.0
@@ -178,19 +227,35 @@ def test_apply_patches_remove_and_move_keep_original_indices() -> None:
         {"op": "trim_start", "segment": 3, "seconds": 8.5, "reason": "tighten", "source": "auto"},
     ]
     fixed, applied = apply_patches(story, patches, duration=20)
-    assert [item["skipped"] for item in applied] == [None, None, "moment already removed", "target moment is unavailable", "target moment is unavailable", None]
+    assert [item["skipped"] for item in applied] == [
+        None,
+        None,
+        "moment already removed",
+        "target moment is unavailable",
+        "target moment is unavailable",
+        None,
+    ]
     assert [(s["start"], s["end"]) for s in fixed["segments"]] == [(8.5, 10.0), (0.0, 2.0)]
-    assert "moved before moment 1" in fixed["segments"][0]["reason"] and "start moved to 8.50 s" in fixed["segments"][0]["reason"]
+    assert (
+        "moved before moment 1" in fixed["segments"][0]["reason"]
+        and "start moved to 8.50 s" in fixed["segments"][0]["reason"]
+    )
     assert fixed["duration"] == 3.5
     assert applied[1]["after"] is None
-    only, applied = apply_patches(plan((0.0, 2.0)), [{"op": "remove", "segment": 1, "seconds": None, "reason": "x", "source": "auto"}], duration=20)
+    only, applied = apply_patches(
+        plan((0.0, 2.0)),
+        [{"op": "remove", "segment": 1, "seconds": None, "reason": "x", "source": "auto"}],
+        duration=20,
+    )
     assert applied[0]["skipped"] == "would leave no moments" and len(only["segments"]) == 1
 
 
 def test_apply_patches_bounds_the_reason_note() -> None:
     story = plan((0.0, 4.0))
     story["segments"][0]["reason"] = "r" * 600
-    fixed, _ = apply_patches(story, [{"op": "trim_end", "segment": 1, "seconds": 3.0, "reason": "", "source": "auto"}], duration=20)
+    fixed, _ = apply_patches(
+        story, [{"op": "trim_end", "segment": 1, "seconds": 3.0, "reason": "", "source": "auto"}], duration=20
+    )
     assert len(fixed["segments"][0]["reason"]) <= 600
     validate_plan(fixed, 20)
 
@@ -201,7 +266,10 @@ def test_subject_in_frame_check_grades_sam_tracks():
     steady = [{"time": i / 10, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3} for i in range(100)]
     good = subject_in_frame_check(steady, duration=10, aspect="9:16", source_width=1280, source_height=720)
     assert good["passed"] and good["at"] is None and "100%" in good["note"]
-    assert subject_in_frame_check([], duration=10, aspect="9:16", source_width=1280, source_height=720)["note"] == "not requested"
+    assert (
+        subject_in_frame_check([], duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+        == "not requested"
+    )
     gappy = [box for box in steady if not 2 < box["time"] < 6]
     gap = subject_in_frame_check(gappy, duration=10, aspect="9:16", source_width=1280, source_height=720)
     assert not gap["passed"] and gap["at"] == 2.0 and "longest gap" in gap["note"]
@@ -228,20 +296,32 @@ def test_subject_in_frame_coverage_counts_only_tracked_time():
     assert not sparse["passed"] and sparse["at"] == 2.0 and "21 tracked boxes cover 30% of 10.0 s" in sparse["note"]
     # The same density across the cut is full coverage, and one 1.5 s hole costs only its excess over the allowed gap.
     steady = [{"time": i / 10, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3} for i in range(100)]
-    assert "cover 100%" in subject_in_frame_check(steady, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+    assert (
+        "cover 100%"
+        in subject_in_frame_check(steady, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+    )
     holed = [box for box in steady if not 4.0 < box["time"] < 5.5]
     hole = subject_in_frame_check(holed, duration=10, aspect="9:16", source_width=1280, source_height=720)
     assert not hole["passed"] and "cover 95%" in hole["note"] and "longest gap 1.5 s" in hole["note"]
     # Boxes past the end of the cut add nothing.
     late = steady + [{"time": 12.0, "x": 0.4, "y": 0.3, "width": 0.2, "height": 0.3}]
-    assert "101 tracked boxes cover 100%" in subject_in_frame_check(late, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+    assert (
+        "101 tracked boxes cover 100%"
+        in subject_in_frame_check(late, duration=10, aspect="9:16", source_width=1280, source_height=720)["note"]
+    )
 
 
 def test_strict_lint_moves_a_model_cut_to_the_nearest_boundary_however_far() -> None:
     # The live note run: a model extended moment 1 to 5.58 s, 1.0 s past the sentence end
     # and 1.9 s short of the next one. Outside the normal tolerances, so only strict snaps it.
     sentences = [{"start": 0.3, "end": 4.585}, {"start": 4.6, "end": 7.5}, {"start": 8.0, "end": 11.6}]
-    plan = {"duration": 8.98, "segments": [{"start": 0.0, "end": 5.58, "label": "a", "reason": ""}, {"start": 8.0, "end": 11.6, "label": "b", "reason": ""}]}
+    plan = {
+        "duration": 8.98,
+        "segments": [
+            {"start": 0.0, "end": 5.58, "label": "a", "reason": ""},
+            {"start": 8.0, "end": 11.6, "label": "b", "reason": ""},
+        ],
+    }
     loose = lint_plan(plan, target_duration=25, duration=40, sentences=sentences)
     assert not loose["checks"][0]["passed"] and loose["patches"] == []
     strict = lint_plan(plan, target_duration=25, duration=40, sentences=sentences, strict=True)
@@ -312,10 +392,52 @@ def test_sentence_check_judges_the_cuts_that_really_play() -> None:
     assert named(result, "auto: cuts land on sentence boundaries")["passed"] is True
     # A filler removed inside a sentence is a deliberate join, not a story cut.
     inner = edited((0.0, 8.0), removed=[[1.0, 1.4], [5.0, 5.3]])
-    assert named(lint_plan(inner, target_duration=7, duration=20, sentences=SENTENCES), "auto: cuts land on sentence boundaries")["passed"] is True
+    assert (
+        named(
+            lint_plan(inner, target_duration=7, duration=20, sentences=SENTENCES),
+            "auto: cuts land on sentence boundaries",
+        )["passed"]
+        is True
+    )
     # A removal that reaches the moment's edge makes a real cut inside a sentence, and
     # moving the moment's own edge could not fix it, so it is reported without a patch.
     outer = edited((0.0, 8.0), removed=[[0.0, 2.0]])
     result = lint_plan(outer, target_duration=6, duration=20, sentences=SENTENCES)
     check = named(result, "auto: cuts land on sentence boundaries")
     assert check["passed"] is False and check["at"] == 0.0 and result["patches"] == []
+
+
+def test_a_split_half_never_stands_in_for_a_moment_without_times() -> None:
+    # Moment 2 has no usable times. Splitting moment 1 adds a half; a patch naming moment 2 must still find
+    # nothing, and a patch naming moment 3 must still reach the real third moment.
+    story = plan((0.0, 4.0), (8.0, 10.0))
+    story["segments"].insert(1, {"label": "No times", "reason": "The planner gave no range."})
+    patches = [
+        {"op": "split", "segment": 1, "seconds": 2.0, "reason": "two beats", "source": "director"},
+        {"op": "trim_end", "segment": 2, "seconds": 1.0, "reason": "reaches nothing", "source": "director"},
+        {"op": "trim_start", "segment": 3, "seconds": 8.5, "reason": "tighten", "source": "auto"},
+        {"op": "set_speed", "segment": 1, "value": 2.0, "reason": "both halves", "source": "director"},
+    ]
+    fixed, applied = apply_patches(story, patches, duration=20)
+    assert [item["skipped"] for item in applied] == [None, "moment already removed", None, None]
+    assert [(s["start"], s["end"], s.get("speed")) for s in fixed["segments"]] == [
+        (0.0, 2.0, 2.0),
+        (2.0, 4.0, 2.0),
+        (8.5, 10.0, None),
+    ]
+    assert fixed["segments"][1]["label"] == "Moment 1 (continued)"
+    assert fixed["duration"] == 3.5
+
+
+def test_patches_that_would_overrun_the_story_limit_roll_back() -> None:
+    story = plan((0.0, 100.0), (110.0, 180.0))
+    patches = [
+        {"op": "trim_end", "segment": 2, "seconds": 200.0, "reason": "too long", "source": "director"},
+        {"op": "set_speed", "segment": 1, "value": 0.5, "reason": "too slow", "source": "director"},
+        {"op": "set_speed", "segment": 2, "seconds": 120.0, "value": 2.0, "reason": "fine", "source": "director"},
+    ]
+    fixed, applied = apply_patches(story, patches, duration=200)
+    assert [item["skipped"] for item in applied] == ["would run past 180 s", "would run past 180 s", None]
+    # The rolled-back moments are exactly as given: no speed key appears on them.
+    assert fixed["segments"][0] == dict(story["segments"][0], start=0.0, end=100.0)
+    assert fixed["segments"][1]["speed"] == 2.0 and fixed["duration"] == 135.0

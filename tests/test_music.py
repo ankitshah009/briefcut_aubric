@@ -66,13 +66,7 @@ def _make_bed(path: Path, *, seconds: float = 2.0) -> Path:
 def test_music_duck_export(tmp_path: Path) -> None:
     talk = _make_talk(tmp_path / "talk.mp4")
     bed = _make_bed(tmp_path / "bed.wav")
-    finals = (
-        Edit(talk)
-        .work_dir(tmp_path / "work")
-        .music(bed, duck=True, volume_db=-20)
-        .export("web_preview")
-        .render()
-    )
+    finals = Edit(talk).work_dir(tmp_path / "work").music(bed, duck=True, volume_db=-20).export("web_preview").render()
     assert finals
     out = finals[0]
     assert out.is_file()

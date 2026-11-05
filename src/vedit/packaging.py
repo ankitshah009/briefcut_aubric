@@ -142,7 +142,9 @@ def relocatable_python() -> Path | None:
     candidates = [Path(sys.base_prefix)]
     uv = shutil.which("uv")
     if uv is not None:
-        found = subprocess.run([uv, "python", "find", "--managed-python", "3.13"], capture_output=True, text=True, check=False)
+        found = subprocess.run(
+            [uv, "python", "find", "--managed-python", "3.13"], capture_output=True, text=True, check=False
+        )
         if found.returncode == 0 and found.stdout.strip():
             candidates.append(Path(found.stdout.strip()).parent.parent)
     for candidate in candidates:
@@ -296,8 +298,4 @@ def _xml_escape(text: str) -> str:
 
 
 def _ignore_packaged(_directory: str, names: list[str]) -> set[str]:
-    return {
-        name
-        for name in names
-        if name == "__pycache__" or name.endswith(".pyc") or "egg-info" in name
-    }
+    return {name for name in names if name == "__pycache__" or name.endswith(".pyc") or "egg-info" in name}
