@@ -1,6 +1,6 @@
 # Briefcut by Aubric, Inc.: hackathon submission
 
-**Demo video.** <https://youtu.be/NVuSLZREnxw>
+**Demo video.** <https://youtu.be/_VNGaeO-WIw>
 
 **One line.** Briefcut is an open-source (AGPL-3.0-or-later) video editor that turns clips and photos into an editable story and a verified, downloadable campaign, for creators, small teams, and AI agents. Meta's models propose, track, transcribe, and critique; FFmpeg on the creator's own computer is the only thing that cuts; every version ships with receipts anyone can verify. It costs cents per project on the user's own Meta key, with no subscription.
 

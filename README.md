@@ -6,7 +6,7 @@ Editors cost hours, or hide their choices. Briefcut is a video editor built on M
 
 ## See it
 
-**Watch the 3-minute demo:** <https://youtu.be/NVuSLZREnxw> (built during the hackathon; the first commit was October 29).
+**Watch the 3-minute demo:** <https://youtu.be/_VNGaeO-WIw> (built during the hackathon; the first commit was October 29).
 
 <img src="docs/media/studio-hero.png" alt="Briefcut Studio on the Edit step: the transcript, the timeline, the hero word inspector with Muse Spark's reason, and the Meta calls panel" width="100%">
 
