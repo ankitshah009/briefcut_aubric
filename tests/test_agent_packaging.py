@@ -83,12 +83,13 @@ def test_plugin_and_marketplace_agree_with_the_package():
     version = project["project"]["version"]
     assert plugin["name"] == "briefcut"
     assert plugin["version"] == version, "bump .claude-plugin/plugin.json with pyproject.toml"
-    assert plugin["license"] == project["project"]["license"]["text"]
+    assert plugin["license"] == project["project"]["license"]
     assert REPOSITORY in plugin["repository"]
 
     assert market["name"] == "briefcut"
     [entry] = [row for row in market["plugins"] if row["name"] == plugin["name"]]
     assert entry["version"] == version, "bump .claude-plugin/marketplace.json with pyproject.toml"
+    assert entry["license"] == project["project"]["license"]
     source = (MARKETPLACE.parent.parent / entry["source"]).resolve()
     assert (source / ".claude-plugin" / "plugin.json").resolve() == PLUGIN.resolve()
 
@@ -161,6 +162,43 @@ def test_old_skill_path_points_at_the_new_one():
     text = (ROOT / "skill" / "SKILL.md").read_text(encoding="utf-8")
     assert not text.startswith("---"), "a second frontmatter would load a second, older skill"
     assert "../skills/briefcut/SKILL.md" in text
+
+
+def test_license_prose_matches_the_package_metadata():
+    """Every human-readable license claim names the one SPDX id pyproject.toml publishes.
+
+    Commit 4599adb changed nine files and missed docs/OPEN_SOURCE_IDEAS.md; this
+    test is what would have caught the tenth.
+    """
+    spdx = _pyproject()["project"]["license"]
+    assert spdx == "AGPL-3.0-or-later"
+    assert (ROOT / "LICENSE").read_text(encoding="utf-8").startswith("                    GNU AFFERO GENERAL PUBLIC LICENSE\n                       Version 3")
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    license_section = readme[readme.index("## License"):]
+    assert f"`{spdx}`" in license_section, "README's License section must name the SPDX id from pyproject.toml"
+    assert "version 3 or (at your option) any later version" in license_section
+
+    # The applied notice the AGPL appendix asks for lives at the top of the program.
+    package = (ROOT / "src" / "vedit" / "__init__.py").read_text(encoding="utf-8")
+    assert "Copyright (C) 2026 Aubric, Inc." in package
+    assert "either version 3 of the License, or (at your option) any later version" in " ".join(package.split())
+    assert re.search(r'^__license__ = "AGPL-3\.0-or-later"$', package, re.MULTILINE)
+    assert re.search(r'^__version__ = "' + re.escape(_pyproject()["project"]["version"]) + '"$', package, re.MULTILINE)
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.md", ":(exclude)docs/evidence"], cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    stale = re.compile(r"source-available|MIT License|AGPL-3\.0(?!-or-later)|AGPLv3|GPL v3(?!\.0 or)", re.IGNORECASE)
+    allowed_history = {"CHANGELOG.md"}
+    offenders = []
+    for rel in tracked:
+        if rel in allowed_history:
+            continue
+        for number, line in enumerate((ROOT / rel).read_text(encoding="utf-8").splitlines(), 1):
+            if stale.search(line):
+                offenders.append(f"{rel}:{number}: {line.strip()[:120]}")
+    assert not offenders, "stale or inconsistent license wording:\n" + "\n".join(offenders)
 
 
 def test_readme_documents_the_plugin_install():
