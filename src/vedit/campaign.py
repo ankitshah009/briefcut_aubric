@@ -2985,8 +2985,9 @@ class CampaignManager:
             + " FFmpeg measured scene cuts and speech bands."
         ]
         if heard is not None:
+            # A note over 300 characters is rejected, and the whole analysis record is dropped.
             notes.append(
-                "Meta Voice Transcribe wrote the transcript. It times turns, not words, so a sentence end inside a turn is estimated by length and filler removal has no word times to cut at."
+                "Meta Voice Transcribe wrote the transcript. It times turns, not words. Filler removal cuts a whole heard line that is only a filler, and a line repeated back to back. It does not cut a filler inside a sentence because the transcript does not time words."
             )
         proposed["analysis"] = dict(signals, method="meta", notes=notes)
         return proposed

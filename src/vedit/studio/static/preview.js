@@ -5,9 +5,42 @@
  * browser with nothing rendered: two video elements take turns at each cut so the
  * next piece is already decoded when the current one ends. Speed, removed pieces,
  * captions, text, the look, and the frame all follow the draft as it changes.
- * Tracked reframing, cutout, and speech cleanup only exist in a render.
+ * The spatial preview is approximate. Subject tracking, cutout, and speech cleanup
+ * appear only in the finished video.
  */
 (function () {
+  /* Flat-plane stand-in for compile.py _spatial_effect, not the perspective filter. */
+  function spatialIdentity() {
+    return { phase: null, envelope: 0, margin: 0, dx: 0, dy: 0, skew: 0, roll: 0, scale: 1, rotate: 0, transform: "" };
+  }
+  function spatialTransform(scale, dx, dy, rotate) {
+    const parts = [];
+    if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) parts.push("translate(" + (dx * 100).toFixed(2) + "%," + (dy * 100).toFixed(2) + "%)");
+    if (Math.abs(rotate) > 1e-4) parts.push("rotate(" + rotate.toFixed(3) + "deg)");
+    if (Math.abs(scale - 1) > 1e-6) parts.push("scale(" + scale.toFixed(4) + ")");
+    return parts.join(" ");
+  }
+  function spatialTerms(preset, envelope, phase) {
+    const wave = Math.sin(2 * Math.PI * phase);
+    if (preset === "tilt") return { margin: 0.12 * envelope, dx: 0.018 * envelope * wave, dy: 0, skew: 0.075 * envelope * Math.cos(2 * Math.PI * phase), roll: 0 };
+    if (preset === "float") return { margin: 0.13 * envelope, dx: 0.018 * envelope * wave, dy: -0.028 * envelope * Math.sin(Math.PI * phase), skew: 0, roll: 0.018 * envelope * wave };
+    return { margin: 0.23 * envelope * (1 - 0.65 * phase), dx: -0.025 * envelope * (1 - phase), dy: 0, skew: 0.06 * envelope * (1 - phase), roll: 0 };
+  }
+  function spatialFrame(preset, intensity, start, duration, time) {
+    if (preset !== "tilt" && preset !== "float" && preset !== "push") return spatialIdentity();
+    if (!Number.isFinite(intensity) || !Number.isFinite(start) || !Number.isFinite(duration) || !Number.isFinite(time) || duration <= 0) return spatialIdentity();
+    if (time < start || time > start + duration) return spatialIdentity();
+    const phase = Math.min(1, Math.max(0, (time - start) / duration));
+    const sine = phase <= 0 || phase >= 1 ? 0 : Math.sin(Math.PI * phase);
+    const envelope = intensity * sine * sine;
+    const terms = spatialTerms(preset, envelope, phase);
+    const scale = 1 - 2 * terms.margin;
+    /* skew and roll are fractions of the frame. A small rotation stands in for that shear. */
+    const rotate = (terms.skew + terms.roll) * (180 / Math.PI);
+    return { phase, envelope, margin: terms.margin, dx: terms.dx, dy: terms.dy, skew: terms.skew, roll: terms.roll, scale, rotate, transform: spatialTransform(scale, terms.dx, terms.dy, rotate) };
+  }
+  window.BriefcutPreview = { spatialFrame };
+
   const Editor = window.BriefcutEditor;
   if (!Editor) return;
   const $ = (id) => document.getElementById(id);
@@ -35,6 +68,8 @@
     video.setAttribute("aria-hidden", "true"); video.tabIndex = -1;
     video.want = null; video.moving = false;
     video.addEventListener("seeked", () => settled(video));
+    video.addEventListener("loadeddata", () => releaseIncoming(video));
+    video.addEventListener("canplay", () => releaseIncoming(video));
     video.addEventListener("loadedmetadata", () => { if (video.want !== null) moveTo(video, video.want, true); else if (video === engine.active) present(engine.time); });
     video.addEventListener("error", () => { if (video.getAttribute("src")) { engine.failed = true; $("preview-stage").classList.add("has-error"); } });
     return video;
@@ -85,6 +120,12 @@
     video.moving = false;
     if (video.want !== null && Math.abs(video.currentTime - video.want) > 0.03) { moveTo(video, video.want); return; }
     if (engine.waiting && video === engine.standby) { engine.waiting = false; advance(); }
+  }
+  /* A decoded frame can arrive without another seek. That is what ends a hold. */
+  function releaseIncoming(video) {
+    if (!engine.waiting || video !== engine.standby || video.moving || video.readyState < 2) return;
+    engine.waiting = false;
+    advance();
   }
 
   /* ---------- Where the clock is ---------- */
@@ -166,6 +207,17 @@
     nodes.wash.style.opacity = "0";
     engine.outgoing = null;
   }
+  function decodedAtCut(video) {
+    return video.readyState >= 2 && !video.moving;
+  }
+  /* The outgoing picture stays up until the incoming video has a frame at source_start.
+     Once this moment has played out, freeze that frame. Pausing any earlier is what opened the gap. */
+  function holdOutgoingFrame(video, outgoing, span) {
+    if (decodedAtCut(video)) return false;
+    engine.waiting = true;
+    if (outgoing && span && outgoing.currentTime >= span.source_end - 0.04) outgoing.pause();
+    return true;
+  }
   function advance() {
     const nextIndex = engine.index + 1;
     const next = engine.spans[nextIndex];
@@ -173,15 +225,17 @@
     if (!next) return;
     const incoming = engine.standby, outgoing = engine.active;
     if (engine.rolling) {
+      /* Preroll is already playing the next source up to source_start. Let it reach the cut. */
       if (incoming.currentTime < next.source_start - 0.02 && !incoming.paused) return;
-    } else {
-      if (engine.prepared !== nextIndex || engine.lead) { engine.prepared = nextIndex; engine.lead = 0; setRate(incoming, next); moveTo(incoming, next.source_start); }
-      if (incoming.moving || incoming.readyState < 2) { engine.waiting = true; outgoing.pause(); return; }
+    } else if (engine.prepared !== nextIndex || engine.lead) {
+      engine.prepared = nextIndex; engine.lead = 0; setRate(incoming, next); moveTo(incoming, next.source_start);
     }
+    if (holdOutgoingFrame(incoming, outgoing, current)) return;
     const overlap = current.output_end - next.output_start;
     const blends = overlap > 0.02 && next.segment !== current.segment;
     setRate(incoming, next);
     setVolume(incoming, next, blends ? 0 : 1);
+    incoming.style.transform = frameMotion(next, engine.time);
     incoming.style.zIndex = "2";
     outgoing.style.zIndex = "1";
     engine.active = incoming; engine.standby = outgoing; engine.index = nextIndex;
@@ -210,7 +264,14 @@
     } else if (type === "slideleft") { incoming.style.opacity = "1"; incoming.style.translate = (1 - progress) * 100 + "% 0"; outgoing.style.translate = -progress * 100 + "% 0"; }
     else if (type === "slideup") { incoming.style.opacity = "1"; incoming.style.translate = "0 " + (1 - progress) * 100 + "%"; outgoing.style.translate = "0 " + -progress * 100 + "%"; }
     else if (type === "wipeleft") { incoming.style.opacity = "1"; incoming.style.clipPath = "inset(0 0 0 " + (1 - progress) * 100 + "%)"; }
+    else if (type === "slideright") { incoming.style.opacity = "1"; incoming.style.translate = (progress - 1) * 100 + "% 0"; outgoing.style.translate = progress * 100 + "% 0"; }
+    else if (type === "slidedown") { incoming.style.opacity = "1"; incoming.style.translate = "0 " + (progress - 1) * 100 + "%"; outgoing.style.translate = "0 " + progress * 100 + "%"; }
+    else if (type === "wiperight") { incoming.style.opacity = "1"; incoming.style.clipPath = "inset(0 " + (1 - progress) * 100 + "% 0 0)"; }
+    else if (type === "wipeup") { incoming.style.opacity = "1"; incoming.style.clipPath = "inset(" + (1 - progress) * 100 + "% 0 0 0)"; }
+    else if (type === "wipedown") { incoming.style.opacity = "1"; incoming.style.clipPath = "inset(0 0 " + (1 - progress) * 100 + "% 0)"; }
     else if (type === "circleopen") { incoming.style.opacity = "1"; incoming.style.clipPath = "circle(" + progress * 75 + "% at 50% 50%)"; }
+    else if (type === "circleclose") { incoming.style.opacity = "1"; incoming.style.zIndex = "1"; outgoing.style.zIndex = "2"; outgoing.style.clipPath = "circle(" + (1 - progress) * 75 + "% at 50% 50%)"; }
+    // dissolve, zoomin, hblur, smoothleft, and pixelize preview as a crossfade.
     else incoming.style.opacity = String(progress);
   }
 
@@ -221,7 +282,10 @@
     const spans = engine.spans;
     const span = spans[engine.index];
     if (!span) { stop(); return; }
-    if (!engine.waiting) {
+    if (engine.waiting) {
+      const video = engine.active;
+      if (video && video.currentTime >= span.source_end - 0.04) video.pause();
+    } else {
       const video = engine.active;
       let time = span.output_start + (video.currentTime - span.source_start) / span.speed;
       time = Math.max(time, span.output_start);
@@ -423,11 +487,39 @@
     const scale = lerp(from.scale, to.scale, progress), x = lerp(from.x, to.x, progress), y = lerp(from.y, to.y, progress);
     return "scale(" + scale.toFixed(4) + ") translate(" + ((0.5 - x) * 100).toFixed(2) + "%," + ((0.5 - y) * 100).toFixed(2) + "%)";
   }
+  function effectFromPage() {
+    const presetNode = $("effect-preset");
+    const intensityNode = $("effect-intensity");
+    const startNode = $("effect-start");
+    const durationNode = $("effect-duration");
+    if (!presetNode || !intensityNode || !startNode || !durationNode) return null;
+    if (!presetNode.value || presetNode.value === "none") return null;
+    const intensity = Number(intensityNode.value);
+    const start = Number(startNode.value);
+    const duration = Number(durationNode.value);
+    if (!Number.isFinite(intensity) || intensity <= 0 || !Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) return null;
+    return { preset: presetNode.value, intensity, start, duration };
+  }
+  function spatialCss(time) {
+    const effect = effectFromPage();
+    if (!effect) return "";
+    return spatialFrame(effect.preset, effect.intensity, effect.start, effect.duration, time).transform;
+  }
+  function frameMotion(span, time) {
+    const zoom = motionAt(span, time);
+    const spatial = spatialCss(time);
+    if (spatial && zoom) return spatial + " " + zoom;
+    return spatial || zoom;
+  }
   function paintMotion(time) {
     const span = engine.spans[engine.index];
     if (!span) return;
-    const value = motionAt(span, time);
+    const value = frameMotion(span, time);
     if (engine.active.style.transform !== value) engine.active.style.transform = value;
+    const out = engine.outgoing;
+    if (!out) return;
+    const under = frameMotion(out.span, time);
+    if (out.video.style.transform !== under) out.video.style.transform = under;
   }
   function stamp(seconds) {
     const value = Math.max(0, seconds);
@@ -575,7 +667,7 @@
       engine.labelIndex = -2;
       paintReadout(engine.time);
       $("monitor-meta").textContent = (chosen("aspect") || "9:16") + " live preview";
-      $("monitor-meta").title = "Plays your edit without rendering. Subject tracking, cutout, and speech cleanup appear in the finished video.";
+      $("monitor-meta").title = "Plays your edit without rendering. The spatial preview is approximate. Subject tracking, cutout, and speech cleanup appear in the finished video.";
     } else {
       stop();
       $("monitor-meta").title = "";
@@ -610,6 +702,13 @@
       engine.peeking = true;
       moveTo(engine.active, time);
     };
+    for (const id of ["effect-preset", "effect-intensity", "effect-start", "effect-duration"]) {
+      const node = $(id);
+      if (!node) continue;
+      const refresh = () => { if (monitor() === "story") paint(engine.time); };
+      node.addEventListener("input", refresh);
+      node.addEventListener("change", refresh);
+    }
     Editor.on("timeline", onTimeline);
     Editor.on("change", applyStyle);
     Editor.on("job", () => { syncSource(); applyStyle(); });

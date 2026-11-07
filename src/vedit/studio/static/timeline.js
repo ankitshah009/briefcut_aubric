@@ -90,9 +90,47 @@
       if (end - cursor >= PAUSE_SECONDS && end - cursor - PAUSE_PAD >= MIN_KEEP) removals.push([cursor + PAUSE_PAD, end]);
       return removals;
     }
-    function fillerRemovals(words, start, end) {
+    function spokenWords(text) {
+      const found = String(text).toLowerCase().match(new RegExp(WORD.source, "gu"));
+      return found || [];
+    }
+    function onlyFiller(text) {
+      const words = spokenWords(text);
+      return words.length > 0 && words.every((word) => FILLERS.has(word));
+    }
+    function sameLine(left, right) {
+      const plainLeft = spokenWords(left).join(" ");
+      return plainLeft.length > 0 && plainLeft === spokenWords(right).join(" ");
+    }
+    function overlaps(lo, hi, start, end) { return Math.min(hi, end) > Math.max(lo, start); }
+    function heardIntervals(words) {
+      const intervals = [];
+      for (const word of words) {
+        if (word.estimated) continue;
+        if (finiteNumber(word.start) && finiteNumber(word.end) && word.end > word.start) intervals.push([word.start, word.end]);
+      }
+      return intervals;
+    }
+    function heardOverlaps(heard, lo, hi) { return heard.some(([wordLo, wordHi]) => overlaps(wordLo, wordHi, lo, hi)); }
+    function paddedCut(lo, hi, start, end) {
+      if (!overlaps(lo, hi, start, end)) return null;
+      const cutLo = Math.max(start, lo - FILLER_PAD), cutHi = Math.min(end, hi + FILLER_PAD);
+      return cutHi > cutLo ? [cutLo, cutHi] : null;
+    }
+    function transcriptLines(cues) {
+      const lines = [];
+      for (const cue of cues) {
+        if (!cue || !finiteNumber(cue.start) || !finiteNumber(cue.end) || cue.end <= cue.start) continue;
+        const text = String(cue.text || "").trim();
+        if (text) lines.push([cue.start, cue.end, text]);
+      }
+      lines.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      return lines;
+    }
+    function fillerRemovals(words, cues, start, end) {
       const inside = [];
       for (const word of words) {
+        if (word.estimated) continue;
         if (finiteNumber(word.start) && finiteNumber(word.end) && word.end > word.start && word.start >= start && word.end <= end) inside.push([word.start, word.end, plain(word.text || "")]);
       }
       const removals = [];
@@ -100,6 +138,20 @@
         if (FILLERS.has(text)) removals.push([Math.max(start, lo - FILLER_PAD), Math.min(end, hi + FILLER_PAD)]);
         else if (index + 1 < inside.length && text && text === inside[index + 1][2] && inside[index + 1][0] - hi <= STUTTER_GAP) removals.push([Math.max(start, lo - FILLER_PAD), inside[index + 1][0]]);
       });
+      const heard = heardIntervals(words);
+      const lines = transcriptLines(cues);
+      for (const [lo, hi, text] of lines) {
+        if (!onlyFiller(text) || heardOverlaps(heard, lo, hi)) continue;
+        const cut = paddedCut(lo, hi, start, end);
+        if (cut) removals.push(cut);
+      }
+      for (let index = 0; index < lines.length - 1; index += 1) {
+        const firstHi = lines[index][1], firstText = lines[index][2];
+        const [secondLo, secondHi, secondText] = lines[index + 1];
+        if (secondLo - firstHi > STUTTER_GAP || !sameLine(firstText, secondText) || heardOverlaps(heard, secondLo, secondHi)) continue;
+        const cut = paddedCut(secondLo, secondHi, start, end);
+        if (cut) removals.push(cut);
+      }
       return removals;
     }
     function resolve(plan) {
@@ -107,6 +159,7 @@
       const analysis = plan.analysis && typeof plan.analysis === "object" ? plan.analysis : {};
       const speech = (analysis.speech || []).filter((item) => item && typeof item === "object");
       const words = (analysis.words || []).filter((item) => item && typeof item === "object");
+      const cues = (analysis.transcript || []).filter((item) => item && typeof item === "object");
       const manual = [];
       for (const item of edit.removed || []) {
         const lo = Array.isArray(item) ? item[0] : item && item.start, hi = Array.isArray(item) ? item[1] : item && item.end;
@@ -119,7 +172,7 @@
         if (!finiteNumber(start) || !finiteNumber(end) || end <= start) return item;
         const removals = manual.slice();
         if (edit.trim_pauses) removals.push(...pauseRemovals(speech, start, end));
-        if (edit.remove_fillers) removals.push(...fillerRemovals(words, start, end));
+        if (edit.remove_fillers) removals.push(...fillerRemovals(words, cues, start, end));
         if (removals.length) {
           const keeps = subtract(start, end, removals);
           if (keeps.length && !(keeps.length === 1 && keeps[0][0] === start && keeps[0][1] === end)) item.keep = keeps.map(([lo, hi]) => [round3(lo), round3(hi)]);
@@ -225,6 +278,7 @@
     }
     return { plan, resolve, keepsOf, speedOf, outputSeconds, mapCues, toSource, toOutput, MIN_SPEED, MAX_SPEED };
   })();
+  window.BriefcutClock = Clock;
 
   /* ---------- Core state ---------- */
   const HISTORY_LIMIT = 200;

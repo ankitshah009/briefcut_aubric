@@ -584,7 +584,11 @@ def test_meta_plan_carries_local_analysis_and_grounded_transcript(
     assert len(heard) == 1 and Path(heard[0]["work_dir"]).name == "meta"
     assert analysis["transcribed_by"] == "meta-voice-transcribe"
     assert any("Muse Spark selected the moments" in note for note in analysis["notes"])
-    assert any("Meta Voice Transcribe wrote the transcript" in note for note in analysis["notes"])
+    note = next(item for item in analysis["notes"] if "Meta Voice Transcribe wrote the transcript" in item)
+    assert len(note) <= 300
+    assert "only a filler" in note and "back to back" in note
+    assert "does not cut a filler inside a sentence" in note
+    assert "no word times to cut at" not in note
     segment = planned["plan"]["segments"][0]
     assert segment["kind"] == "speech" and 0.5 <= segment["score"] <= 1.0
     assert planned["plan"]["provider"] == "meta"

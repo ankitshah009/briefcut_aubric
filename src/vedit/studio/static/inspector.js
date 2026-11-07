@@ -672,7 +672,12 @@
     });
     const analysisOf = () => { const plan = Kit.draft(); return plan && plan.analysis || {}; };
     const speechNeeded = () => (Array.isArray(analysisOf().speech) && analysisOf().speech.length ? "" : "Needs speech in the footage.");
-    const wordsNeeded = () => (Array.isArray(analysisOf().words) && analysisOf().words.length ? "" : "Needs a transcript with word timing.");
+    const fillersNeeded = () => {
+      const analysis = analysisOf();
+      const words = Array.isArray(analysis.words) && analysis.words.length;
+      const lines = Array.isArray(analysis.transcript) && analysis.transcript.length;
+      return words || lines ? "" : "Needs a transcript.";
+    };
     const list = Kit.catalogue();
     panel.body.append(
       group("Speech",
@@ -680,7 +685,7 @@
         toggle(panel, { label: "Remove background noise", path: "audio.denoise", gate: () => needsFfmpeg("voice", "Voice cleanup") }),
         toggle(panel, { label: "Keep the original loudness", hint: "Skips the usual loudness leveling.", path: "audio.keep_loudness" }),
         "trim_pauses" in list.defaults ? toggle(panel, { label: "Trim pauses", hint: "Shortens silent gaps inside moments.", path: "trim_pauses", gate: speechNeeded }) : null,
-        "remove_fillers" in list.defaults ? toggle(panel, { label: "Remove filler words", hint: "Cuts um, uh, and similar.", path: "remove_fillers", gate: wordsNeeded }) : null,
+        "remove_fillers" in list.defaults ? toggle(panel, { label: "Remove filler words", hint: "Cuts a heard um or uh. A whole line that is only a filler goes too. A filler inside a sentence stays.", path: "remove_fillers", gate: fillersNeeded }) : null,
         toggle(panel, { label: "Mute original sound", path: "audio.mute_source" })),
       needsFfmpeg("music", "Music") ? group("Music", note(needsFfmpeg("music", "Music"))) : group("Music", el("label", { for: "ix-music", text: "Track" }), select, musicEmpty, musicControls),
       note("Voice cleanup and noise removal apply in the render."));

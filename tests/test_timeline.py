@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from vedit.timeline import (
+    FILLER_PAD,
     build_timeline,
     effective_transition,
     filler_removals,
@@ -109,6 +115,153 @@ def test_filler_removal_only_touches_what_was_heard() -> None:
     ]
     assert filler_removals(words, 0, 2) == [(0.38, 0.72), (0.78, 1.05)]
     assert filler_removals([{"start": 0, "end": 1, "text": "umbrella"}], 0, 2) == []
+
+
+def _turn_plan(cues: list[dict[str, object]], words: list[dict[str, object]] | None = None) -> dict[str, object]:
+    """A 5 s moment whose transcript is turn-timed, the shape Meta Voice Transcribe stores."""
+    analysis: dict[str, object] = {"transcript": cues}
+    if words is not None:
+        analysis["words"] = words
+    return {"segments": [{"start": 0.0, "end": 5.0}], "analysis": analysis, "edit": {"remove_fillers": True}}
+
+
+def test_a_filler_only_line_is_cut_and_a_filler_inside_a_sentence_stays() -> None:
+    """Meta times the line. A line that is only "um" goes; "um, I think" has nothing to cut inside."""
+    removed = plan_timeline(_turn_plan([{"start": 1.0, "end": 1.4, "text": "um"}]))
+    assert removed["segments"][0]["keep"] == [
+        [pytest.approx(0.0), pytest.approx(1.0 - FILLER_PAD)],
+        [pytest.approx(1.4 + FILLER_PAD), pytest.approx(5.0)],
+    ]
+    assert removed["duration"] == pytest.approx(5.0 - (0.4 + 2 * FILLER_PAD))
+    kept = plan_timeline(_turn_plan([{"start": 1.0, "end": 1.4, "text": "um, I think"}]))
+    assert kept["duration"] == pytest.approx(5.0) and "keep" not in kept["segments"][0]
+    whole = plan_timeline(_turn_plan([{"start": 0.0, "end": 5.0, "text": "um"}]))
+    assert whole["duration"] == pytest.approx(5.0) and "keep" not in whole["segments"][0]
+
+
+def test_a_line_repeated_back_to_back_drops_the_second_take() -> None:
+    close = plan_timeline(
+        _turn_plan(
+            [
+                {"start": 1.0, "end": 1.5, "text": "the bowl"},
+                {"start": 1.6, "end": 2.1, "text": "the bowl"},
+            ]
+        )
+    )
+    assert close["segments"][0]["keep"] == [
+        [pytest.approx(0.0), pytest.approx(1.6 - FILLER_PAD)],
+        [pytest.approx(2.1 + FILLER_PAD), pytest.approx(5.0)],
+    ]
+    assert close["duration"] == pytest.approx(5.0 - (0.5 + 2 * FILLER_PAD))
+    wide = plan_timeline(
+        _turn_plan(
+            [
+                {"start": 1.0, "end": 1.5, "text": "the bowl"},
+                {"start": 3.5, "end": 4.0, "text": "the bowl"},
+            ]
+        )
+    )
+    assert wide["duration"] == pytest.approx(5.0) and "keep" not in wide["segments"][0]
+    heard = plan_timeline(
+        _turn_plan(
+            [
+                {"start": 1.0, "end": 1.5, "text": "the bowl"},
+                {"start": 1.6, "end": 2.1, "text": "the bowl"},
+            ],
+            words=[
+                {"start": 1.6, "end": 1.8, "text": "the"},
+                {"start": 1.8, "end": 2.1, "text": "bowl"},
+            ],
+        )
+    )
+    assert heard["duration"] == pytest.approx(5.0) and "keep" not in heard["segments"][0]
+
+
+def test_an_estimated_filler_inside_a_sentence_does_not_move_the_cut() -> None:
+    words = [
+        {"start": 0.5, "end": 1.0, "text": "So", "estimated": True},
+        {"start": 1.2, "end": 1.6, "text": "um", "estimated": True},
+        {"start": 1.8, "end": 3.0, "text": "there", "estimated": True},
+    ]
+    assert filler_removals(words, 0, 5) == []
+    view = plan_timeline(_turn_plan([{"start": 0.5, "end": 3.0, "text": "So um there"}], words))
+    assert view["duration"] == pytest.approx(5.0) and "keep" not in view["segments"][0]
+    line = plan_timeline(
+        _turn_plan(
+            [{"start": 1.0, "end": 1.4, "text": "um"}],
+            [{"start": 1.05, "end": 1.35, "text": "um", "estimated": True}],
+        )
+    )
+    assert line["segments"][0]["keep"] == [
+        [pytest.approx(0.0), pytest.approx(1.0 - FILLER_PAD)],
+        [pytest.approx(1.4 + FILLER_PAD), pytest.approx(5.0)],
+    ]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_page_clock_matches_filler_cuts() -> None:
+    """The timeline mirror cuts the same filler lines the server clock cuts."""
+    source = (Path(__file__).resolve().parents[1] / "src/vedit/studio/static/timeline.js").read_text(encoding="utf-8")
+    start = source.index("  const finiteNumber = (value) =>")
+    marker = "  window.BriefcutClock = Clock;"
+    snippet = source[start : source.index(marker) + len(marker)]
+    plans = [
+        _turn_plan([{"start": 1.0, "end": 1.4, "text": "um"}]),
+        _turn_plan([{"start": 1.0, "end": 1.4, "text": "um, I think"}]),
+        _turn_plan(
+            [
+                {"start": 1.0, "end": 1.5, "text": "the bowl"},
+                {"start": 1.6, "end": 2.1, "text": "the bowl"},
+            ]
+        ),
+        {
+            "segments": [{"start": 0.0, "end": 2.0}],
+            "analysis": {
+                "words": [
+                    {"start": 0.0, "end": 0.3, "text": "So"},
+                    {"start": 0.4, "end": 0.7, "text": "um,"},
+                    {"start": 0.8, "end": 1.0, "text": "the"},
+                    {"start": 1.05, "end": 1.2, "text": "the"},
+                    {"start": 1.3, "end": 1.6, "text": "shape"},
+                ]
+            },
+            "edit": {"remove_fillers": True},
+        },
+    ]
+    script = (
+        "const window = global;\n"
+        + snippet
+        + "\nconst plans = "
+        + json.dumps(plans)
+        + ";\nprocess.stdout.write(JSON.stringify(plans.map((plan) => window.BriefcutClock.plan(plan))));\n"
+    )
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    page = json.loads(completed.stdout)
+    for plan, mirror in zip(plans, page, strict=True):
+        view = plan_timeline(plan)
+        assert mirror["duration"] == pytest.approx(view["duration"], abs=0.001)
+        server_keep = view["segments"][0].get("keep")
+        page_keep = mirror["segments"][0].get("keep")
+        if server_keep is None:
+            assert page_keep is None
+        else:
+            assert isinstance(page_keep, list) and len(page_keep) == len(server_keep)
+            for page_piece, server_piece in zip(page_keep, server_keep, strict=True):
+                assert page_piece == pytest.approx(server_piece, abs=0.001)
+
+
+def test_a_heard_word_on_a_filler_line_keeps_the_word_cut() -> None:
+    view = plan_timeline(
+        _turn_plan(
+            [{"start": 1.0, "end": 2.0, "text": "um"}],
+            [{"start": 1.2, "end": 1.5, "text": "um"}],
+        )
+    )
+    assert view["segments"][0]["keep"] == [
+        [pytest.approx(0.0), pytest.approx(1.2 - FILLER_PAD)],
+        [pytest.approx(1.5 + FILLER_PAD), pytest.approx(5.0)],
+    ]
 
 
 def test_resolve_applies_settings_and_refuses_to_erase_a_moment() -> None:

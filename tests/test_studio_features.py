@@ -10,6 +10,7 @@ model-labelled receipts (``by``), and the hero word (``POST .../hero-word``,
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -170,6 +171,197 @@ def test_the_live_preview_draws_the_punch_accent() -> None:
     punch = css.index(".pv-caption .pv-word.is-punch")
     # Declared after the spoken-word highlight, so the accent wins as it does in the render.
     assert punch > css.index(".is-karaoke .pv-word.is-said") and punch > css.index(".is-pop .pv-word.is-now")
+
+
+# --- Live preview: hard cuts and an approximate spatial effect ----------------------------
+
+
+def _js_function(source: str, name: str) -> str:
+    start = source.index(f"function {name}")
+    open_brace = source.index("{", start)
+    depth = 0
+    for index, char in enumerate(source[open_brace:], open_brace):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start : index + 1]
+    raise AssertionError(f"{name} is missing its closing brace")
+
+
+def _spatial_terms(preset: str, envelope: float, phase: float) -> tuple[float, float, float, float, float]:
+    wave = math.sin(2 * math.pi * phase)
+    if preset == "tilt":
+        return (0.12 * envelope, 0.018 * envelope * wave, 0.0, 0.075 * envelope * math.cos(2 * math.pi * phase), 0.0)
+    if preset == "float":
+        return (
+            0.13 * envelope,
+            0.018 * envelope * wave,
+            -0.028 * envelope * math.sin(math.pi * phase),
+            0.0,
+            0.018 * envelope * wave,
+        )
+    return (
+        0.23 * envelope * (1 - 0.65 * phase),
+        -0.025 * envelope * (1 - phase),
+        0.0,
+        0.06 * envelope * (1 - phase),
+        0.0,
+    )
+
+
+def _spatial_css(scale: float, dx: float, dy: float, rotate: float) -> str:
+    parts: list[str] = []
+    if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+        parts.append(f"translate({dx * 100:.2f}%,{dy * 100:.2f}%)")
+    if abs(rotate) > 1e-4:
+        parts.append(f"rotate({rotate:.3f}deg)")
+    if abs(scale - 1) > 1e-6:
+        parts.append(f"scale({scale:.4f})")
+    return " ".join(parts)
+
+
+def _spatial_reference(preset: str, intensity: float, start: float, duration: float, time: float) -> dict[str, object]:
+    """The compiler envelope, with skew and roll drawn as one small rotation."""
+    identity: dict[str, object] = {
+        "phase": None,
+        "envelope": 0.0,
+        "margin": 0.0,
+        "dx": 0.0,
+        "dy": 0.0,
+        "skew": 0.0,
+        "roll": 0.0,
+        "scale": 1.0,
+        "transform": "",
+    }
+    if preset not in {"tilt", "float", "push"} or duration <= 0 or time < start or time > start + duration:
+        return identity
+    phase = min(1.0, max(0.0, (time - start) / duration))
+    sine = 0.0 if phase <= 0 or phase >= 1 else math.sin(math.pi * phase)
+    envelope = intensity * sine * sine
+    margin, dx, dy, skew, roll = _spatial_terms(preset, envelope, phase)
+    scale = 1 - 2 * margin
+    rotate = (skew + roll) * (180 / math.pi)
+    return {
+        "phase": phase,
+        "envelope": envelope,
+        "margin": margin,
+        "dx": dx,
+        "dy": dy,
+        "skew": skew,
+        "roll": roll,
+        "scale": scale,
+        "transform": _spatial_css(scale, dx, dy, rotate),
+    }
+
+
+def _spatial_page(cases: list[list[object]]) -> list[dict[str, object]]:
+    script = (
+        "const window = global;\n"
+        + _read("preview.js")
+        + "\nconst cases = "
+        + json.dumps(cases)
+        + ";\nprocess.stdout.write(JSON.stringify(cases.map((row) => window.BriefcutPreview.spatialFrame(...row))));\n"
+    )
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    parsed = json.loads(completed.stdout)
+    assert isinstance(parsed, list)
+    return parsed
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_spatial_preview_envelope_matches_the_render_math() -> None:
+    """The page exports the same envelope the compiler uses, and node evaluates it."""
+    preview = _read("preview.js")
+    for ident in ("effect-preset", "effect-intensity", "effect-start", "effect-duration"):
+        assert f'$("{ident}")' in preview
+    motion = _js_function(preview, "frameMotion")
+    assert "motionAt(span, time)" in motion
+    assert 'spatial + " " + zoom' in motion
+    intensity = 0.5
+    start, duration = 1.0, 2.0
+    rows: list[list[object]] = [
+        ["tilt", intensity, start, duration, start],
+        ["tilt", intensity, start, duration, start + duration],
+        ["tilt", intensity, start, duration, start + duration / 2],
+        ["tilt", 0.0, start, duration, start + duration / 2],
+        ["tilt", intensity, start, duration, start - 0.5],
+        ["tilt", intensity, start, duration, start + duration + 0.5],
+        ["push", 0.8, 0.0, 4.0, 0.8],
+        ["push", 0.8, 0.0, 4.0, 3.2],
+        ["push", 0.8, 0.0, 4.0, 0.0],
+        ["push", 0.8, 0.0, 4.0, 4.0],
+        ["float", 1.0, 0.0, 2.0, 1.0],
+        ["none", intensity, start, duration, start + 1.0],
+    ]
+    got = _spatial_page(rows)
+    opening, closing, mid, zero, before, after, push_early, push_late, push_start, push_end, _float_mid, _none = got
+
+    def number(frame: dict[str, object], key: str) -> float:
+        value = frame[key]
+        assert isinstance(value, (int, float))
+        return float(value)
+
+    assert opening["envelope"] == 0 and closing["envelope"] == 0
+    assert mid["envelope"] == pytest.approx(intensity)
+    assert before["transform"] == "" and after["transform"] == ""
+    assert before["phase"] is None and after["phase"] is None
+    assert 1 - number(mid, "scale") > 1 - number(zero, "scale")
+    # The sine envelope is 0 at both endpoints and symmetric, so the push inset shows up
+    # at equal phases: early in the window is more inset than late.
+    assert number(push_early, "margin") > number(push_late, "margin")
+    assert push_start["transform"] == "" and push_end["transform"] == ""
+    for row, frame in zip(rows, got, strict=True):
+        preset, strength, begin, length, moment = row
+        assert isinstance(preset, str)
+        assert isinstance(strength, (int, float))
+        assert isinstance(begin, (int, float))
+        assert isinstance(length, (int, float))
+        assert isinstance(moment, (int, float))
+        expect = _spatial_reference(preset, float(strength), float(begin), float(length), float(moment))
+        for key in ("phase", "envelope", "margin", "dx", "dy", "skew", "roll", "scale"):
+            if expect[key] is None:
+                assert frame[key] is None
+            else:
+                assert frame[key] == pytest.approx(expect[key], abs=1e-9), key
+        assert frame["transform"] == expect["transform"]
+
+
+def test_a_hard_cut_holds_the_outgoing_frame_while_the_incoming_one_is_unready() -> None:
+    preview = _read("preview.js")
+    hold = _js_function(preview, "holdOutgoingFrame")
+    ready = _js_function(preview, "decodedAtCut")
+    advance = _js_function(preview, "advance")
+    assert "readyState >= 2" in ready
+    assert "!video.moving" in ready
+    assert "engine.waiting = true" in hold
+    assert "source_end - 0.04" in hold
+    assert "outgoing.pause()" in hold
+    hold_at = advance.index("holdOutgoingFrame(incoming, outgoing, current)")
+    assert hold_at < advance.index('outgoing.style.zIndex = "1"')
+    assert hold_at < advance.index("outgoing.pause()")
+    assert "engine.waiting = true; outgoing.pause();" not in preview
+    waiting = _js_function(preview, "loop")
+    assert "if (engine.waiting)" in waiting and "source_end - 0.04" in waiting
+    # Preroll still plays the next source up to source_start when there is media before it.
+    assert "incoming.currentTime < next.source_start - 0.02 && !incoming.paused" in advance
+    assert "engine.lead" in advance
+
+
+def test_the_monitor_calls_the_spatial_preview_approximate() -> None:
+    preview = _read("preview.js")
+    title = (
+        "Plays your edit without rendering. The spatial preview is approximate. "
+        "Subject tracking, cutout, and speech cleanup appear in the finished video."
+    )
+    assert title in preview
+    assert "The spatial preview is approximate." in preview[: preview.index("function spatialIdentity")]
+    assert "only exist in a render" not in preview
+    assert "\u2014" not in title
+    assert "Timing follows the finished cut. The live preview of this effect is approximate." in _read("index.html")
+    assert "cutout" in title and "speech cleanup" in title and "Subject tracking" in title
 
 
 # --- Verified find (C3) -------------------------------------------------------------------

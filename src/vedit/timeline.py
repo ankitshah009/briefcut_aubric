@@ -383,34 +383,175 @@ def _plain(word: str) -> str:
     return match.group(0) if match else ""
 
 
-def filler_removals(
-    words: Iterable[dict[str, Any]], start: float, end: float, *, pad: float = FILLER_PAD
+def _spoken(text: str) -> list[str]:
+    return [match.group(0) for match in _WORD.finditer(text.lower())]
+
+
+def _estimated(word: dict[str, Any]) -> bool:
+    """True when this time was spread across a turn by length, not heard."""
+    return bool(word.get("estimated"))
+
+
+def _placed_word(word: dict[str, Any], start: float, end: float) -> tuple[float, float, str] | None:
+    if _estimated(word):
+        return None
+    lo, hi = _finite(word.get("start")), _finite(word.get("end"))
+    if lo is None or hi is None or hi <= lo or lo < start or hi > end:
+        return None
+    return lo, hi, _plain(str(word.get("text") or ""))
+
+
+def _repeats_next(inside: list[tuple[float, float, str]], index: int) -> bool:
+    hi, plain = inside[index][1], inside[index][2]
+    if not plain or index + 1 >= len(inside):
+        return False
+    nxt_lo, nxt_plain = inside[index + 1][0], inside[index + 1][2]
+    return plain == nxt_plain and nxt_lo - hi <= STUTTER_GAP
+
+
+def _word_filler_removals(
+    words: Iterable[dict[str, Any]], start: float, end: float, pad: float
 ) -> list[tuple[float, float]]:
-    """Spoken fillers and immediate word repeats. Only what the transcript heard can be removed."""
-    inside = []
-    for word in words:
-        lo, hi = _finite(word.get("start")), _finite(word.get("end"))
-        if lo is not None and hi is not None and hi > lo >= start and hi <= end:
-            inside.append((lo, hi, _plain(str(word.get("text") or ""))))
+    inside = [placed for word in words if (placed := _placed_word(word, start, end)) is not None]
     removals: list[tuple[float, float]] = []
     for index, (lo, hi, plain) in enumerate(inside):
         if plain in FILLERS:
             removals.append((max(start, lo - pad), min(end, hi + pad)))
-        elif (
-            index + 1 < len(inside)
-            and plain
-            and plain == inside[index + 1][2]
-            and inside[index + 1][0] - hi <= STUTTER_GAP
-        ):
+        elif _repeats_next(inside, index):
             # "the the shape": the second copy is the clean take.
             removals.append((max(start, lo - pad), inside[index + 1][0]))
     return removals
+
+
+def _transcript_lines(cues: Iterable[Any]) -> list[tuple[float, float, str]]:
+    lines: list[tuple[float, float, str]] = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        lo, hi = _finite(cue.get("start")), _finite(cue.get("end"))
+        text = str(cue.get("text") or "").strip()
+        if lo is None or hi is None or hi <= lo or not text:
+            continue
+        lines.append((lo, hi, text))
+    lines.sort()
+    return lines
+
+
+def _only_filler(text: str) -> bool:
+    spoken = _spoken(text)
+    return bool(spoken) and all(word in FILLERS for word in spoken)
+
+
+def _same_line(left: str, right: str) -> bool:
+    plain = " ".join(_spoken(left))
+    return bool(plain) and plain == " ".join(_spoken(right))
+
+
+def _overlaps(lo: float, hi: float, start: float, end: float) -> bool:
+    return min(hi, end) > max(lo, start)
+
+
+def _heard_interval(word: dict[str, Any]) -> tuple[float, float] | None:
+    if _estimated(word):
+        return None
+    lo, hi = _finite(word.get("start")), _finite(word.get("end"))
+    if lo is None or hi is None or hi <= lo:
+        return None
+    return lo, hi
+
+
+def _heard_intervals(words: Iterable[dict[str, Any]]) -> list[tuple[float, float]]:
+    return [interval for word in words if (interval := _heard_interval(word)) is not None]
+
+
+def _heard_overlaps(heard: list[tuple[float, float]], lo: float, hi: float) -> bool:
+    return any(_overlaps(word_lo, word_hi, lo, hi) for word_lo, word_hi in heard)
+
+
+def _padded_cut(lo: float, hi: float, start: float, end: float, pad: float) -> tuple[float, float] | None:
+    if not _overlaps(lo, hi, start, end):
+        return None
+    cut_lo, cut_hi = max(start, lo - pad), min(end, hi + pad)
+    if cut_hi <= cut_lo:
+        return None
+    return cut_lo, cut_hi
+
+
+def _line_filler_removals(
+    lines: list[tuple[float, float, str]],
+    heard: list[tuple[float, float]],
+    start: float,
+    end: float,
+    pad: float,
+) -> list[tuple[float, float]]:
+    removals: list[tuple[float, float]] = []
+    for lo, hi, text in lines:
+        if not _only_filler(text) or _heard_overlaps(heard, lo, hi):
+            continue
+        cut = _padded_cut(lo, hi, start, end, pad)
+        if cut is not None:
+            removals.append(cut)
+    return removals
+
+
+def _line_repeat_removals(
+    lines: list[tuple[float, float, str]],
+    heard: list[tuple[float, float]],
+    start: float,
+    end: float,
+    pad: float,
+) -> list[tuple[float, float]]:
+    """The second of two identical lines said back to back. The first stays.
+
+    Word stutters drop the first word instead. A heard word on the second line
+    leaves that line to the word path.
+    """
+    removals: list[tuple[float, float]] = []
+    for index in range(len(lines) - 1):
+        first_hi, first_text = lines[index][1], lines[index][2]
+        second_lo, second_hi, second_text = lines[index + 1]
+        if second_lo - first_hi > STUTTER_GAP or not _same_line(first_text, second_text):
+            continue
+        if _heard_overlaps(heard, second_lo, second_hi):
+            continue
+        cut = _padded_cut(second_lo, second_hi, start, end, pad)
+        if cut is not None:
+            removals.append(cut)
+    return removals
+
+
+def filler_removals(
+    words: Iterable[dict[str, Any]],
+    start: float,
+    end: float,
+    *,
+    pad: float = FILLER_PAD,
+    cues: Iterable[Any] = (),
+) -> list[tuple[float, float]]:
+    """Spoken fillers and immediate repeats. Only a time the transcript heard can be removed.
+
+    A word marked estimated was spread by length, so it never moves a cut.
+    A heard line with no word time is removed when every word of it is a filler.
+    The second copy is removed when the same line is said again back to back.
+    A filler inside a sentence stays, because that line was not timed per word.
+    """
+    lines = _transcript_lines(cues)
+    heard = _heard_intervals(words)
+    return (
+        _word_filler_removals(words, start, end, pad)
+        + _line_filler_removals(lines, heard, start, end, pad)
+        + _line_repeat_removals(lines, heard, start, end, pad)
+    )
 
 
 def _mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
     """``data[key]`` when it is a mapping, else an empty one. A plan is loose JSON, not a schema."""
     value = data.get(key)
     return value if isinstance(value, dict) else {}
+
+
+def _records(data: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    return [item for item in (data.get(key) or []) if isinstance(item, dict)]
 
 
 def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -421,8 +562,9 @@ def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
     """
     edit = _mapping(plan, "edit")
     analysis = _mapping(plan, "analysis")
-    speech = [item for item in (analysis.get("speech") or []) if isinstance(item, dict)]
-    words = [item for item in (analysis.get("words") or []) if isinstance(item, dict)]
+    speech = _records(analysis, "speech")
+    words = _records(analysis, "words")
+    cues = _records(analysis, "transcript")
     manual = []
     for item in edit.get("removed") or []:
         if isinstance(item, dict):
@@ -447,7 +589,7 @@ def resolve_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
         if edit.get("trim_pauses"):
             removals.extend(pause_removals(speech, start, end))
         if edit.get("remove_fillers"):
-            removals.extend(filler_removals(words, start, end))
+            removals.extend(filler_removals(words, start, end, cues=cues))
         if removals:
             keeps = subtract(start, end, removals)
             if keeps and keeps != [(start, end)]:

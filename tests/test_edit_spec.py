@@ -36,7 +36,18 @@ def test_recap_template_does_not_enable_stabilization_by_default() -> None:
 def test_catalogue_lists_choices_and_templates() -> None:
     data = catalogue()
     assert {item["id"] for item in data["looks"]} >= {"none", "auto", "warm", "cinematic"}
-    assert {item["id"] for item in data["transitions"]} >= {"none", "fade"}
+    assert {item["id"] for item in data["transitions"]} >= {
+        "none",
+        "fade",
+        "slideright",
+        "slidedown",
+        "wiperight",
+        "wipeup",
+        "wipedown",
+        "circleclose",
+        "smoothleft",
+        "pixelize",
+    }
     assert data["defaults"]["export"]["quality"] == "1080p"
 
 

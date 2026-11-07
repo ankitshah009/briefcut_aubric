@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from vedit.compile import compile_brief
-from vedit.edit_spec import TRANSITIONS
+from vedit.edit_spec import TRANSITIONS, validate_edit
 from vedit.errors import CompileError
 from vedit.ir import Brief, Canvas
 from vedit.media import probe, resolve_ffmpeg
@@ -227,6 +227,39 @@ def test_volume_scales_only_its_range(clip, tmp_path):
     assert half / loud == pytest.approx(0.5, abs=0.06)
     assert boost / loud == pytest.approx(2.0, abs=0.2)
     assert mute < 2
+
+
+def test_slideright_validates_and_compiles_as_xfade(clip, tmp_path):
+    """A new catalogue id is the xfade name the compiler passes through."""
+    added = (
+        "slideright",
+        "slidedown",
+        "wiperight",
+        "wipeup",
+        "wipedown",
+        "circleclose",
+        "smoothleft",
+        "pixelize",
+    )
+    assert set(added) <= {row[0] for row in TRANSITIONS}
+    for kind in added:
+        assert validate_edit({"transition": {"type": kind, "seconds": 0.4}}, duration=10)["transition"]["type"] == kind
+    plan = _plan([{"start": 0.5, "end": 2.5}, {"start": 3.0, "end": 5.0}], transition=("slideright", 0.4))
+    view = plan_timeline(plan)
+    compiler = compile_brief(
+        Brief(
+            name="ranges",
+            sources={"main": str(clip)},
+            ops=[_op(view, plan)],
+            canvas=Canvas(width=160, height=90, fps=FPS),
+            work_dir=str(tmp_path),
+            hw=False,
+        ),
+        work_dir=tmp_path,
+    )
+    selected = next(step for step in compiler.pipeline.steps if step.name == "select_ranges")
+    graph = " ".join(selected.argv) + (tmp_path / "01_select_ranges.filter.txt").read_text(encoding="utf-8")
+    assert "xfade=transition=slideright" in graph
 
 
 @pytest.mark.parametrize("kind", [row[0] for row in TRANSITIONS if row[0] != "none"])
